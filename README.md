@@ -26,6 +26,7 @@ ahora únicamente el plan de implementación.
 | [`docs/00-plan-general.md`](docs/00-plan-general.md) | Arquitectura, modelo de datos, catálogo de factores y señales, scoring, backtesting, alertas, fases, riesgos |
 | [`docs/01-adenda-tradingview-asistente.md`](docs/01-adenda-tradingview-asistente.md) | Estrategia de visualización con TradingView, mapeo de símbolos, reenfoque de la interfaz como asistente diario |
 | [`docs/02-adenda-bot-trading.md`](docs/02-adenda-bot-trading.md) | Capa de trading automatizado con Alpaca: gestión de riesgo, flujo de aprobación, estrategias, validación previa, seguridad |
+| [`docs/03-adenda-cripto-kraken-multivenue.md`](docs/03-adenda-cripto-kraken-multivenue.md) | Cripto en Kraken como segundo venue: stops nativos en el exchange, presupuesto de comisiones, autonomía por modo, ejecución en un equipo no permanente |
 
 Los documentos son acumulativos: las adendas modifican y amplían secciones
 concretas del plan general, y cada una empieza con un índice de qué sustituye.
@@ -39,8 +40,9 @@ concretas del plan general, y cada una empieza con un índice de qué sustituye.
   ETFs e índices, más cripto y materias primas como termómetro de riesgo.
 - **Gráficos**: widgets de TradingView para el mercado, `lightweight-charts` para
   nuestros datos y señales, Plotly para todo lo que no es una serie de precio.
-- **Bot**: Alpaca (simulado → papel → real), mandato conservador diversificado,
-  aprobación humana de cada orden antes de cualquier automatismo.
+- **Bot**: dos carteras independientes — cripto en Kraken (EUR) y acciones en Alpaca
+  (USD) —, mandato conservador diversificado, y aprobación humana obligatoria en el
+  momento en que entra dinero real.
 
 ## Alcance excluido explícitamente
 
