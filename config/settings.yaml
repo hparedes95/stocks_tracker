@@ -1,0 +1,37 @@
+# Configuracion general del sistema.
+paths:
+  warehouse: data/warehouse.duckdb
+  http_cache: data/http_cache.sqlite
+  raw: data/raw
+  logs: data/logs
+
+timezone: Europe/Madrid
+
+providers:
+  # Cadena de fallback: se prueban en orden hasta que uno responde.
+  price: [yfinance]
+  fundamentals: [yfinance]
+
+ingest:
+  # Ver docs/00 seccion 1: la estrategia anti rate-limit de Yahoo.
+  batch_size: 45           # tickers por peticion a yf.download
+  threads: false           # la concurrencia es lo que dispara el bloqueo
+  sleep_between_batches: [1.5, 3.5]   # jitter en segundos
+  max_requests_per_run: 400
+  backfill_years: 10
+  fundamentals_ttl_days: 7
+  fundamentals_shard_count: 7         # 1/7 del universo por noche
+
+compute:
+  # Ventana de historico que se recalcula en cada pasada. Recalcular todo el
+  # historico cada noche es innecesario; 400 sesiones cubren la MM200 con margen.
+  lookback_sessions: 400
+  weights_preset: balanced
+
+ui:
+  locale: es
+  tradingview:
+    enabled: true          # false fuerza graficos propios en toda la app
+    timezone: Europe/Madrid
+    default_interval: "D"
+  data_freshness_warn_hours: 30

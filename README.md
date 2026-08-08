@@ -16,8 +16,55 @@ bot de trading experimental, para uso personal.
 
 ## Estado
 
-Proyecto en fase de diseño. Todavía no hay código: este repositorio contiene por
-ahora únicamente el plan de implementación.
+**Fase 1 (MVP) funcionando.** El dashboard arranca, ingiere datos, calcula
+indicadores, factores y señales, y muestra el ranking de candidatos explicado.
+El bot de trading todavía no está implementado (fases 6 en adelante).
+
+## Puesta en marcha
+
+```bash
+make setup        # crea el entorno e instala dependencias
+make migrate      # crea el almacén DuckDB
+make ingest       # descarga datos reales de Yahoo Finance
+make compute      # indicadores, señales, factores, amplitud y régimen
+make run          # abre el dashboard en http://127.0.0.1:8501
+```
+
+Si no tienes acceso a Yahoo Finance (red restringida, o solo quieres probar la
+interfaz), sustituye el tercer paso por `make ingest-demo`, que genera series
+sintéticas realistas sin salir a internet. Los datos son inventados: sirven para
+ver funcionar la aplicación, no para tomar ninguna decisión.
+
+> `make run` fija `--server.address 127.0.0.1` de forma deliberada. Streamlit no
+> tiene autenticación: exponerlo en `0.0.0.0` deja la aplicación abierta a
+> cualquiera en la red. Para acceso remoto, túnel SSH o Tailscale.
+
+La primera descarga baja diez años de histórico y tarda varios minutos: se hace
+por lotes y sin hilos a propósito, porque la concurrencia es lo que dispara el
+bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
+
+## Qué hay ahora
+
+| Página | Qué responde |
+|---|---|
+| **Qué se mueve hoy** | Resumen del día en lenguaje natural, mayores movimientos, rupturas anuales, volumen inusual, cambios de tendencia, sectores líderes, amplitud y semáforo de riesgo |
+| **Sectores y rotación** | Rendimiento por sector y horizonte, amplitud interna de cada sector, mapas de calor |
+| **Oportunidades** | Ranking de candidatos en tarjetas, cada uno con sus motivos en castellano y sus banderas rojas |
+| **Ficha de valor** | Gráfico con nuestras señales marcadas, gráfico de TradingView, fundamentales frente a la mediana del sector, perfil factorial y riesgo |
+| **Watchlist** | Valores seguidos y su evolución desde que se añadieron |
+| **Estado de los datos** | Qué se descargó, cuándo, qué falló y qué tickers no tienen equivalencia en TradingView |
+
+## Desarrollo
+
+```bash
+make test    # 111 tests, sin red
+make lint    # estilo
+```
+
+Los tests no tocan la red ni el almacén real: usan el proveedor sintético y una
+base de datos temporal. El más importante es `test_no_lookahead.py`, que altera
+el futuro de cada serie y comprueba que ningún indicador cambia en el pasado —
+es el fallo que produce backtests preciosos y pérdidas reales.
 
 ## Documentación
 
@@ -30,6 +77,9 @@ ahora únicamente el plan de implementación.
 
 Los documentos son acumulativos: las adendas modifican y amplían secciones
 concretas del plan general, y cada una empieza con un índice de qué sustituye.
+
+Los documentos describen el proyecto completo; el código implementa por ahora la
+fase 1. Cada adenda empieza con un índice de qué sustituye del plan base.
 
 ## Decisiones de partida
 

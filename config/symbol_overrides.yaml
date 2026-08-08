@@ -1,0 +1,40 @@
+# Mapeo yfinance -> TradingView para los casos sin regla fiable.
+#
+# Las reglas por sufijo de mercado viven en core/symbols.py; aqui solo van las
+# excepciones. Un ticker en `blacklist` fuerza el uso de nuestro propio grafico
+# en lugar de un widget roto.
+
+indices:
+  "^GSPC": SP:SPX
+  "^NDX": NASDAQ:NDX
+  "^DJI": DJ:DJI
+  "^IBEX": BME:IBC
+  "^STOXX50E": INDEX:SX5E
+  "^FTSE": INDEX:UKX
+  "^VIX": TVC:VIX
+
+commodities:
+  "GC=F": COMEX:GC1!
+  "SI=F": COMEX:SI1!
+  "HG=F": COMEX:HG1!
+  "CL=F": NYMEX:CL1!
+  "NG=F": NYMEX:NG1!
+
+fx_macro:
+  "DX-Y.NYB": TVC:DXY
+  "EURUSD=X": FX:EURUSD
+
+crypto:
+  "BTC-USD": CRYPTO:BTCUSD
+  "ETH-USD": CRYPTO:ETHUSD
+
+equities:
+  # yfinance usa guion donde TradingView usa punto
+  "BRK-B": NYSE:BRK.B
+  "BF-B": NYSE:BF.B
+  # Nordicos: el guion pasa a guion bajo
+  "NOVO-B.CO": OMXCOP:NOVO_B
+  # Italianas con sufijo propio
+  "STLAM.MI": MIL:STLAM
+
+blacklist: []

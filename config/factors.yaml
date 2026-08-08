@@ -1,0 +1,94 @@
+# Catalogo de factores, pesos y presets.
+#
+# Cada factor es la media de los z-scores de sus sub-metricas, calculados
+# DENTRO del grupo de comparacion (sector GICS). Comparar el PER de un banco
+# con el de una tecnologica no dice nada; compararlo con el de otros bancos, si.
+
+peer_group: gics_sector
+min_group_size: 8          # por debajo, se cae al universo completo
+winsorize: [0.02, 0.98]    # recorta outliers y errores de datos antes del z-score
+robust_zscore: true        # mediana/MAD en vez de media/desv: resiste colas gruesas
+coverage_floor: 0.4        # por debajo, el factor se excluye y se renormalizan pesos
+
+presets:
+  balanced:
+    value: 0.20
+    growth: 0.15
+    quality: 0.20
+    momentum: 0.20
+    lowvol: 0.10
+    dividend: 0.10
+    technical: 0.05
+  value:
+    value: 0.40
+    quality: 0.25
+    dividend: 0.15
+    momentum: 0.10
+    lowvol: 0.10
+  growth:
+    growth: 0.40
+    momentum: 0.25
+    quality: 0.20
+    technical: 0.15
+  dividend:
+    dividend: 0.40
+    quality: 0.25
+    value: 0.20
+    lowvol: 0.15
+  momentum:
+    momentum: 0.40
+    technical: 0.25
+    quality: 0.20
+    lowvol: 0.15
+
+# Multiplicadores segun el semaforo de riesgo. En risk-off se prima la
+# estabilidad y la calidad; en risk-on, el momentum.
+regime_multipliers:
+  risk_off: {lowvol: 1.5, quality: 1.3, momentum: 0.6}
+  neutral: {}
+  risk_on: {momentum: 1.3, growth: 1.2, lowvol: 0.7}
+
+# Guardas de sensatez aplicadas al listado de oportunidades.
+guards:
+  require_above_sma200: true    # no comprar en tendencia bajista estructural
+  max_rsi14: 75                 # no entrar en euforia
+  min_market_cap: 500_000_000
+  min_dollar_volume_20d: 1_000_000
+  min_drawdown: -0.60           # evitar valores en colapso
+  min_coverage: 0.5
+
+factors:
+  value:
+    submetrics:
+      - {field: trailing_pe, sign: -1, min_valid: 0, max_valid: 200}
+      - {field: price_to_book, sign: -1, min_valid: 0, max_valid: 30}
+      - {field: ev_to_ebitda, sign: -1, min_valid: 0, max_valid: 60}
+      - {field: price_to_sales, sign: -1, min_valid: 0, max_valid: 40}
+      - {field: fcf_yield, sign: 1}
+  growth:
+    submetrics:
+      - {field: revenue_growth_yoy, sign: 1, min_valid: -1, max_valid: 5}
+      - {field: earnings_growth_yoy, sign: 1, min_valid: -1, max_valid: 5}
+  quality:
+    submetrics:
+      - {field: roe, sign: 1, min_valid: -2, max_valid: 3}
+      - {field: profit_margin, sign: 1, min_valid: -2, max_valid: 1}
+      - {field: operating_margin, sign: 1, min_valid: -2, max_valid: 1}
+      - {field: net_debt_to_ebitda, sign: -1, min_valid: -5, max_valid: 15}
+  momentum:
+    submetrics:
+      - {field: mom_12_1, sign: 1}
+      - {field: roc_6m, sign: 1}
+      - {field: rs_vs_bench_3m, sign: 1}
+  lowvol:
+    submetrics:
+      - {field: realized_vol_252, sign: -1}
+      - {field: max_dd_1y, sign: 1}     # max_dd es negativo: mayor (menos negativo) es mejor
+      - {field: atr_pct, sign: -1}
+  dividend:
+    submetrics:
+      - {field: dividend_yield, sign: 1, min_valid: 0, max_valid: 0.20}
+      - {field: payout_ratio, sign: -1, min_valid: 0, max_valid: 2}
+  technical:
+    submetrics:
+      - {field: technical_raw, sign: 1}   # agregado de senales activas, ver core/signals.py

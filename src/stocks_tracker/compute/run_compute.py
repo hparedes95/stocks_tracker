@@ -1,0 +1,380 @@
+"""Pipeline de calculo: indicadores -> senales -> factores -> scores -> amplitud.
+
+La UI nunca calcula nada de esto al vuelo: leeria 750 series y tardaria
+segundos. Aqui se materializa una vez y el dashboard solo hace SELECT.
+"""
+
+from __future__ import annotations
+
+import argparse
+
+import numpy as np
+import pandas as pd
+from rich.console import Console
+
+from ..core import breadth as breadth_mod
+from ..core import indicators as ind_mod
+from ..core import signals as sig_mod
+from ..core.config import get_active_universes, get_factor_config, get_settings, get_universes
+from ..core.db import connect, migrate, upsert_df
+from ..core.scoring import compute_scores, weights_hash
+
+console = Console()
+
+
+def _load_prices(conn, lookback: int) -> pd.DataFrame:
+    """Precios recientes de todos los tickers.
+
+    Se limita la ventana: recalcular 10 anos cada noche es innecesario, y 400
+    sesiones cubren la MM200 y el momentum 12-1 con margen.
+    """
+    return conn.execute(
+        """
+        SELECT ticker, date, open, high, low, close, adj_close, volume
+        FROM prices_daily
+        WHERE date >= (SELECT MAX(date) FROM prices_daily) - INTERVAL (?) DAY
+        ORDER BY ticker, date
+        """,
+        [int(lookback * 1.6)],  # margen por fines de semana y festivos
+    ).fetchdf()
+
+
+def compute_indicators(lookback: int | None = None) -> int:
+    settings = get_settings()
+    lookback = lookback or int(settings.compute.get("lookback_sessions", 400))
+
+    with connect(read_only=True) as conn:
+        prices = _load_prices(conn, lookback)
+        bench = conn.execute(
+            "SELECT date, adj_close FROM prices_daily WHERE ticker = '^GSPC' ORDER BY date"
+        ).fetchdf()
+
+    if prices.empty:
+        console.print("[yellow]No hay precios. Ejecuta la ingesta primero.[/]")
+        return 0
+
+    prices["date"] = pd.to_datetime(prices["date"])
+    bench_series = None
+    if not bench.empty:
+        bench = bench.copy()
+        bench["date"] = pd.to_datetime(bench["date"])
+        bench_series = bench.set_index("date")["adj_close"]
+
+    frames: list[pd.DataFrame] = []
+    signal_frames: list[pd.DataFrame] = []
+
+    for ticker, group in prices.groupby("ticker", sort=False):
+        series = group.set_index("date").sort_index()
+        if len(series) < 30:
+            continue  # sin historico suficiente ningun indicador es fiable
+
+        ind = ind_mod.compute_all(series, bench_series)
+        if ind.empty:
+            continue
+
+        detected = sig_mod.detect(ind)
+        if not detected.empty:
+            detected.insert(0, "ticker", ticker)
+            signal_frames.append(detected)
+
+        ind = ind.reset_index().rename(columns={"index": "date"})
+        ind.insert(0, "ticker", ticker)
+        frames.append(ind)
+
+    if not frames:
+        return 0
+
+    all_ind = pd.concat(frames, ignore_index=True)
+    all_ind["date"] = pd.to_datetime(all_ind["date"]).dt.date
+
+    # Solo se guarda la ventana pedida: el resto ya estaba calculado.
+    cutoff = sorted(all_ind["date"].unique())[-lookback:] if len(all_ind) else []
+    if cutoff:
+        all_ind = all_ind[all_ind["date"].isin(set(cutoff))]
+
+    with connect() as conn:
+        n = upsert_df(conn, "indicators_daily", all_ind, keys=["ticker", "date"])
+        if signal_frames:
+            sigs = pd.concat(signal_frames, ignore_index=True)
+            sigs["date"] = pd.to_datetime(sigs["date"]).dt.date
+            if cutoff:
+                sigs = sigs[sigs["date"].isin(set(cutoff))]
+            if not sigs.empty:
+                upsert_df(conn, "signals", sigs, keys=["ticker", "date", "signal_id"])
+
+    console.print(f"[green]Indicadores: {n} filas[/]")
+    return n
+
+
+def compute_factor_scores(preset: str | None = None) -> int:
+    """Scores para la ultima fecha disponible.
+
+    Se calcula solo el ultimo dia: el ranking historico solo hace falta para el
+    backtest (fase 3), y calcularlo cada noche multiplicaria el tiempo sin que
+    nadie lo mire.
+    """
+    cfg = get_factor_config()
+    preset = preset or get_settings().compute.get("weights_preset", "balanced")
+    weights = cfg.weights(preset)
+    whash = weights_hash(weights)
+
+    with connect(read_only=True) as conn:
+        last_date = conn.execute("SELECT MAX(date) FROM indicators_daily").fetchone()[0]
+        if last_date is None:
+            console.print("[yellow]No hay indicadores. Ejecuta `make compute` tras la ingesta.[/]")
+            return 0
+
+        snapshot = conn.execute(
+            """
+            SELECT i.*, inst.gics_sector, inst.asset_class, inst.market_cap, inst.name
+            FROM indicators_daily i
+            JOIN instruments inst USING (ticker)
+            WHERE i.date = ? AND inst.asset_class IN ('equity', 'etf')
+            """,
+            [last_date],
+        ).fetchdf()
+
+        fundamentals = conn.execute(
+            """
+            SELECT f.* FROM fundamentals_snapshot f
+            JOIN (
+                SELECT ticker, MAX(as_of) AS as_of
+                FROM fundamentals_snapshot GROUP BY ticker
+            ) latest USING (ticker, as_of)
+            """
+        ).fetchdf()
+
+        active_signals = conn.execute(
+            "SELECT ticker, signal_id FROM signals WHERE date = ?", [last_date]
+        ).fetchdf()
+
+    if snapshot.empty:
+        console.print("[yellow]Sin instrumentos que puntuar.[/]")
+        return 0
+
+    merged = snapshot.merge(
+        fundamentals.drop(columns=["as_of"], errors="ignore"), on="ticker", how="left"
+    )
+
+    # Factor tecnico: agregado de estado de tendencia y senales activas del dia.
+    signals_by_ticker = (
+        active_signals.groupby("ticker")["signal_id"].apply(list).to_dict()
+        if not active_signals.empty
+        else {}
+    )
+    merged["technical_raw"] = merged.apply(
+        lambda r: sig_mod.technical_score(r, signals_by_ticker.get(r["ticker"], [])), axis=1
+    )
+
+    scores, contributions = compute_scores(merged, weights, cfg, group_col="gics_sector")
+    if scores.empty:
+        return 0
+
+    scores["date"] = last_date
+    scores["weights_hash"] = whash
+    contributions["date"] = last_date
+    contributions["weights_hash"] = whash
+
+    with connect() as conn:
+        n = upsert_df(conn, "factor_scores", scores, keys=["ticker", "date", "weights_hash"])
+        if not contributions.empty:
+            upsert_df(
+                conn, "factor_contributions", contributions,
+                keys=["ticker", "date", "weights_hash", "factor"],
+            )
+
+    console.print(f"[green]Scores: {n} valores[/] (preset '{preset}', hash {whash})")
+    return n
+
+
+def compute_breadth() -> int:
+    """Amplitud de mercado por universo y por sector."""
+    universes = get_universes()
+
+    with connect(read_only=True) as conn:
+        indicators = conn.execute(
+            """
+            SELECT i.ticker, i.date, i.above_sma50, i.above_sma200, i.ret_1d,
+                   i.rsi14, i.dist_52w_high, i.dist_52w_low, i.roc_1m,
+                   inst.gics_sector
+            FROM indicators_daily i
+            JOIN instruments inst USING (ticker)
+            WHERE inst.asset_class = 'equity'
+            """
+        ).fetchdf()
+        membership = conn.execute(
+            "SELECT universe, ticker FROM universe_membership WHERE valid_to IS NULL"
+        ).fetchdf()
+
+    if indicators.empty:
+        return 0
+
+    frames: list[pd.DataFrame] = []
+
+    for key in get_active_universes():
+        spec = universes.get(key)
+        if not spec or spec.asset_class != "equity":
+            continue
+        tickers = set(membership[membership["universe"] == key]["ticker"])
+        subset = indicators[indicators["ticker"].isin(tickers)]
+        if not subset.empty:
+            frames.append(breadth_mod.compute_breadth(subset, key))
+
+    # Amplitud por sector: donde esta la fortaleza interna del mercado.
+    for sector, group in indicators.groupby("gics_sector"):
+        if not sector or len(group["ticker"].unique()) < 5:
+            continue
+        frames.append(breadth_mod.compute_breadth(group, f"GICS:{sector}"))
+
+    if not frames:
+        return 0
+
+    all_breadth = pd.concat(frames, ignore_index=True)
+    with connect() as conn:
+        n = upsert_df(conn, "breadth_daily", all_breadth, keys=["date", "scope"])
+
+    console.print(f"[green]Amplitud: {n} filas[/]")
+    return n
+
+
+def compute_regime() -> int:
+    """Semaforo risk-on / risk-off.
+
+    Media de varios componentes normalizados. Se guarda el desglose para que el
+    usuario pueda ver QUE esta empujando el semaforo, no solo el numero.
+    """
+    with connect(read_only=True) as conn:
+        vix = conn.execute(
+            "SELECT date, adj_close FROM prices_daily WHERE ticker = '^VIX' ORDER BY date"
+        ).fetchdf()
+        breadth = conn.execute(
+            """
+            SELECT date, pct_above_sma200 FROM breadth_daily
+            WHERE scope = 'SP100' ORDER BY date
+            """
+        ).fetchdf()
+        macro = conn.execute(
+            """
+            SELECT ticker, date, adj_close FROM prices_daily
+            WHERE ticker IN ('GC=F', 'HG=F', 'CL=F', 'DX-Y.NYB', 'SPY', 'IEF', 'XLY', 'XLP')
+            ORDER BY date
+            """
+        ).fetchdf()
+
+    if vix.empty and breadth.empty:
+        console.print("[yellow]Sin datos suficientes para el semaforo de riesgo.[/]")
+        return 0
+
+    frames: dict[str, pd.Series] = {}
+    if not macro.empty:
+        macro["date"] = pd.to_datetime(macro["date"])
+        wide = macro.pivot_table(index="date", columns="ticker", values="adj_close")
+        for col in wide.columns:
+            frames[col] = wide[col]
+
+    index = None
+    if not vix.empty:
+        vix["date"] = pd.to_datetime(vix["date"])
+        vix_s = vix.set_index("date")["adj_close"]
+        frames["VIX"] = vix_s
+        index = vix_s.index
+    if not breadth.empty:
+        breadth["date"] = pd.to_datetime(breadth["date"])
+        b = breadth.set_index("date")["pct_above_sma200"]
+        frames["BREADTH"] = b
+        index = b.index if index is None else index.union(b.index)
+
+    if index is None or len(index) == 0:
+        return 0
+
+    df = pd.DataFrame({k: v.reindex(index).ffill() for k, v in frames.items()})
+
+    components: dict[str, pd.Series] = {}
+
+    if "VIX" in df:
+        # Percentil invertido: VIX bajo = apetito por riesgo.
+        pct = df["VIX"].rolling(252, min_periods=60).rank(pct=True)
+        components["vix"] = (0.5 - pct) * 200
+    if "BREADTH" in df:
+        components["amplitud"] = (df["BREADTH"] - 50.0) * 2.0
+    if "HG=F" in df and "GC=F" in df:
+        ratio = df["HG=F"] / df["GC=F"].replace(0, np.nan)
+        pct = ratio.rolling(252, min_periods=60).rank(pct=True)
+        components["cobre_oro"] = (pct - 0.5) * 200
+    if "SPY" in df and "IEF" in df:
+        rel = df["SPY"].pct_change(63) - df["IEF"].pct_change(63)
+        components["acciones_vs_bonos"] = (rel * 400).clip(-100, 100)
+    if "XLY" in df and "XLP" in df:
+        rel = df["XLY"].pct_change(63) - df["XLP"].pct_change(63)
+        components["ciclico_vs_defensivo"] = (rel * 400).clip(-100, 100)
+
+    if not components:
+        return 0
+
+    comp_df = pd.DataFrame(components)
+    risk_score = comp_df.mean(axis=1, skipna=True).clip(-100, 100)
+
+    out = pd.DataFrame(
+        {
+            "date": [d.date() for d in comp_df.index],
+            "vix": df.get("VIX", pd.Series(index=comp_df.index, dtype=float)).to_numpy(),
+            "vix_percentile_1y": (
+                df["VIX"].rolling(252, min_periods=60).rank(pct=True).to_numpy()
+                if "VIX" in df else np.nan
+            ),
+            "copper_gold_ratio": (
+                (df["HG=F"] / df["GC=F"].replace(0, np.nan)).to_numpy()
+                if "HG=F" in df and "GC=F" in df else np.nan
+            ),
+            "pct_above_sma200": df.get("BREADTH", pd.Series(index=comp_df.index, dtype=float)).to_numpy(),
+            "risk_score": risk_score.to_numpy(),
+        }
+    )
+    out["regime"] = pd.cut(
+        out["risk_score"], bins=[-np.inf, -30, 30, np.inf],
+        labels=["risk_off", "neutral", "risk_on"],
+    ).astype(str)
+    out["components"] = comp_df.round(1).to_dict("records")
+    out["components"] = out["components"].astype(str)
+    out = out.dropna(subset=["risk_score"])
+
+    if out.empty:
+        return 0
+
+    with connect() as conn:
+        n = upsert_df(conn, "regime_daily", out, keys=["date"])
+
+    latest = out.iloc[-1]
+    console.print(
+        f"[green]Semaforo: {latest['regime']}[/] (score {latest['risk_score']:+.0f})"
+    )
+    return n
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Calculo de indicadores, factores y scores")
+    parser.add_argument("--only", default=None,
+                        choices=["indicators", "scores", "breadth", "regime"])
+    parser.add_argument("--preset", default=None, help="preset de pesos a usar")
+    parser.add_argument("--lookback", type=int, default=None)
+    args = parser.parse_args()
+
+    migrate()
+    steps = {
+        "indicators": lambda: compute_indicators(args.lookback),
+        "breadth": compute_breadth,
+        "regime": compute_regime,
+        "scores": lambda: compute_factor_scores(args.preset),
+    }
+    order = ["indicators", "breadth", "regime", "scores"]
+
+    for name in order:
+        if args.only and args.only != name:
+            continue
+        steps[name]()
+
+    console.print("[bold green]Calculo terminado.[/]")
+
+
+if __name__ == "__main__":
+    main()

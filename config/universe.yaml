@@ -1,0 +1,102 @@
+# Definicion de los universos a monitorizar.
+#
+# `source: wikipedia` descarga los constituyentes actuales; `source: manual`
+# usa la lista de este fichero. Las listas manuales son la semilla del MVP y
+# evitan depender de que una pagina externa no cambie de formato.
+
+universes:
+  SP100:
+    name: "S&P 100 (EE.UU.)"
+    source: manual
+    benchmark: "^GSPC"
+    currency: USD
+    asset_class: equity
+    tickers:
+      - AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, AVGO, BRK-B, JPM
+      - LLY, V, XOM, UNH, MA, COST, HD, PG, JNJ, ABBV
+      - WMT, NFLX, BAC, CRM, ORCL, MRK, CVX, KO, AMD, PEP
+      - ADBE, TMO, LIN, CSCO, ACN, MCD, ABT, WFC, GE, DHR
+      - INTU, TXN, QCOM, DIS, VZ, AMGN, CAT, PFE, NOW, IBM
+      - CMCSA, PM, UNP, SPGI, GS, RTX, UBER, NEE, HON, T
+      - LOW, INTC, COP, ELV, BKNG, MS, BLK, PLD, AMAT, SBUX
+      - MDT, ISRG, LMT, DE, GILD, ADP, TJX, MDLZ, VRTX, REGN
+      - C, BMY, CVS, SCHW, MMC, ZTS, CB, SO, PGR, ADI
+      - MO, DUK, BSX, EOG, SLB, ITW, AON, CL, APD, NSC
+
+  IBEX35:
+    name: "IBEX 35 (Espana)"
+    source: manual
+    benchmark: "^IBEX"
+    currency: EUR
+    asset_class: equity
+    tickers:
+      - ITX.MC, IBE.MC, SAN.MC, BBVA.MC, TEF.MC, REP.MC, AENA.MC, FER.MC
+      - CLNX.MC, AMS.MC, ELE.MC, NTGY.MC, CABK.MC, ACS.MC, RED.MC, GRF.MC
+      - MAP.MC, BKT.MC, ANA.MC, ENG.MC, COL.MC, MRL.MC, SAB.MC, IAG.MC
+      - ACX.MC, MTS.MC, SLR.MC, LOG.MC, FDR.MC, ROVI.MC, UNI.MC, PUIG.MC
+      - IDR.MC, ANE.MC, CRIT.MC
+
+  ESTOXX50:
+    name: "Euro Stoxx 50"
+    source: manual
+    benchmark: "^STOXX50E"
+    currency: EUR
+    asset_class: equity
+    tickers:
+      - ASML.AS, MC.PA, OR.PA, SAP.DE, SIE.DE, TTE.PA, AIR.PA, SU.PA
+      - ALV.DE, SAN.PA, AI.PA, DTE.DE, BNP.PA, RMS.PA, IFX.DE, BAS.DE
+      - ENEL.MI, ISP.MI, ENI.MI, UCG.MI, ADYEN.AS, PRX.AS, INGA.AS, PHIA.AS
+      - ABI.BR, KER.PA, DG.PA, CS.PA, EL.PA, SAF.PA, STLAM.MI, MUV2.DE
+      - BAYN.DE, BMW.DE, MBG.DE, VOW3.DE, DB1.DE, RWE.DE, ADS.DE, DHL.DE
+
+  ETF_CORE:
+    name: "ETFs de indice y sectoriales"
+    source: manual
+    benchmark: "^GSPC"
+    currency: USD
+    asset_class: etf
+    tickers:
+      # Indice
+      - SPY, QQQ, IWM, DIA, VTI
+      # Sectoriales GICS (EE.UU.) - base de la rotacion sectorial
+      - XLK, XLF, XLV, XLE, XLI, XLY, XLP, XLU, XLB, XLRE, XLC
+      # Renta fija y refugio
+      - TLT, IEF, HYG, LQD, GLD
+      # Europa
+      - VGK, EWP, EZU
+
+  INDICES:
+    name: "Indices"
+    source: manual
+    benchmark: "^GSPC"
+    currency: USD
+    asset_class: index
+    tickers: ["^GSPC", "^NDX", "^DJI", "^IBEX", "^STOXX50E", "^FTSE", "^VIX"]
+
+  MACRO:
+    name: "Cripto, materias primas y divisas (termometro de riesgo)"
+    source: manual
+    benchmark: "^GSPC"
+    currency: USD
+    asset_class: macro
+    tickers:
+      - BTC-USD, ETH-USD          # apetito por riesgo
+      - GC=F, SI=F, HG=F, CL=F    # oro, plata, cobre, petroleo
+      - DX-Y.NYB, EURUSD=X        # dolar y euro
+
+# Universos activos en el MVP (fase 1). Anadir SP500 completo en fase 2.
+active: [SP100, IBEX35, ESTOXX50, ETF_CORE, INDICES, MACRO]
+
+# Mapa de sector GICS por ETF sectorial, para la vista de rotacion.
+sector_etfs:
+  XLK: "Information Technology"
+  XLF: "Financials"
+  XLV: "Health Care"
+  XLE: "Energy"
+  XLI: "Industrials"
+  XLY: "Consumer Discretionary"
+  XLP: "Consumer Staples"
+  XLU: "Utilities"
+  XLB: "Materials"
+  XLRE: "Real Estate"
+  XLC: "Communication Services"

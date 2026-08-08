@@ -1,0 +1,92 @@
+# Traduce z-scores y metricas crudas a frases legibles.
+#
+# Esto es lo que hace que el ranking sea explicable: cada candidato aparece con
+# sus motivos en castellano, no con un numero opaco.
+#
+# `when` se evalua con un evaluador seguro (nunca eval()) sobre las variables:
+#   x       valor crudo de la sub-metrica
+#   z       z-score dentro del sector
+#   median  mediana de la sub-metrica en el sector
+# mas cualquier otra columna de la fila (payout_ratio, above_sma200, ...).
+
+submetrics:
+  trailing_pe:
+    pro: {when: "z <= -0.75", text: "PER {x:.1f} frente a la mediana de su sector ({median:.1f})"}
+    con: {when: "z >= 1.0", text: "PER {x:.1f}, caro frente a su sector ({median:.1f})"}
+  price_to_book:
+    pro: {when: "z <= -0.9", text: "Cotiza a {x:.1f} veces su valor en libros, por debajo de sus comparables"}
+  ev_to_ebitda:
+    pro: {when: "z <= -0.75", text: "EV/EBITDA {x:.1f} frente a {median:.1f} de su sector"}
+  fcf_yield:
+    pro: {when: "x >= 0.06", text: "Genera caja: FCF yield del {x:.1%}"}
+    con: {when: "x < 0", text: "Flujo de caja libre negativo"}
+  roe:
+    pro: {when: "z >= 0.75", text: "ROE del {x:.1%}, por encima de sus comparables"}
+    con: {when: "x < 0", text: "ROE negativo: no genera retorno sobre los fondos propios"}
+  profit_margin:
+    pro: {when: "z >= 0.9", text: "Margen neto del {x:.1%}, entre los mejores de su sector"}
+  net_debt_to_ebitda:
+    con: {when: "x >= 3.0", text: "Deuda neta/EBITDA {x:.1f} veces, elevada para su sector"}
+    pro: {when: "x <= 0", text: "Caja neta positiva: sin deuda financiera neta"}
+  revenue_growth_yoy:
+    pro: {when: "x >= 0.10", text: "Ingresos +{x:.0%} interanual"}
+    con: {when: "x <= 0.02", text: "Ingresos {x:+.0%} interanual: crecimiento plano"}
+  earnings_growth_yoy:
+    pro: {when: "x >= 0.15", text: "Beneficio +{x:.0%} interanual"}
+    con: {when: "x <= -0.10", text: "Beneficio {x:+.0%} interanual: en retroceso"}
+  dividend_yield:
+    pro:
+      when: "x >= 0.03 and payout_ratio < 0.8"
+      text: "Rentabilidad por dividendo {x:.1%} con payout del {payout_ratio:.0%}"
+  payout_ratio:
+    con: {when: "x > 1.0", text: "Paga mas en dividendos de lo que gana (payout {x:.0%})"}
+  rsi14:
+    pro:
+      when: "14 <= x < 40 and above_sma200"
+      text: "RSI en {x:.0f}: sobreventa dentro de tendencia alcista"
+    con: {when: "x > 75", text: "RSI en {x:.0f}: zona de sobrecompra"}
+  above_sma200:
+    pro: {when: "x == True", text: "Cotiza por encima de su media de 200 sesiones"}
+    con: {when: "x == False", text: "Cotiza por debajo de su MM200: tendencia de fondo bajista"}
+  mom_12_1:
+    pro: {when: "z >= 1.0", text: "Momentum 12-1 de {x:+.0%}, entre los mejores de su sector"}
+    con: {when: "z <= -1.0", text: "Momentum 12-1 de {x:+.0%}, de los peores de su sector"}
+  roc_6m:
+    pro: {when: "x >= 0.15", text: "Sube un {x:.0%} en los ultimos seis meses"}
+  rel_volume_20:
+    pro: {when: "x >= 1.8", text: "Volumen {x:.1f} veces su media de 20 sesiones"}
+  dist_52w_high:
+    pro: {when: "x >= -0.03", text: "A un {x:.1%} de sus maximos anuales"}
+    con: {when: "x <= -0.40", text: "Un {x:.0%} por debajo de maximos anuales"}
+  drawdown:
+    con: {when: "x <= -0.35", text: "En caida del {x:.0%} desde su maximo: puede seguir bajando"}
+  realized_vol_252:
+    pro: {when: "z <= -0.9", text: "Volatilidad anual del {x:.0%}, baja para su sector"}
+    con: {when: "z >= 1.2", text: "Volatilidad anual del {x:.0%}, alta para su sector"}
+  rs_vs_bench_3m:
+    pro: {when: "x >= 0.05", text: "Bate a su indice en {x:+.0%} a tres meses"}
+    con: {when: "x <= -0.10", text: "Se queda {x:+.0%} por detras de su indice a tres meses"}
+
+# Nombres legibles de las senales tecnicas.
+signal_labels:
+  GOLDEN_CROSS: "Cruce dorado (MM50 sobre MM200)"
+  DEATH_CROSS: "Cruce de la muerte (MM50 bajo MM200)"
+  PULLBACK_IN_UPTREND: "Correccion dentro de tendencia alcista"
+  RSI_OVERSOLD_REVERSAL: "Rebote desde sobreventa"
+  MACD_BULL_CROSS: "MACD cruza al alza"
+  MACD_BEAR_CROSS: "MACD cruza a la baja"
+  HIGH_52W_BREAKOUT: "Ruptura de maximos anuales con volumen"
+  LOW_52W_BREAKDOWN: "Perforacion de minimos anuales"
+  VOLUME_SPIKE: "Volumen inusualmente alto"
+  NEW_DOWNTREND: "Entrada en tendencia bajista"
+  BB_SQUEEZE: "Compresion de volatilidad"
+
+# Banderas rojas: se muestran SIEMPRE, aunque el score sea alto.
+red_flags:
+  - {when: "payout_ratio > 1.0", text: "Dividendo no cubierto por beneficios"}
+  - {when: "net_debt_to_ebitda > 4.0", text: "Deuda elevada (>4x EBITDA)"}
+  - {when: "drawdown <= -0.35", text: "Caida superior al 35% desde maximos"}
+  - {when: "above_sma200 == False", text: "Por debajo de la MM200"}
+  - {when: "coverage < 0.5", text: "Datos fundamentales incompletos"}
+  - {when: "rsi14 > 78", text: "Sobrecompra extrema"}
+  - {when: "realized_vol_252 > 0.60", text: "Volatilidad muy alta (>60% anual)"}
