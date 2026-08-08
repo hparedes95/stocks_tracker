@@ -47,6 +47,10 @@ pages = {
         st.Page("pages/4_ficha_valor.py", title="Ficha de valor",
                 icon=":material/search:", url_path="valor"),
     ],
+    "Analisis": [
+        st.Page("pages/7_validacion.py", title="Validacion de senales",
+                icon=":material/science:", url_path="validacion"),
+    ],
     "Mi cartera": [
         st.Page("pages/5_watchlist.py", title="Watchlist",
                 icon=":material/bookmark:", url_path="watchlist"),

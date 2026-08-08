@@ -8,7 +8,7 @@ import streamlit as st
 from ... import DISCLAIMER
 from ...core.explain import Reasons
 from .. import data_access as da
-from .theme import STATUS, format_market_cap, format_pct
+from .theme import STATUS, format_market_cap, format_pct, palette
 
 
 def render_disclaimer(compact: bool = True) -> None:
@@ -81,8 +81,17 @@ def metric_row(items: list[dict], columns: int = 5) -> None:
             )
 
 
-def render_reasons(reasons: Reasons, show_signals: bool = True) -> None:
-    """Motivos a favor y en contra, en lenguaje llano."""
+def render_reasons(
+    reasons: Reasons, show_signals: bool = True,
+    evidence: dict[str, str] | None = None,
+    signal_ids: list[str] | None = None,
+) -> None:
+    """Motivos a favor y en contra, en lenguaje llano.
+
+    Si se pasa `evidence`, las senales sin validacion historica se muestran
+    apagadas. Una senal que no ha demostrado nada no puede presentarse igual que
+    una que si: seria dar la misma autoridad a las dos.
+    """
     if reasons.pros:
         st.markdown("**A favor**")
         for phrase in reasons.pros:
@@ -95,7 +104,43 @@ def render_reasons(reasons: Reasons, show_signals: bool = True) -> None:
                         unsafe_allow_html=True)
     if show_signals and reasons.signals:
         st.markdown("**Senales activas hoy**")
-        st.markdown(" · ".join(f"`{s}`" for s in reasons.signals))
+        st.markdown(render_signal_chips(reasons.signals, evidence, signal_ids),
+                    unsafe_allow_html=True)
+
+
+def render_signal_chips(
+    names: list[str], evidence: dict[str, str] | None = None,
+    signal_ids: list[str] | None = None,
+) -> str:
+    """Senales con su estado de validacion.
+
+    Sin validacion historica, una senal es una observacion, no una razon. Se
+    marcan en gris con un aviso para que no pesen igual que las validadas.
+    """
+    if not names:
+        return "—"
+    if not evidence or not signal_ids or len(signal_ids) != len(names):
+        return " · ".join(f"`{n}`" for n in names)
+
+    muted = palette()["muted"]
+    parts = []
+    for name, signal_id in zip(names, signal_ids, strict=False):
+        label = evidence.get(signal_id)
+        if label == "validada":
+            parts.append(
+                f"<span style='color:{STATUS['good']}'>●</span> {name}"
+            )
+        else:
+            note = {
+                "debil": "evidencia debil",
+                "no_validada": "sin evidencia historica",
+                "sin_datos": "muestra insuficiente",
+            }.get(label, "sin validar")
+            parts.append(
+                f"<span style='color:{muted}' title='{note}'>○ {name} "
+                f"<em style='font-size:0.85em'>({note})</em></span>"
+            )
+    return "<br>".join(parts)
 
 
 def render_flags(flags: list[str]) -> None:
@@ -116,15 +161,18 @@ def movers_table(df: pd.DataFrame, height: int = 320) -> None:
         st.caption("Sin datos.")
         return
 
+    # Las columnas de porcentaje se pasan YA en escala 0-100. Streamlit formatea
+    # el valor crudo: un 0,018 con formato "%+.2f%%" se imprime como "+0.02%",
+    # que es cien veces menos de lo que es.
     view = pd.DataFrame(
         {
             "Ticker": df["ticker"],
             "Nombre": df["name"].fillna(""),
             "Sector": df["gics_sector"].fillna("—"),
             "Precio": df["close"],
-            "Dia": df["ret_1d"],
+            "Dia": pd.to_numeric(df["ret_1d"], errors="coerce") * 100,
             "Vol. rel.": df.get("rel_volume_20"),
-            "Percentil": df.get("composite_pctile"),
+            "Percentil": pd.to_numeric(df.get("composite_pctile"), errors="coerce") * 100,
         }
     )
     st.dataframe(
@@ -136,7 +184,7 @@ def movers_table(df: pd.DataFrame, height: int = 320) -> None:
             "Dia": st.column_config.NumberColumn(format="%+.2f%%"),
             "Vol. rel.": st.column_config.NumberColumn(format="%.1fx"),
             "Percentil": st.column_config.ProgressColumn(
-                min_value=0.0, max_value=1.0, format="%.0f%%"
+                min_value=0.0, max_value=100.0, format="%.0f%%"
             ),
         },
     )
@@ -160,5 +208,6 @@ def signal_chips(signals: list[str], labels: dict[str, str]) -> str:
 __all__ = [
     "render_disclaimer", "render_freshness_badge", "sidebar_filters",
     "metric_row", "render_reasons", "render_flags", "movers_table",
-    "prepare_percent_columns", "signal_chips", "format_pct", "format_market_cap",
+    "prepare_percent_columns", "signal_chips", "render_signal_chips",
+    "format_pct", "format_market_cap",
 ]

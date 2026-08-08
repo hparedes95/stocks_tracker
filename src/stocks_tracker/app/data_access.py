@@ -345,6 +345,41 @@ def get_macro_prices(tickers: tuple[str, ...]) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
+def get_signal_evidence(scope: str | None = None) -> pd.DataFrame:
+    """Etiquetas de evidencia historica por senal, ambito y horizonte."""
+    if scope:
+        return _fetch(
+            """
+            SELECT * FROM signal_evidence WHERE scope = ?
+            ORDER BY signal_id, horizon_days
+            """,
+            [scope],
+        )
+    return _fetch("SELECT * FROM signal_evidence ORDER BY signal_id, horizon_days")
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def evidence_by_signal(scope: str = "equity_us", horizon: int = 21) -> dict[str, str]:
+    """Mapa senal -> etiqueta, para marcar en gris las que no estan validadas."""
+    df = _fetch(
+        """
+        SELECT signal_id, evidence FROM signal_evidence
+        WHERE scope = ? AND horizon_days = ?
+        """,
+        [scope, horizon],
+    )
+    if df.empty:
+        return {}
+    return dict(zip(df["signal_id"], df["evidence"], strict=False))
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def validation_available() -> bool:
+    df = _fetch("SELECT COUNT(*) AS n FROM signal_evidence")
+    return bool(not df.empty and int(df.iloc[0]["n"]) > 0)
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
 def get_regime(days: int = 400) -> pd.DataFrame:
     return _fetch(
         "SELECT * FROM regime_daily ORDER BY date DESC LIMIT ?", [days]

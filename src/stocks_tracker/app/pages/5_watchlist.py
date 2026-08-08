@@ -49,7 +49,7 @@ view = pd.DataFrame(
         "Precio": watchlist["close"],
         "Dia": watchlist["ret_1d"] * 100,
         "Desde alta": watchlist["desde_alta"] * 100,
-        "Percentil": watchlist["composite_pctile"],
+        "Percentil": watchlist["composite_pctile"] * 100,
         "Anadido": pd.to_datetime(watchlist["added_at"]).dt.strftime("%d/%m/%Y"),
     }
 )
@@ -60,7 +60,7 @@ st.dataframe(
         "Dia": st.column_config.NumberColumn(format="%+.2f%%"),
         "Desde alta": st.column_config.NumberColumn(format="%+.2f%%"),
         "Percentil": st.column_config.ProgressColumn(
-            min_value=0.0, max_value=1.0, format="%.0f%%"
+            min_value=0.0, max_value=100.0, format="%.0f%%"
         ),
     },
 )

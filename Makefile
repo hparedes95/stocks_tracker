@@ -1,4 +1,4 @@
-.PHONY: help setup migrate ingest ingest-demo compute run test lint fmt clean
+.PHONY: help setup migrate ingest ingest-demo compute validate run test lint fmt clean
 
 PY := .venv/bin/python
 UV := uv
@@ -9,6 +9,7 @@ help:
 	@echo "make ingest       Descarga datos reales (yfinance) del universo configurado"
 	@echo "make ingest-demo  Genera datos sinteticos para probar sin red"
 	@echo "make compute      Calcula indicadores, factores, scores y senales"
+	@echo "make validate     Valida las senales contra su historico y las etiqueta"
 	@echo "make run          Arranca el dashboard (solo 127.0.0.1)"
 	@echo "make test         Ejecuta los tests"
 	@echo "make lint         Comprueba estilo"
@@ -33,6 +34,10 @@ ingest-demo:
 
 compute:
 	$(PY) -m stocks_tracker.compute.run_compute
+
+# Decide que senales se quedan en el dashboard. Ejecutar tras `make compute`.
+validate:
+	$(PY) -m stocks_tracker.backtest.run_backtest --tag-signals
 
 # 127.0.0.1 de forma deliberada: Streamlit no tiene autenticacion.
 # Nunca exponer en 0.0.0.0. Para acceso remoto, tunel SSH o Tailscale.

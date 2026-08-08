@@ -74,6 +74,10 @@ with st.sidebar:
 
 candidates = da.get_candidates(filters["universe"], filters["sectors"], limit=400)
 
+# Etiquetas de validacion historica: sin ellas, una senal sin evidencia se
+# mostraria con la misma autoridad que una validada.
+evidence_map = da.evidence_by_signal("equity_us", 21)
+
 if candidates.empty:
     st.warning("No hay valores puntuados. Ejecuta `make compute`.")
     st.stop()
@@ -174,7 +178,7 @@ def _render_card(row: pd.Series) -> None:
                 "fundamentales insuficientes para justificarlo mejor."
             )
         else:
-            render_reasons(reasons)
+            render_reasons(reasons, evidence=evidence_map, signal_ids=signals)
 
         flags = red_flags(row)
         if flags:
@@ -220,12 +224,12 @@ else:
             "Precio": filtered["close"],
             "Dia": filtered["ret_1d"] * 100,
             "Score": filtered["composite"],
-            "Percentil": filtered["composite_pctile"],
+            "Percentil": filtered["composite_pctile"] * 100,
             **{
                 FACTOR_LABELS[f]: filtered[f]
                 for f in FACTOR_LABELS if f in filtered.columns
             },
-            "Datos": filtered["coverage"],
+            "Datos": filtered["coverage"] * 100,
             "PER": filtered.get("trailing_pe"),
             "Div.": filtered.get("dividend_yield", pd.Series(dtype=float)) * 100,
         }
@@ -237,10 +241,10 @@ else:
             "Dia": st.column_config.NumberColumn(format="%+.2f%%"),
             "Score": st.column_config.NumberColumn(format="%+.2f"),
             "Percentil": st.column_config.ProgressColumn(
-                min_value=0.0, max_value=1.0, format="%.0f%%"
+                min_value=0.0, max_value=100.0, format="%.0f%%"
             ),
             "Datos": st.column_config.ProgressColumn(
-                min_value=0.0, max_value=1.0, format="%.0f%%"
+                min_value=0.0, max_value=100.0, format="%.0f%%"
             ),
             "PER": st.column_config.NumberColumn(format="%.1f"),
             "Div.": st.column_config.NumberColumn(format="%.1f%%"),

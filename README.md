@@ -16,10 +16,11 @@ bot de trading experimental, para uso personal.
 
 ## Estado
 
-**Fases 1 y 2 funcionando.** El dashboard ingiere datos, calcula indicadores,
-factores, señales, amplitud, rotación sectorial y régimen de riesgo, y muestra
-el ranking de candidatos explicado. El bot de trading todavía no está
-implementado (fases 6 en adelante).
+**Fases 1, 2 y 3 funcionando.** El dashboard ingiere datos, calcula indicadores,
+factores, señales, amplitud, rotación sectorial y régimen de riesgo, muestra el
+ranking de candidatos explicado, y **valida cada señal contra su histórico** para
+distinguir las que aportan algo de las que son ruido. El bot de trading todavía
+no está implementado (fases 6 en adelante).
 
 ## Puesta en marcha
 
@@ -28,6 +29,7 @@ make setup        # crea el entorno e instala dependencias
 make migrate      # crea el almacén DuckDB
 make ingest       # descarga datos reales (Yahoo Finance + FRED si hay clave)
 make compute      # indicadores, señales, factores, amplitud, rotación y régimen
+make validate     # valida las señales contra su histórico y las etiqueta
 make run          # abre el dashboard en http://127.0.0.1:8501
 ```
 
@@ -54,19 +56,25 @@ bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
 | **Oportunidades** | Ranking de candidatos en tarjetas, cada uno con sus motivos en castellano y sus banderas rojas |
 | **Ficha de valor** | Gráfico de velas con nuestras señales, medias y niveles dibujados encima; gráfico de TradingView; fundamentales frente a la mediana del sector; perfil factorial y riesgo |
 | **Watchlist** | Valores seguidos y su evolución desde que se añadieron |
+| **Validación de señales** | Qué señales aportan algo y cuáles son ruido: eventos, acierto, exceso sobre el universo, estabilidad entre ventanas y distribución de retornos |
 | **Estado de los datos** | Qué se descargó, cuándo, qué falló y qué tickers no tienen equivalencia en TradingView |
 
 ## Desarrollo
 
 ```bash
-make test    # 138 tests, sin red
+make test    # 168 tests, sin red
 make lint    # estilo
 ```
 
 Los tests no tocan la red ni el almacén real: usan el proveedor sintético y una
-base de datos temporal. El más importante es `test_no_lookahead.py`, que altera
-el futuro de cada serie y comprueba que ningún indicador cambia en el pasado —
-es el fallo que produce backtests preciosos y pérdidas reales.
+base de datos temporal. Los dos que más valen:
+
+- `test_no_lookahead.py` altera el futuro de cada serie y comprueba que ningún
+  indicador cambia en el pasado. Incluye una contraprueba con un indicador que
+  sí mira al futuro, para confirmar que el test detecta el fallo.
+- `test_backtest.py` verifica que la entrada está retardada un día: una señal
+  detectada al cierre no se puede comprar a ese cierre. Sin ese retardo los
+  resultados salen preciosos y el dinero real se pierde.
 
 ## Documentación
 
@@ -78,7 +86,7 @@ es el fallo que produce backtests preciosos y pérdidas reales.
 | [`docs/03-adenda-cripto-kraken-multivenue.md`](docs/03-adenda-cripto-kraken-multivenue.md) | Cripto en Kraken como segundo venue: stops nativos en el exchange, presupuesto de comisiones, autonomía por modo, ejecución en un equipo no permanente |
 
 Los documentos son acumulativos y describen el proyecto completo; el código
-implementa por ahora las fases 1 y 2. Cada adenda empieza con un índice de qué
+implementa por ahora las fases 1, 2 y 3. Cada adenda empieza con un índice de qué
 secciones del plan base sustituye.
 
 ## Universo
@@ -99,6 +107,31 @@ gratuita en `FRED_API_KEY`. Sin ella todo lo demás funciona igual: la página d
 macro muestra los termómetros que salen de los precios (VIX, oro, cobre, dólar,
 cobre/oro) y avisa de lo que falta. **Ningún cálculo del núcleo depende de esa
 clave.**
+
+## Validación de señales
+
+`make validate` mide qué ocurrió después de cada disparo de cada señal y le pone
+una etiqueta: **validada**, **débil**, **no validada** o **sin datos
+suficientes**. En el dashboard, las señales sin validar se muestran apagadas y
+con un aviso: una observación no puede presentarse con la misma autoridad que
+algo que ha demostrado aportar valor.
+
+Cuatro decisiones que hacen honesto el resultado:
+
+- **Entrada retardada un día.** Una señal detectada al cierre no se puede
+  comprar a ese cierre.
+- **Referencia = universo equiponderado**, no un índice. Comparar contra un
+  índice mezcla el aporte de la señal con la diferencia estructural entre esas
+  acciones y el índice. El error tiene una firma reconocible: señales opuestas
+  saliendo ambas ganadoras.
+- **Costes incluidos** en la ida y en la vuelta.
+- **Solo señales técnicas.** Los fundamentales que guardamos son una foto
+  actual, no una serie histórica; validarlos con los datos de hoy sería hacer
+  trampa.
+
+Y el sesgo que queda, dicho en la propia página: el universo son los
+constituyentes de **hoy**, así que los resultados están sesgados al alza por
+supervivencia. Trátalos como una cota superior optimista.
 
 ## Decisiones de partida
 
