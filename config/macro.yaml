@@ -1,0 +1,101 @@
+# Series macroeconomicas y su lectura.
+#
+# Las de FRED necesitan FRED_API_KEY; sin ella la pagina de macro funciona con
+# lo que se puede sacar de los precios y avisa de lo que falta.
+
+fred_series:
+  # --- Tipos y curva ---
+  T10Y2Y:
+    name: "Curva 10 anos - 2 anos"
+    group: tipos
+    unit: pp
+    note: >
+      Por debajo de cero la curva esta invertida, situacion que ha precedido a
+      todas las recesiones recientes en EE.UU. Historicamente la senal llega con
+      mucha antelacion y con muchos meses de margen: no es un temporizador.
+  DGS10:
+    name: "Bono a 10 anos"
+    group: tipos
+    unit: pct
+  DGS2:
+    name: "Bono a 2 anos"
+    group: tipos
+    unit: pct
+  DFII10:
+    name: "Tipo real a 10 anos"
+    group: tipos
+    unit: pct
+    note: "Tipo nominal menos inflacion esperada. Es el coste real del dinero."
+
+  # --- Credito y estres ---
+  BAMLH0A0HYM2:
+    name: "Spread de credito high yield"
+    group: riesgo
+    unit: pp
+    note: >
+      El mejor termometro de estres financiero. Ampliaciones rapidas suelen
+      coincidir con caidas en bolsa; el nivel absoluto importa menos que la
+      velocidad del movimiento.
+  VIXCLS:
+    name: "VIX"
+    group: riesgo
+    unit: idx
+
+  # --- Actividad y precios ---
+  CPIAUCSL:
+    name: "IPC (EE.UU.)"
+    group: actividad
+    unit: idx
+    note: "Publicado con retardo de semanas. Sirve de contexto, no de senal."
+  UNRATE:
+    name: "Tasa de paro (EE.UU.)"
+    group: actividad
+    unit: pct
+  INDPRO:
+    name: "Produccion industrial"
+    group: actividad
+    unit: idx
+  UMCSENT:
+    name: "Confianza del consumidor"
+    group: actividad
+    unit: idx
+
+  # --- Divisa ---
+  DTWEXBGS:
+    name: "Indice del dolar (amplio)"
+    group: divisa
+    unit: idx
+    note: >
+      Un dolar fuerte penaliza a emergentes y a materias primas, y resta a los
+      beneficios de las multinacionales estadounidenses.
+
+# Componentes del semaforo risk-on / risk-off que salen de precios, no de FRED.
+regime_components:
+  vix:
+    ticker: "^VIX"
+    invert: true
+    weight: 1.0
+    label: "Volatilidad implicita"
+  cobre_oro:
+    numerator: "HG=F"
+    denominator: "GC=F"
+    weight: 1.0
+    label: "Cobre / oro (crecimiento frente a miedo)"
+  acciones_vs_bonos:
+    numerator: "SPY"
+    denominator: "IEF"
+    weight: 1.0
+    label: "Acciones frente a bonos"
+  ciclico_vs_defensivo:
+    numerator: "XLY"
+    denominator: "XLP"
+    weight: 1.0
+    label: "Consumo ciclico frente a defensivo"
+  amplitud:
+    scope: "SP500"
+    weight: 1.0
+    label: "Amplitud del mercado"
+
+thresholds:
+  risk_on: 30
+  risk_off: -30

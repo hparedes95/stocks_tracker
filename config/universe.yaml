@@ -5,6 +5,31 @@
 # evitan depender de que una pagina externa no cambie de formato.
 
 universes:
+  SP500:
+    name: "S&P 500 (EE.UU.)"
+    # Se descarga la lista actual de Wikipedia. Si falla, se usa la lista
+    # manual de abajo: preferimos un universo reducido a una pagina en blanco.
+    source: wikipedia
+    benchmark: "^GSPC"
+    currency: USD
+    asset_class: equity
+    tickers:
+      # Respaldo: grandes valores por sector, suficientes para que el sistema
+      # funcione aunque la descarga falle.
+      - AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, AVGO, BRK-B, JPM
+      - LLY, V, XOM, UNH, MA, COST, HD, PG, JNJ, ABBV
+      - WMT, NFLX, BAC, CRM, ORCL, MRK, CVX, KO, AMD, PEP
+
+  NASDAQ100:
+    name: "Nasdaq 100"
+    source: wikipedia
+    benchmark: "^NDX"
+    currency: USD
+    asset_class: equity
+    tickers:
+      - AAPL, MSFT, NVDA, AMZN, GOOGL, META, AVGO, TSLA, COST, NFLX
+      - AMD, PEP, ADBE, CSCO, INTU, TXN, QCOM, AMGN, ISRG, BKNG
+
   SP100:
     name: "S&P 100 (EE.UU.)"
     source: manual
@@ -84,8 +109,15 @@ universes:
       - GC=F, SI=F, HG=F, CL=F    # oro, plata, cobre, petroleo
       - DX-Y.NYB, EURUSD=X        # dolar y euro
 
-# Universos activos en el MVP (fase 1). Anadir SP500 completo en fase 2.
-active: [SP100, IBEX35, ESTOXX50, ETF_CORE, INDICES, MACRO]
+# Universos activos.
+#
+# SP500 y NASDAQ100 se solapan con SP100 a proposito: los tickers repetidos se
+# deduplican en `all_active_tickers()`, y mantener SP100 garantiza una base
+# solida aunque la descarga de Wikipedia falle.
+active: [SP500, NASDAQ100, SP100, IBEX35, ESTOXX50, ETF_CORE, INDICES, MACRO]
+
+# Ambito de referencia para la amplitud de mercado y el semaforo de riesgo.
+breadth_scope: SP500
 
 # Mapa de sector GICS por ETF sectorial, para la vista de rotacion.
 sector_etfs:

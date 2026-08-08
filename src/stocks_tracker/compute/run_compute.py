@@ -7,6 +7,7 @@ segundos. Aqui se materializa una vez y el dashboard solo hace SELECT.
 from __future__ import annotations
 
 import argparse
+import json
 
 import numpy as np
 import pandas as pd
@@ -14,8 +15,16 @@ from rich.console import Console
 
 from ..core import breadth as breadth_mod
 from ..core import indicators as ind_mod
+from ..core import relative as relative_mod
 from ..core import signals as sig_mod
-from ..core.config import get_active_universes, get_factor_config, get_settings, get_universes
+from ..core.config import (
+    get_active_universes,
+    get_breadth_scope,
+    get_factor_config,
+    get_sector_etfs,
+    get_settings,
+    get_universes,
+)
 from ..core.db import connect, migrate, upsert_df
 from ..core.scoring import compute_scores, weights_hash
 
@@ -187,6 +196,61 @@ def compute_factor_scores(preset: str | None = None) -> int:
     return n
 
 
+def compute_rotation() -> int:
+    """Rotacion sectorial: fuerza relativa de cada sector frente al indice.
+
+    Se guarda en `sector_rotation` para que la pagina de sectores no tenga que
+    recalcular una matriz de fuerza relativa en cada carga.
+    """
+    with connect(read_only=True) as conn:
+        etf_prices = conn.execute(
+            """
+            SELECT ticker, date, adj_close FROM prices_daily
+            WHERE ticker IN (SELECT ticker FROM instruments WHERE asset_class = 'etf')
+            ORDER BY date
+            """
+        ).fetchdf()
+        benchmark = conn.execute(
+            "SELECT date, adj_close FROM prices_daily WHERE ticker = 'SPY' ORDER BY date"
+        ).fetchdf()
+
+    sector_etfs = get_sector_etfs()
+    if etf_prices.empty or benchmark.empty or not sector_etfs:
+        console.print("[yellow]Sin ETFs sectoriales para calcular rotacion.[/]")
+        return 0
+
+    etf_prices["date"] = pd.to_datetime(etf_prices["date"])
+    benchmark["date"] = pd.to_datetime(benchmark["date"])
+
+    wide = etf_prices.pivot_table(index="date", columns="ticker", values="adj_close")
+    wide = wide[[c for c in wide.columns if c in sector_etfs]]
+    if wide.empty:
+        return 0
+
+    bench_series = benchmark.set_index("date")["adj_close"]
+    table = relative_mod.rotation_table(wide, bench_series)
+    if table.empty:
+        return 0
+
+    last_date = pd.to_datetime(etf_prices["date"]).max().date()
+    table["date"] = last_date
+    table["sector"] = table["nombre"].map(sector_etfs)
+    table["etf"] = table["nombre"]
+    table["estela_ratio"] = table["estela_ratio"].map(json.dumps)
+    table["estela_momentum"] = table["estela_momentum"].map(json.dumps)
+    table = table.drop(columns=["nombre"])
+
+    with connect() as conn:
+        n = upsert_df(conn, "sector_rotation", table, keys=["date", "etf"])
+
+    leading = table[table["cuadrante"] == relative_mod.LEADING]["sector"].tolist()
+    console.print(
+        f"[green]Rotacion: {n} sectores[/]"
+        + (f" · lideran {', '.join(leading[:3])}" if leading else "")
+    )
+    return n
+
+
 def compute_breadth() -> int:
     """Amplitud de mercado por universo y por sector."""
     universes = get_universes()
@@ -250,8 +314,9 @@ def compute_regime() -> int:
         breadth = conn.execute(
             """
             SELECT date, pct_above_sma200 FROM breadth_daily
-            WHERE scope = 'SP100' ORDER BY date
-            """
+            WHERE scope = ? ORDER BY date
+            """,
+            [get_breadth_scope()],
         ).fetchdf()
         macro = conn.execute(
             """
@@ -354,7 +419,7 @@ def compute_regime() -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Calculo de indicadores, factores y scores")
     parser.add_argument("--only", default=None,
-                        choices=["indicators", "scores", "breadth", "regime"])
+                        choices=["indicators", "scores", "breadth", "rotation", "regime"])
     parser.add_argument("--preset", default=None, help="preset de pesos a usar")
     parser.add_argument("--lookback", type=int, default=None)
     args = parser.parse_args()
@@ -363,10 +428,11 @@ def main() -> None:
     steps = {
         "indicators": lambda: compute_indicators(args.lookback),
         "breadth": compute_breadth,
+        "rotation": compute_rotation,
         "regime": compute_regime,
         "scores": lambda: compute_factor_scores(args.preset),
     }
-    order = ["indicators", "breadth", "regime", "scores"]
+    order = ["indicators", "breadth", "rotation", "regime", "scores"]
 
     for name in order:
         if args.only and args.only != name:

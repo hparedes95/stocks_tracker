@@ -59,7 +59,43 @@ def compute_breadth(indicators: pd.DataFrame, scope: str) -> pd.DataFrame:
     # Linea avance-descenso acumulada: su divergencia con el indice es el aviso
     # clasico de que la subida se esta quedando sin participantes.
     out["ad_line"] = (out["advances"] - out["declines"]).cumsum().astype(float)
+
+    # Correlacion media entre pares: cuando es alta, el mercado se mueve en
+    # bloque por razones macro y elegir valores concretos aporta poco.
+    correlation = _pairwise_correlation(df)
+    if not correlation.empty:
+        out["avg_pairwise_corr"] = out["date"].map(
+            {d.date(): v for d, v in correlation.items()}
+        )
+    else:
+        out["avg_pairwise_corr"] = np.nan
+
     return out
+
+
+def _pairwise_correlation(df: pd.DataFrame, max_tickers: int = 60) -> pd.Series:
+    """Correlacion media entre pares del ambito.
+
+    Se limita el numero de valores: la matriz de correlacion crece con el
+    cuadrado, y con 500 tickers el calculo pasa de milisegundos a minutos sin
+    que el resultado cambie de forma apreciable. Se toman los que tienen mas
+    historico, que son los mas representativos del ambito.
+    """
+    from .relative import average_pairwise_correlation
+
+    if "ret_1d" not in df.columns:
+        return pd.Series(dtype=float)
+
+    counts = df.groupby("ticker")["ret_1d"].count().sort_values(ascending=False)
+    selected = counts.head(max_tickers).index
+    subset = df[df["ticker"].isin(selected)]
+
+    wide = subset.pivot_table(index="date", columns="ticker", values="ret_1d")
+    wide = wide.dropna(axis=1, thresh=int(len(wide) * 0.8))
+    if wide.shape[1] < 5:
+        return pd.Series(dtype=float)
+
+    return average_pairwise_correlation(wide.ffill().dropna(), window=60)
 
 
 def sector_performance(

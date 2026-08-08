@@ -154,6 +154,8 @@ CREATE TABLE IF NOT EXISTS indicators_daily (
   death_cross      BOOLEAN,
   days_above_sma200 INTEGER,
   rs_vs_bench_3m   DOUBLE,
+  support_near     DOUBLE,        -- soporte inmediatamente por debajo del precio
+  resistance_near  DOUBLE,        -- resistencia inmediatamente por encima
   PRIMARY KEY (ticker, date)
 );
 
@@ -230,7 +232,22 @@ CREATE TABLE IF NOT EXISTS breadth_daily (
   pct_rsi_oversold    DOUBLE,
   median_ret_1d       DOUBLE,
   median_ret_1m       DOUBLE,
+  avg_pairwise_corr   DOUBLE,     -- correlacion media entre pares (60 sesiones)
   PRIMARY KEY (date, scope)
+);
+
+-- Posicion de cada sector en el grafico de rotacion. Describe donde esta cada
+-- sector AHORA; los cuadrantes ordenan lo que ya ha pasado, no lo que vendra.
+CREATE TABLE IF NOT EXISTS sector_rotation (
+  date             DATE,
+  etf              VARCHAR,
+  sector           VARCHAR,
+  ratio            DOUBLE,        -- fuerza relativa normalizada (100 = como el indice)
+  momentum         DOUBLE,        -- momentum de esa fuerza relativa
+  cuadrante        VARCHAR,       -- Lidera|Se debilita|Rezagado|Mejora
+  estela_ratio     VARCHAR,       -- JSON con el recorrido de las ultimas semanas
+  estela_momentum  VARCHAR,
+  PRIMARY KEY (date, etf)
 );
 
 CREATE TABLE IF NOT EXISTS regime_daily (

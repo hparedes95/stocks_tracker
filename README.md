@@ -16,17 +16,18 @@ bot de trading experimental, para uso personal.
 
 ## Estado
 
-**Fase 1 (MVP) funcionando.** El dashboard arranca, ingiere datos, calcula
-indicadores, factores y señales, y muestra el ranking de candidatos explicado.
-El bot de trading todavía no está implementado (fases 6 en adelante).
+**Fases 1 y 2 funcionando.** El dashboard ingiere datos, calcula indicadores,
+factores, señales, amplitud, rotación sectorial y régimen de riesgo, y muestra
+el ranking de candidatos explicado. El bot de trading todavía no está
+implementado (fases 6 en adelante).
 
 ## Puesta en marcha
 
 ```bash
 make setup        # crea el entorno e instala dependencias
 make migrate      # crea el almacén DuckDB
-make ingest       # descarga datos reales de Yahoo Finance
-make compute      # indicadores, señales, factores, amplitud y régimen
+make ingest       # descarga datos reales (Yahoo Finance + FRED si hay clave)
+make compute      # indicadores, señales, factores, amplitud, rotación y régimen
 make run          # abre el dashboard en http://127.0.0.1:8501
 ```
 
@@ -48,16 +49,17 @@ bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
 | Página | Qué responde |
 |---|---|
 | **Qué se mueve hoy** | Resumen del día en lenguaje natural, mayores movimientos, rupturas anuales, volumen inusual, cambios de tendencia, sectores líderes, amplitud y semáforo de riesgo |
-| **Sectores y rotación** | Rendimiento por sector y horizonte, amplitud interna de cada sector, mapas de calor |
+| **Sectores y rotación** | Mapa de rotación (qué sectores lideran y cuáles se debilitan), rendimiento por sector y horizonte, mapa de superficie, amplitud interna |
+| **Macro y riesgo** | Semáforo risk-on/risk-off con su desglose, tipos y curva, crédito, actividad, termómetros de mercado y correlación media |
 | **Oportunidades** | Ranking de candidatos en tarjetas, cada uno con sus motivos en castellano y sus banderas rojas |
-| **Ficha de valor** | Gráfico con nuestras señales marcadas, gráfico de TradingView, fundamentales frente a la mediana del sector, perfil factorial y riesgo |
+| **Ficha de valor** | Gráfico de velas con nuestras señales, medias y niveles dibujados encima; gráfico de TradingView; fundamentales frente a la mediana del sector; perfil factorial y riesgo |
 | **Watchlist** | Valores seguidos y su evolución desde que se añadieron |
 | **Estado de los datos** | Qué se descargó, cuándo, qué falló y qué tickers no tienen equivalencia en TradingView |
 
 ## Desarrollo
 
 ```bash
-make test    # 111 tests, sin red
+make test    # 138 tests, sin red
 make lint    # estilo
 ```
 
@@ -75,11 +77,28 @@ es el fallo que produce backtests preciosos y pérdidas reales.
 | [`docs/02-adenda-bot-trading.md`](docs/02-adenda-bot-trading.md) | Capa de trading automatizado con Alpaca: gestión de riesgo, flujo de aprobación, estrategias, validación previa, seguridad |
 | [`docs/03-adenda-cripto-kraken-multivenue.md`](docs/03-adenda-cripto-kraken-multivenue.md) | Cripto en Kraken como segundo venue: stops nativos en el exchange, presupuesto de comisiones, autonomía por modo, ejecución en un equipo no permanente |
 
-Los documentos son acumulativos: las adendas modifican y amplían secciones
-concretas del plan general, y cada una empieza con un índice de qué sustituye.
+Los documentos son acumulativos y describen el proyecto completo; el código
+implementa por ahora las fases 1 y 2. Cada adenda empieza con un índice de qué
+secciones del plan base sustituye.
 
-Los documentos describen el proyecto completo; el código implementa por ahora la
-fase 1. Cada adenda empieza con un índice de qué sustituye del plan base.
+## Universo
+
+Los universos `SP500` y `NASDAQ100` descargan la lista real de constituyentes de
+Wikipedia (unos 600 valores). Si la descarga falla, el sistema cae a las listas
+manuales de `config/universe.yaml` y sigue funcionando con un universo reducido:
+preferimos eso a una página en blanco porque una web cambió una cabecera.
+
+La composición se guarda con fecha en `universe_membership`. Hoy los backtests
+sufren sesgo de supervivencia —solo se conocen los constituyentes actuales—,
+pero ese registro diario hace que el sesgo desaparezca hacia adelante.
+
+## Datos macro (opcional)
+
+Las series de tipos, crédito y actividad vienen de FRED y necesitan una clave
+gratuita en `FRED_API_KEY`. Sin ella todo lo demás funciona igual: la página de
+macro muestra los termómetros que salen de los precios (VIX, oro, cobre, dólar,
+cobre/oro) y avisa de lo que falta. **Ningún cálculo del núcleo depende de esa
+clave.**
 
 ## Decisiones de partida
 

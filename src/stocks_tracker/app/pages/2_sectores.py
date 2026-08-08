@@ -8,7 +8,6 @@ import streamlit as st
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components import charts, tv_widgets
 from stocks_tracker.app.components.common import render_disclaimer
-from stocks_tracker.core.config import get_sector_etfs
 
 st.title("Sectores y rotacion")
 
@@ -23,18 +22,91 @@ st.caption(
 )
 
 # ---------------------------------------------------------------------------
+# Rotacion
+# ---------------------------------------------------------------------------
+rotation = da.get_rotation()
+
+st.subheader("Mapa de rotacion")
+if rotation.empty:
+    st.caption(
+        "Sin datos de rotacion. Requiere los ETFs sectoriales del universo "
+        "`ETF_CORE`; ejecuta `make compute`."
+    )
+else:
+    trails = st.multiselect(
+        "Mostrar la estela de",
+        options=rotation["etf"].tolist(),
+        default=[],
+        format_func=lambda e: f"{e} · {rotation.loc[rotation['etf'] == e, 'sector'].iloc[0]}",
+        help=(
+            "Las once estelas a la vez se cruzan y no se distingue ninguna. "
+            "Elige uno o dos sectores para ver su recorrido."
+        ),
+    )
+
+    rot_left, rot_right = st.columns([3, 2])
+    with rot_left:
+        st.plotly_chart(
+            charts.rotation_chart(rotation, height=520, trails_for=trails),
+            width="stretch", config={"displayModeBar": False},
+        )
+    with rot_right:
+        st.markdown("**Como se lee**")
+        st.caption(
+            "El eje horizontal mide si un sector lo hace mejor o peor que el "
+            "indice. El vertical, si esa ventaja se acelera o se agota. La "
+            "estela de puntos marca por donde ha pasado en las ultimas semanas.\n\n"
+            "Los cuadrantes describen **donde esta** cada sector ahora mismo. "
+            "No indican hacia donde ira: un sector que lidera puede dejar de "
+            "hacerlo en cualquier momento."
+        )
+        counts = rotation["cuadrante"].value_counts()
+        for name in ["Lidera", "Se debilita", "Rezagado", "Mejora"]:
+            members = rotation[rotation["cuadrante"] == name]["sector"].tolist()
+            if members:
+                st.markdown(f"**{name}** ({counts.get(name, 0)})")
+                st.caption(" · ".join(members))
+
+# ---------------------------------------------------------------------------
 # Mapa sector x horizonte
 # ---------------------------------------------------------------------------
+st.divider()
 st.subheader("Rendimiento por sector y horizonte")
 st.plotly_chart(
     charts.heatmap_sector_horizon(sectors, height=420),
-    width="stretch",
-    config={"displayModeBar": False},
+    width="stretch", config={"displayModeBar": False},
 )
+
+# ---------------------------------------------------------------------------
+# Mapa de superficie
+# ---------------------------------------------------------------------------
+st.divider()
+st.subheader("Mapa de superficie")
+group_choice = st.radio(
+    "Agrupar por",
+    options=["gics_sector", "investment_type"],
+    format_func=lambda c: {"gics_sector": "Sector GICS",
+                           "investment_type": "Tipo de inversion"}[c],
+    horizontal=True,
+)
+treemap_data = da.get_treemap_data("TODOS", group_choice)
+if treemap_data.empty:
+    st.caption("Sin datos de capitalizacion suficientes.")
+else:
+    st.plotly_chart(
+        charts.sector_treemap(treemap_data, height=470),
+        width="stretch", config={"displayModeBar": False},
+    )
+    st.caption(
+        "Superficie proporcional a la capitalizacion, color segun la variacion "
+        "del dia. Agrupar por **tipo de inversion** es algo que el mapa de "
+        "TradingView no permite."
+    )
 
 # ---------------------------------------------------------------------------
 # Tabla
 # ---------------------------------------------------------------------------
+st.divider()
 st.subheader("Detalle por sector")
 table = pd.DataFrame(
     {
@@ -61,25 +133,23 @@ st.dataframe(
     },
 )
 st.caption(
-    "La columna **Sobre MM200** es la amplitud interna del sector: un sector "
-    "que sube con solo el 30% de sus valores en tendencia alcista se apoya en pocos nombres."
+    "La columna **Sobre MM200** es la amplitud interna del sector: uno que sube "
+    "con solo el 30% de sus valores en tendencia alcista se apoya en pocos nombres."
 )
 
 # ---------------------------------------------------------------------------
-# Amplitud por sector
+# Amplitud interna
 # ---------------------------------------------------------------------------
 st.divider()
 st.subheader("Amplitud interna de un sector")
-sector_names = sectors["sector"].tolist()
-chosen = st.selectbox("Sector", options=sector_names)
+chosen = st.selectbox("Sector", options=sectors["sector"].tolist())
 breadth = da.get_breadth(f"GICS:{chosen}")
 if breadth.empty:
     st.caption("Sin serie de amplitud para este sector todavia.")
 else:
     st.plotly_chart(
         charts.breadth_lines(breadth, height=280),
-        width="stretch",
-        config={"displayModeBar": False},
+        width="stretch", config={"displayModeBar": False},
     )
 
 # ---------------------------------------------------------------------------
@@ -87,7 +157,7 @@ else:
 # ---------------------------------------------------------------------------
 if tv_widgets.enabled():
     st.divider()
-    tab_map, tab_crypto = st.tabs(["Mapa de mercado", "Cripto"])
+    tab_map, tab_crypto = st.tabs(["Mapa de TradingView", "Cripto"])
     with tab_map:
         source = st.selectbox(
             "Universo", options=["SPX500", "NASDAQ100", "IBC", "SX5E"],
@@ -103,17 +173,6 @@ if tv_widgets.enabled():
             "sube con fuerza, suele haber tolerancia al riesgo en el resto del mercado."
         )
         tv_widgets.crypto_heatmap(height=520)
-
-# ETFs sectoriales configurados, como referencia de seguimiento.
-etfs = get_sector_etfs()
-if etfs:
-    with st.expander("ETFs sectoriales de referencia"):
-        st.dataframe(
-            pd.DataFrame(
-                {"ETF": list(etfs), "Sector GICS": [etfs[k] for k in etfs]}
-            ),
-            hide_index=True,
-        )
 
 st.divider()
 render_disclaimer()

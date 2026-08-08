@@ -293,4 +293,41 @@ def compute_all(df: pd.DataFrame, benchmark_close: pd.Series | None = None) -> p
     else:
         out["rs_vs_bench_3m"] = np.nan
 
+    # Soporte y resistencia mas cercanos, calculados sobre el ultimo ano.
+    # Solo tiene sentido el nivel vigente hoy: guardarlos dia a dia
+    # multiplicaria el coste sin que nadie mire los historicos.
+    supports, resistances = _recent_levels(high, low)
+    last_close = float(close.iloc[-1]) if len(close) else np.nan
+    support, resistance = _nearest(last_close, supports, resistances)
+    out["support_near"] = np.nan
+    out["resistance_near"] = np.nan
+    if len(out):
+        out.iloc[-1, out.columns.get_loc("support_near")] = support
+        out.iloc[-1, out.columns.get_loc("resistance_near")] = resistance
+
     return out
+
+
+def _recent_levels(
+    high: pd.Series, low: pd.Series, window: int = SESSIONS_YEAR
+) -> tuple[list[float], list[float]]:
+    """Soportes y resistencias del ultimo ano.
+
+    Importado aqui para evitar una dependencia circular: `relative` usa tipos de
+    este modulo en otras funciones.
+    """
+    from .relative import support_resistance
+
+    return support_resistance(high.tail(window), low.tail(window))
+
+
+def _nearest(
+    price: float, supports: list[float], resistances: list[float]
+) -> tuple[float, float]:
+    from .relative import nearest_levels
+
+    support, resistance = nearest_levels(price, supports, resistances)
+    return (
+        support if support is not None else np.nan,
+        resistance if resistance is not None else np.nan,
+    )

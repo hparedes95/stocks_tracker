@@ -16,7 +16,8 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from .theme import (
-    DIVERGING,
+    DIVERGING_PERFORMANCE,
+    FONT_FAMILY,
     SEQUENTIAL_BLUE,
     STATUS,
     apply_layout,
@@ -394,7 +395,7 @@ def heatmap_sector_horizon(df: pd.DataFrame, height: int = 380) -> go.Figure:
     fig = go.Figure(
         go.Heatmap(
             z=matrix.to_numpy(), x=labels, y=matrix.index.tolist(),
-            colorscale=DIVERGING, zmid=0, zmin=-span, zmax=span,
+            colorscale=DIVERGING_PERFORMANCE, zmid=0, zmin=-span, zmax=span,
             text=[[f"{v:+.1f}%" if np.isfinite(v) else "" for v in row]
                   for row in matrix.to_numpy()],
             texttemplate="%{text}",
@@ -408,6 +409,213 @@ def heatmap_sector_horizon(df: pd.DataFrame, height: int = 380) -> go.Figure:
     fig = apply_layout(fig, height=height)
     fig.update_yaxes(showgrid=False, tickfont=dict(size=11, color=p["text_secondary"]))
     fig.update_xaxes(side="top")
+    return fig
+
+
+def rotation_chart(df: pd.DataFrame, height: int = 520,
+                   trails_for: list[str] | None = None) -> go.Figure:
+    """Grafico de rotacion sectorial (estilo RRG).
+
+    Eje X: fuerza relativa frente al indice. Eje Y: si esa ventaja se acelera o
+    se agota. Los cuadrantes describen DONDE ESTA cada sector ahora; la estela
+    muestra por donde ha pasado. Nada de esto dice hacia donde ira.
+
+    Cada punto lleva su etiqueta directa: con once sectores, una leyenda de once
+    colores seria indescifrable.
+    """
+    p = palette()
+    if df.empty:
+        return apply_layout(go.Figure(), height=height)
+
+    fig = go.Figure()
+
+    # Cuadrantes: fondos muy tenues, solo para orientar la lectura.
+    span = 3.5
+    quadrants = [
+        (100, 100 + span, 100, 100 + span, "Lidera"),
+        (100, 100 + span, 100 - span, 100, "Se debilita"),
+        (100 - span, 100, 100 - span, 100, "Rezagado"),
+        (100 - span, 100, 100, 100 + span, "Mejora"),
+    ]
+    for x0, x1, y0, y1, label in quadrants:
+        fig.add_shape(
+            type="rect", x0=x0, x1=x1, y0=y0, y1=y1,
+            fillcolor=p["grid"], opacity=0.28, line=dict(width=0), layer="below",
+        )
+        fig.add_annotation(
+            x=(x0 + x1) / 2, y=y1 - 0.12, text=label, showarrow=False,
+            font=dict(size=10, color=p["muted"]),
+        )
+
+    # Estelas: solo las pedidas explicitamente.
+    #
+    # Dibujar las once a la vez produce una marana de lineas cruzadas donde no
+    # se distingue ninguna. La estela solo aporta cuando se sigue UN sector, asi
+    # que por defecto no se muestra ninguna.
+    wanted = set(trails_for or [])
+    for i, row in enumerate(df.itertuples()):
+        if getattr(row, "etf", None) not in wanted:
+            continue
+        trail_x = getattr(row, "estela_ratio", None) or []
+        trail_y = getattr(row, "estela_momentum", None) or []
+        if len(trail_x) > 1:
+            fig.add_trace(
+                go.Scatter(
+                    x=trail_x, y=trail_y, mode="lines+markers",
+                    line=dict(color=series_color(i), width=2, dash="dot"),
+                    marker=dict(size=4, color=series_color(i)),
+                    opacity=0.8, hoverinfo="skip", showlegend=False,
+                )
+            )
+
+    # Las etiquetas alternan arriba y abajo: dos sectores en posiciones
+    # parecidas escribirian su nombre uno encima del otro y quedarian ilegibles.
+    ordered = df.sort_values("ratio").index
+    positions = pd.Series("top center", index=df.index)
+    positions.loc[ordered[1::2]] = "bottom center"
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["ratio"], y=df["momentum"], mode="markers+text",
+            text=df["etf"], textposition=positions.tolist(),
+            textfont=dict(size=10, color=p["text_secondary"]),
+            marker=dict(
+                size=13,
+                color=[series_color(i) for i in range(len(df))],
+                line=dict(width=1.5, color=p["surface"]),
+            ),
+            customdata=df[["sector", "cuadrante"]].to_numpy(),
+            hovertemplate=(
+                "%{customdata[0]}<br>Fuerza relativa: %{x:.2f}"
+                "<br>Momentum: %{y:.2f}<br>%{customdata[1]}<extra></extra>"
+            ),
+            showlegend=False,
+        )
+    )
+
+    fig.add_hline(y=100, line=dict(color=p["axis"], width=1))
+    fig.add_vline(x=100, line=dict(color=p["axis"], width=1))
+
+    fig = apply_layout(fig, height=height)
+    fig.update_xaxes(title="Fuerza relativa frente al indice", showgrid=False,
+                     title_font=dict(size=11, color=p["muted"]))
+    fig.update_yaxes(title="Momentum de esa fuerza", showgrid=False,
+                     title_font=dict(size=11, color=p["muted"]))
+    return fig
+
+
+def sector_treemap(df: pd.DataFrame, group_col: str = "gics_sector",
+                   height: int = 480) -> go.Figure:
+    """Mapa de superficie: tamano por capitalizacion, color por rendimiento.
+
+    Complementa al mapa de TradingView porque puede agrupar por **tipo de
+    inversion**, dimension que aquel no ofrece.
+    """
+    p = palette()
+    needed = {group_col, "ticker", "market_cap", "ret_1d"}
+    if df.empty or not needed.issubset(df.columns):
+        return apply_layout(go.Figure(), height=height)
+
+    data = df.dropna(subset=[group_col, "market_cap", "ret_1d"]).copy()
+    data = data[data["market_cap"] > 0]
+    if data.empty:
+        return apply_layout(go.Figure(), height=height)
+
+    data["ret_pct"] = data["ret_1d"] * 100
+    span = float(data["ret_pct"].abs().quantile(0.95)) or 1.0
+
+    fig = go.Figure(
+        go.Treemap(
+            labels=data["ticker"],
+            parents=data[group_col],
+            values=data["market_cap"],
+            marker=dict(
+                colors=data["ret_pct"], colorscale=DIVERGING_PERFORMANCE,
+                cmid=0, cmin=-span, cmax=span,
+                line=dict(width=2, color=p["surface"]),
+            ),
+            texttemplate="%{label}<br>%{color:+.1f}%",
+            textfont=dict(size=11),
+            hovertemplate="%{label}<br>%{color:+.2f}%<extra></extra>",
+            branchvalues="remainder",
+            tiling=dict(pad=2),
+        )
+    )
+    fig.update_layout(
+        height=height, margin=dict(l=4, r=4, t=8, b=4),
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(family=FONT_FAMILY, color=p["text_secondary"]),
+    )
+    return fig
+
+
+def correlation_line(df: pd.DataFrame, height: int = 260) -> go.Figure:
+    """Correlacion media entre pares.
+
+    Cuando sube, el mercado se mueve en bloque por razones macro y elegir
+    valores concretos aporta poco: casi todo sube o baja junto.
+    """
+    p = palette()
+    if df.empty or "avg_pairwise_corr" not in df.columns:
+        return apply_layout(go.Figure(), height=height)
+
+    data = df.dropna(subset=["avg_pairwise_corr"])
+    if data.empty:
+        return apply_layout(go.Figure(), height=height)
+
+    fig = go.Figure(
+        go.Scatter(
+            x=pd.to_datetime(data["date"]), y=data["avg_pairwise_corr"],
+            mode="lines", name="Correlacion media",
+            line=dict(color=series_color(0), width=2),
+            hovertemplate="%{x|%d %b %Y}<br>Correlacion media: %{y:.2f}<extra></extra>",
+        )
+    )
+    fig.add_hline(
+        y=0.5, line=dict(color=p["axis"], width=1, dash="dot"),
+        annotation_text="mercado en bloque", annotation_position="top left",
+        annotation_font=dict(size=10, color=p["muted"]),
+    )
+    fig = apply_layout(fig, height=height, hovermode="x unified")
+    fig.update_yaxes(range=[-0.2, 1.0])
+    return fig
+
+
+def macro_series(df: pd.DataFrame, title: str, zero_line: bool = False,
+                 mark_negative: bool = False, height: int = 240) -> go.Figure:
+    """Serie macro simple.
+
+    `zero_line` dibuja la referencia del cero. `mark_negative` marca ademas los
+    tramos por debajo, y solo se activa donde ese tramo significa algo concreto
+    (la curva de tipos invertida). Aplicarlo a cualquier serie que cruce el cero
+    llena el grafico de puntos rojos que no dicen nada.
+    """
+    p = palette()
+    if df.empty:
+        return apply_layout(go.Figure(), height=height)
+
+    fig = go.Figure(
+        go.Scatter(
+            x=pd.to_datetime(df["date"]), y=df["value"], mode="lines",
+            line=dict(color=series_color(0), width=2), name=title,
+            hovertemplate="%{x|%b %Y}<br>%{y:.2f}<extra></extra>",
+        )
+    )
+    if zero_line:
+        fig.add_hline(y=0, line=dict(color=p["axis"], width=1, dash="dash"))
+    if mark_negative:
+        negative = df[df["value"] < 0]
+        if not negative.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=pd.to_datetime(negative["date"]), y=negative["value"],
+                    mode="markers", marker=dict(size=3, color=STATUS["critical"]),
+                    name="Curva invertida", hoverinfo="skip",
+                )
+            )
+    fig = apply_layout(fig, height=height, hovermode="x unified")
+    fig.update_layout(title=dict(text=title, font=dict(size=12, color=p["text_secondary"]),
+                                 x=0, xanchor="left"))
     return fig
 
 

@@ -17,12 +17,20 @@ from datetime import date, timedelta
 import pandas as pd
 from rich.console import Console
 
-from ..core.config import all_active_tickers, get_active_universes, get_settings, get_universes
+from ..core.config import (
+    all_active_tickers,
+    get_active_universes,
+    get_fred_series,
+    get_settings,
+    get_universes,
+)
 from ..core.db import connect, migrate, upsert_df
 from ..core.symbols import resolve_all
 from ..core.timeutils import utcnow
 from ..providers.base import completeness
+from ..providers.fred_provider import FredProvider
 from ..providers.registry import get_price_provider
+from ..providers.universe_provider import resolve_universe
 
 console = Console()
 
@@ -59,8 +67,20 @@ def ingest_universe(provider_name: str | None = None) -> int:
     provider = get_price_provider(provider_name)
     run_id = str(uuid.uuid4())
 
-    tickers = all_active_tickers()
-    console.print(f"[cyan]Universo:[/] {len(tickers)} tickers en {len(get_active_universes())} listas")
+    # Los universos con `source: wikipedia` se resuelven contra la lista real de
+    # constituyentes; si la descarga falla se usa la lista manual del YAML.
+    resolved: dict[str, list[str]] = {}
+    for key in get_active_universes():
+        spec = universes.get(key)
+        if spec is None:
+            continue
+        members, origin = resolve_universe(key, spec.tickers, spec.source)
+        resolved[key] = members
+        if spec.source == "wikipedia":
+            console.print(f"  {key}: {len(members)} tickers ({origin})")
+
+    tickers = list(dict.fromkeys(t for members in resolved.values() for t in members))
+    console.print(f"[cyan]Universo:[/] {len(tickers)} tickers en {len(resolved)} listas")
 
     try:
         meta = provider.fetch_metadata(tickers)
@@ -71,19 +91,27 @@ def ingest_universe(provider_name: str | None = None) -> int:
     if meta.empty:
         meta = pd.DataFrame({"ticker": tickers})
 
-    # Clase de activo por universo, como respaldo si el proveedor no la da.
+    # Clase de activo declarada en la configuracion, por ticker.
     class_by_ticker: dict[str, str] = {}
-    for key in get_active_universes():
+    for key, members in resolved.items():
         spec = universes.get(key)
         if spec:
-            for t in spec.tickers:
+            for t in members:
                 class_by_ticker.setdefault(t, spec.asset_class)
 
     records = meta.to_dict("records")
     for rec in records:
-        rec.setdefault("asset_class", class_by_ticker.get(rec["ticker"], "equity"))
-        if not rec.get("asset_class"):
-            rec["asset_class"] = class_by_ticker.get(rec["ticker"], "equity")
+        declared = class_by_ticker.get(rec["ticker"])
+        inferred = rec.get("asset_class")
+        # La configuracion gana cuando declara `etf` o `index`: los proveedores
+        # clasifican los ETF como acciones con demasiada frecuencia, y un ETF
+        # sectorial mal etiquetado deja sin datos toda la rotacion sectorial.
+        # Para el resto manda el proveedor, que distingue cripto de materia
+        # prima mejor que una etiqueta generica de universo.
+        if declared in {"etf", "index"}:
+            rec["asset_class"] = declared
+        elif not inferred:
+            rec["asset_class"] = declared or "equity"
 
     enriched = pd.DataFrame(resolve_all(records))
     enriched["is_active"] = True
@@ -92,15 +120,13 @@ def ingest_universe(provider_name: str | None = None) -> int:
     enriched["investment_type"] = enriched["asset_class"]
     enriched["updated_at"] = utcnow()
 
-    membership_rows = []
-    for key in get_active_universes():
-        spec = universes.get(key)
-        if not spec:
-            continue
-        for t in spec.tickers:
-            membership_rows.append(
-                {"universe": key, "ticker": t, "valid_from": date.today(), "valid_to": None}
-            )
+    # La composicion se guarda con fecha: es lo que permite que, con el tiempo,
+    # los backtests dejen de sufrir sesgo de supervivencia hacia adelante.
+    membership_rows = [
+        {"universe": key, "ticker": t, "valid_from": date.today(), "valid_to": None}
+        for key, members in resolved.items()
+        for t in members
+    ]
 
     with connect() as conn:
         n = upsert_df(conn, "instruments", enriched, keys=["ticker"])
@@ -113,6 +139,22 @@ def ingest_universe(provider_name: str | None = None) -> int:
     unmapped = enriched["tv_symbol"].isna().sum()
     console.print(f"[green]Instrumentos: {n}[/] ({unmapped} sin equivalencia en TradingView)")
     return n
+
+
+def _tickers_to_download() -> list[str]:
+    """Tickers a descargar: los que registro la ingesta de universo.
+
+    Se leen del almacen y no del YAML porque, con `source: wikipedia`, la lista
+    real puede tener cientos de valores que el fichero de configuracion no
+    enumera. Si el almacen esta vacio se cae a la configuracion.
+    """
+    with connect(read_only=True) as conn:
+        df = conn.execute(
+            "SELECT ticker FROM instruments WHERE is_active ORDER BY ticker"
+        ).fetchdf()
+    if df.empty:
+        return all_active_tickers()
+    return df["ticker"].tolist()
 
 
 def _last_dates() -> dict[str, date]:
@@ -132,7 +174,7 @@ def ingest_prices(provider_name: str | None = None, full: bool = False) -> int:
     provider = get_price_provider(provider_name)
     run_id = str(uuid.uuid4())
 
-    tickers = all_active_tickers()
+    tickers = _tickers_to_download()
     today = date.today()
     backfill_start = today - timedelta(days=365 * int(settings.ingest.get("backfill_years", 10)))
     last = {} if full else _last_dates()
@@ -182,7 +224,7 @@ def ingest_fundamentals(provider_name: str | None = None, all_tickers: bool = Fa
     provider = get_price_provider(provider_name)
     run_id = str(uuid.uuid4())
 
-    tickers = [t for t in all_active_tickers() if not t.startswith("^")]
+    tickers = [t for t in _tickers_to_download() if not t.startswith("^")]
     shards = int(settings.ingest.get("fundamentals_shard_count", 7))
     if not all_tickers and shards > 1:
         today_shard = date.today().toordinal() % shards
@@ -222,11 +264,59 @@ def ingest_fundamentals(provider_name: str | None = None, all_tickers: bool = Fa
     return n
 
 
+def ingest_macro(years: int = 15) -> int:
+    """Series macroeconomicas de FRED.
+
+    Es opcional por diseno: sin `FRED_API_KEY` el resto del sistema funciona
+    igual y solo la pagina de macro queda incompleta, avisando de ello.
+    """
+    migrate()
+    run_id = str(uuid.uuid4())
+    provider = FredProvider()
+
+    if not provider.available:
+        console.print(
+            "[yellow]Sin FRED_API_KEY:[/] se omiten las series macro. "
+            "Consigue una clave gratuita en fred.stlouisfed.org y ponla en .env"
+        )
+        with connect() as conn:
+            _log(conn, run_id, "macro", "fred", "SKIPPED", error="sin clave")
+        return 0
+
+    series_ids = list(get_fred_series())
+    if not series_ids:
+        return 0
+
+    start = date.today() - timedelta(days=365 * years)
+    console.print(f"[cyan]Macro:[/] {len(series_ids)} series de FRED desde {start}")
+
+    try:
+        df = provider.fetch_series(series_ids, start)
+    except Exception as exc:  # noqa: BLE001
+        with connect() as conn:
+            _log(conn, run_id, "macro", "fred", "FAILED", error=str(exc))
+        console.print(f"[yellow]Macro fallido: {exc}[/]")
+        return 0
+
+    failed = df.attrs.get("failed_series", [])
+    if df.empty:
+        return 0
+
+    with connect() as conn:
+        n = upsert_df(conn, "macro_series", df, keys=["series_id", "date"])
+        _log(conn, run_id, "macro", "fred", "PARTIAL" if failed else "OK", rows=n,
+             error=f"{len(failed)} series fallidas" if failed else "")
+
+    console.print(f"[green]Macro: {n} observaciones[/]"
+                  + (f" · {len(failed)} series fallidas" if failed else ""))
+    return n
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingesta de datos de mercado")
     parser.add_argument(
         "--what", default="all",
-        choices=["all", "universe", "prices", "fundamentals"],
+        choices=["all", "universe", "prices", "fundamentals", "macro"],
         help="que descargar",
     )
     parser.add_argument("--provider", default=None, help="fuerza un proveedor (yfinance|synthetic)")
@@ -239,6 +329,8 @@ def main() -> None:
         ingest_prices(args.provider, full=args.full)
     if args.what in ("all", "fundamentals"):
         ingest_fundamentals(args.provider, all_tickers=args.full or args.provider == "synthetic")
+    if args.what in ("all", "macro") and args.provider != "synthetic":
+        ingest_macro()
 
     console.print("[bold green]Ingesta terminada.[/]")
 

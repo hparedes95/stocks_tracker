@@ -38,6 +38,8 @@ pages = {
                 icon=":material/trending_up:", url_path="hoy", default=True),
         st.Page("pages/2_sectores.py", title="Sectores y rotacion",
                 icon=":material/donut_large:", url_path="sectores"),
+        st.Page("pages/6_macro.py", title="Macro y riesgo",
+                icon=":material/public:", url_path="macro"),
     ],
     "Seleccion": [
         st.Page("pages/3_oportunidades.py", title="Oportunidades",

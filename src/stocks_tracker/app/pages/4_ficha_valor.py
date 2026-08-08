@@ -12,14 +12,14 @@ import pandas as pd
 import streamlit as st
 
 from stocks_tracker.app import data_access as da
-from stocks_tracker.app.components import charts, tv_widgets
+from stocks_tracker.app.components import charts, lwc, tv_widgets
 from stocks_tracker.app.components.common import (
     render_disclaimer,
     render_flags,
     render_reasons,
 )
 from stocks_tracker.app.components.theme import (
-    format_market_cap,
+    STATUS,
     format_num,
     format_pct,
 )
@@ -92,23 +92,69 @@ tab_own, tab_tv, tab_fund, tab_news = st.tabs(
 
 with tab_own:
     st.caption(
-        "Nuestros datos con nuestras senales marcadas. Los widgets de "
-        "TradingView no permiten dibujar nada encima: son sus datos, no los nuestros."
+        "Nuestros datos con nuestras senales marcadas, nuestras medias y los "
+        "niveles que hemos calculado. Los widgets de TradingView no permiten "
+        "dibujar nada encima: son sus datos, no los nuestros."
     )
-    st.plotly_chart(
-        charts.price_with_signals(prices, indicators, signals, height=440),
-        width="stretch",
-        config={"displayModeBar": False},
-    )
-    osc_left, osc_right = st.columns(2)
-    with osc_left:
-        st.plotly_chart(
-            charts.oscillator_panel(indicators, "rsi14", "RSI (14)", bands=(30, 70)),
-            width="stretch", config={"displayModeBar": False},
+
+    # Se dibuja con lightweight-charts, la libreria de TradingView. A diferencia
+    # del widget, aqui los datos y los marcadores son nuestros.
+    overlays = {
+        label: indicators[col]
+        for col, label in (("sma50", "MM50"), ("sma200", "MM200"))
+        if col in indicators.columns and indicators[col].notna().any()
+    }
+
+    sessions = lwc.sessions_of(prices)
+    markers = lwc.markers_from_signals(signals, sessions, labels)
+
+    price_lines = []
+    for col, title, color in (
+        ("support_near", "soporte", STATUS["good"]),
+        ("resistance_near", "resistencia", STATUS["critical"]),
+    ):
+        level = latest_ind.get(col)
+        if level is not None and pd.notna(level):
+            price_lines.append(lwc.PriceLine(price=float(level), title=title, color=color))
+
+    panes = []
+    if "rsi14" in indicators.columns:
+        panes.append(
+            lwc.Pane(
+                name="RSI",
+                series={"RSI (14)": lwc.series_to_points(indicators["date"],
+                                                         indicators["rsi14"])},
+                levels=[30.0, 70.0], height=110,
+            )
         )
-    with osc_right:
+    if "macd_hist" in indicators.columns:
+        panes.append(
+            lwc.Pane(
+                name="MACD",
+                series={"Histograma MACD": lwc.series_to_points(indicators["date"],
+                                                                indicators["macd_hist"])},
+                kind="histogram", levels=[0.0], height=100,
+            )
+        )
+
+    rendered = lwc.price_chart(
+        prices, overlays=overlays, markers=markers,
+        price_lines=price_lines, panes=panes, height=520,
+    )
+
+    if rendered:
+        notes = [f"{len(markers)} senales marcadas"]
+        if price_lines:
+            notes.append(f"{len(price_lines)} niveles calculados")
+        st.caption(
+            " · ".join(notes)
+            + ". Se muestran solo las senales de cambio de estado y las mas "
+            "recientes: pintarlas todas taparia las velas."
+        )
+    else:
+        # Respaldo si falta la libreria vendorizada.
         st.plotly_chart(
-            charts.oscillator_panel(indicators, "macd_hist", "Histograma MACD", bands=(0,)),
+            charts.price_with_signals(prices, indicators, signals, height=440),
             width="stretch", config={"displayModeBar": False},
         )
 
@@ -237,6 +283,20 @@ with extra_col:
         )
     st.metric("Caida maxima 1 ano", format_pct(latest_ind.get("max_dd_1y"), 0, False))
 
+    support = latest_ind.get("support_near")
+    resistance = latest_ind.get("resistance_near")
+    if pd.notna(support) or pd.notna(resistance):
+        st.caption(
+            "**Niveles calculados** · soporte "
+            + (format_num(support) if pd.notna(support) else "—")
+            + " · resistencia "
+            + (format_num(resistance) if pd.notna(resistance) else "—")
+        )
+        st.caption(
+            "Agrupacion de maximos y minimos locales del ultimo ano. Un nivel "
+            "tocado varias veces pesa mas que uno tocado una sola vez."
+        )
+
     if tv_widgets.enabled() and tv_symbol:
         tv_widgets.technical_analysis(tv_symbol, height=360)
 
@@ -276,6 +336,5 @@ if st.button("Anadir a la watchlist"):
     da.add_to_watchlist(ticker, price=float(latest_price["close"]))
     st.toast(f"{ticker} anadido a la watchlist")
 
-del format_market_cap
 st.divider()
 render_disclaimer()

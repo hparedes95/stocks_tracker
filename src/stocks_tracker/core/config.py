@@ -224,6 +224,23 @@ def get_sector_etfs() -> dict[str, str]:
     return dict(raw.get("sector_etfs") or {})
 
 
+@lru_cache(maxsize=1)
+def get_breadth_scope() -> str:
+    """Universo de referencia para la amplitud y el semaforo de riesgo."""
+    raw = _load_yaml("universe.yaml")
+    return str(raw.get("breadth_scope") or "SP500")
+
+
+@lru_cache(maxsize=1)
+def get_macro_config() -> dict[str, Any]:
+    return _load_yaml("macro.yaml")
+
+
+@lru_cache(maxsize=1)
+def get_fred_series() -> dict[str, dict]:
+    return dict(get_macro_config().get("fred_series") or {})
+
+
 def all_active_tickers() -> list[str]:
     """Todos los tickers de los universos activos, sin duplicados."""
     universes = get_universes()

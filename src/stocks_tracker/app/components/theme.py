@@ -39,9 +39,22 @@ SEQUENTIAL_BLUE = [
     "#5598e7", "#3987e5", "#2a78d6", "#256abf", "#1c5cab",
 ]
 
-# Divergente: dos polos opuestos con gris neutro en el centro.
+# Divergente general: dos polos opuestos con gris neutro en el centro.
 DIVERGING = [
     [0.0, "#d03b3b"], [0.5, "#f0efec"], [1.0, "#2a78d6"],
+]
+
+# Divergente para RENDIMIENTO. Rojo y verde son el peor par posible para el
+# daltonismo, pero aqui pesa mas la coherencia: en el resto del dashboard verde
+# es subida y rojo bajada, y usar azul solo en los mapas de calor obligaria a
+# recordar dos convenciones distintas dentro de la misma pantalla.
+#
+# La mitigacion es la misma que en el resto: **cada celda lleva su valor con
+# signo impreso encima**, asi que el color refuerza pero nunca comunica en
+# solitario. Si en algun momento se quitan esas etiquetas, hay que volver al
+# divergente azul-rojo.
+DIVERGING_PERFORMANCE = [
+    [0.0, "#d03b3b"], [0.5, "#f0efec"], [1.0, "#0ca30c"],
 ]
 
 LIGHT = {

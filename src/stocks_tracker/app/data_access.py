@@ -6,12 +6,18 @@ responde en milisegundos y se puede cambiar el esquema en un solo sitio.
 
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import pandas as pd
 import streamlit as st
 
-from ..core.config import get_active_universes, get_settings, get_universes
+from ..core.config import (
+    get_active_universes,
+    get_breadth_scope,
+    get_settings,
+    get_universes,
+)
 from ..core.db import connect
 from ..core.timeutils import hours_since
 
@@ -248,14 +254,94 @@ def get_sector_performance() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
-def get_breadth(scope: str = "SP100", days: int = 400) -> pd.DataFrame:
+def get_breadth(scope: str | None = None, days: int = 400) -> pd.DataFrame:
+    """Serie de amplitud. Sin ambito, el configurado en `universe.yaml`."""
     return _fetch(
         """
         SELECT * FROM breadth_daily
         WHERE scope = ? ORDER BY date DESC LIMIT ?
         """,
-        [scope, days],
+        [scope or get_breadth_scope(), days],
     ).sort_values("date")
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_rotation() -> pd.DataFrame:
+    """Posicion de cada sector en el grafico de rotacion."""
+    df = _fetch(
+        """
+        SELECT * FROM sector_rotation
+        WHERE date = (SELECT MAX(date) FROM sector_rotation)
+        ORDER BY ratio DESC
+        """
+    )
+    if df.empty:
+        return df
+    # Las estelas se guardan como JSON para no crear una tabla por punto.
+    for col in ("estela_ratio", "estela_momentum"):
+        if col in df.columns:
+            df[col] = df[col].map(lambda s: json.loads(s) if isinstance(s, str) else [])
+    return df
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_treemap_data(universe: str = "TODOS", group_col: str = "gics_sector") -> pd.DataFrame:
+    """Datos para el mapa de superficie: capitalizacion y variacion del dia."""
+    where, params = _universe_filter(universe)
+    column = "gics_sector" if group_col == "gics_sector" else "investment_type"
+    return _fetch(
+        f"""
+        SELECT i.ticker, inst.{column} AS gics_sector, inst.market_cap, i.ret_1d
+        FROM indicators_daily i
+        JOIN instruments inst ON inst.ticker = i.ticker
+        WHERE i.date = (SELECT MAX(date) FROM indicators_daily)
+          AND inst.asset_class = 'equity'
+          AND inst.market_cap IS NOT NULL AND inst.market_cap > 0
+          AND inst.{column} IS NOT NULL
+          {where}
+        """,
+        params,
+    )
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_macro_series(series_ids: tuple[str, ...] = ()) -> pd.DataFrame:
+    """Series macro de FRED. Vacio si no se han descargado."""
+    if series_ids:
+        placeholders = ", ".join("?" for _ in series_ids)
+        return _fetch(
+            f"""
+            SELECT series_id, date, value FROM macro_series
+            WHERE series_id IN ({placeholders}) ORDER BY series_id, date
+            """,
+            list(series_ids),
+        )
+    return _fetch("SELECT series_id, date, value FROM macro_series ORDER BY series_id, date")
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def macro_available() -> bool:
+    df = _fetch("SELECT COUNT(*) AS n FROM macro_series")
+    return bool(not df.empty and int(df.iloc[0]["n"]) > 0)
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_macro_prices(tickers: tuple[str, ...]) -> pd.DataFrame:
+    """Series de precios usadas como termometro macro (oro, cobre, dolar...)."""
+    if not tickers:
+        return pd.DataFrame()
+    placeholders = ", ".join("?" for _ in tickers)
+    return _fetch(
+        f"""
+        SELECT p.ticker, p.date, p.adj_close, inst.name
+        FROM prices_daily p
+        JOIN instruments inst ON inst.ticker = p.ticker
+        WHERE p.ticker IN ({placeholders})
+          AND p.date >= (SELECT MAX(date) FROM prices_daily) - INTERVAL 1500 DAY
+        ORDER BY p.ticker, p.date
+        """,
+        list(tickers),
+    )
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
