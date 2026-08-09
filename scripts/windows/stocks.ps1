@@ -10,7 +10,8 @@
     Tareas:
       setup     Crea el entorno e instala las dependencias
       demo      Genera datos sinteticos (sin internet) y los calcula
-      ingest    Descarga datos reales de Yahoo Finance
+      real      Cambia los datos de prueba por precios reales (rapido)
+      ingest    Descarga el universo completo de Yahoo Finance
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
       validate  Valida las senales contra su historico
@@ -27,6 +28,7 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet('setup', 'demo', 'ingest', 'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
+                 'real',
                  'lint', 'help')]
     [string]$Task = 'help'
 )
@@ -173,7 +175,23 @@ switch ($Task) {
         Write-Host "Arrancalo con:  .\scripts\windows\stocks.ps1 run" -ForegroundColor Green
     }
 
-    'ingest' {
+    'real' {
+        # De datos de prueba a precios reales, por el camino mas corto.
+        # Primero los indices (15 valores, un minuto) para que la portada
+        # cuadre ya; el universo completo despues, que es lo que tarda.
+        Assert-Venv
+        Write-Step "Borrando los datos de prueba"
+        & $Py -m stocks_tracker.ingest.run_ingest --drop-synthetic --what prices ``
+            --universes INDICES,MACRO --years 3
+        Write-Step "Calculando con los precios reales"
+        & $Py -m stocks_tracker.compute.run_compute
+        Write-Host ""
+        Write-Host "Ya puedes abrir el dashboard: los indices son reales." -ForegroundColor Green
+        Write-Host "Para el universo completo (varios minutos):" -ForegroundColor Yellow
+        Write-Host "    .\scripts\windows\stocks.ps1 ingest"
+    }
+
+    'ingest' {
         Assert-Venv
         Write-Step "Descargando datos reales (la primera vez tarda varios minutos)"
         & $Py -m stocks_tracker.ingest.run_ingest --what all

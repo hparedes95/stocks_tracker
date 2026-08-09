@@ -1,5 +1,5 @@
 .PHONY: help setup migrate ingest ingest-demo compute compute-presets repair \
-	validate alerts alerts-dry daily watch watch-test watch-status \
+	real validate alerts alerts-dry daily watch watch-test watch-status \
 	run test lint fmt clean
 
 PY := .venv/bin/python
@@ -8,7 +8,8 @@ UV := uv
 help:
 	@echo "make setup        Crea el entorno e instala dependencias"
 	@echo "make migrate      Crea o actualiza el almacen DuckDB"
-	@echo "make ingest       Descarga datos reales (yfinance) del universo configurado"
+	@echo "make real         Cambia los datos de prueba por precios reales (rapido)"
+	@echo "make ingest       Descarga el universo completo (yfinance)"
 	@echo "make ingest-demo  Genera datos sinteticos para probar sin red"
 	@echo "make compute      Calcula indicadores, factores, scores y senales"
 	@echo "make compute-presets  Puntua el universo con todos los estilos de inversion"
@@ -37,6 +38,13 @@ migrate:
 
 ingest:
 	$(PY) -m stocks_tracker.ingest.run_ingest --what all
+
+# Camino corto de datos de prueba a precios reales: borra lo sintetico y baja
+# solo los indices, que es lo que hace falta para que la portada cuadre.
+real:
+	$(PY) -m stocks_tracker.ingest.run_ingest --drop-synthetic --what prices \
+		--universes INDICES,MACRO --years 3
+	$(PY) -m stocks_tracker.compute.run_compute
 
 ingest-demo:
 	$(PY) -m stocks_tracker.ingest.run_ingest --what all --provider synthetic

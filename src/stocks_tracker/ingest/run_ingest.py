@@ -141,13 +141,32 @@ def ingest_universe(provider_name: str | None = None) -> int:
     return n
 
 
-def _tickers_to_download() -> list[str]:
+def _tickers_to_download(universes: list[str] | None = None) -> list[str]:
     """Tickers a descargar: los que registro la ingesta de universo.
 
     Se leen del almacen y no del YAML porque, con `source: wikipedia`, la lista
     real puede tener cientos de valores que el fichero de configuracion no
     enumera. Si el almacen esta vacio se cae a la configuracion.
+
+    Con `universes` se limita a unas listas concretas. Sirve para ver precios
+    reales en la pantalla en un minuto en lugar de esperar a que bajen los
+    seiscientos valores del universo completo.
     """
+    if universes:
+        placeholders = ",".join(["?"] * len(universes))
+        with connect(read_only=True) as conn:
+            df = conn.execute(
+                f"""
+                SELECT DISTINCT m.ticker FROM universe_membership m
+                JOIN instruments i ON i.ticker = m.ticker AND i.is_active
+                WHERE m.valid_to IS NULL AND m.universe IN ({placeholders})
+                ORDER BY m.ticker
+                """,
+                universes,
+            ).fetchdf()
+        if not df.empty:
+            return df["ticker"].tolist()
+
     with connect(read_only=True) as conn:
         df = conn.execute(
             "SELECT ticker FROM instruments WHERE is_active ORDER BY ticker"
@@ -167,16 +186,25 @@ def _last_dates() -> dict[str, date]:
     return {r.ticker: pd.Timestamp(r.last_date).date() for r in df.itertuples()}
 
 
-def ingest_prices(provider_name: str | None = None, full: bool = False) -> int:
-    """Descarga precios, incremental salvo que se pida backfill completo."""
+def ingest_prices(provider_name: str | None = None, full: bool = False,
+                  years: int | None = None,
+                  universes: list[str] | None = None) -> int:
+    """Descarga precios, incremental salvo que se pida backfill completo.
+
+    `years` acorta el historico. El minimo util son 2: los indicadores necesitan
+    400 sesiones para la MM200 y el momentum 12-1, y por debajo de eso el
+    ranking sale vacio. Diez es lo que hace falta para que el backtest tenga
+    algo que medir, pero para ver precios en pantalla sobra con tres.
+    """
     migrate()
     settings = get_settings()
     provider = get_price_provider(provider_name)
     run_id = str(uuid.uuid4())
 
-    tickers = _tickers_to_download()
+    tickers = _tickers_to_download(universes)
     today = date.today()
-    backfill_start = today - timedelta(days=365 * int(settings.ingest.get("backfill_years", 10)))
+    configured = int(settings.ingest.get("backfill_years", 10))
+    backfill_start = today - timedelta(days=365 * int(years or configured))
     last = {} if full else _last_dates()
 
     # Se agrupan por fecha de inicio para poder seguir descargando por lotes.
@@ -328,6 +356,44 @@ def ingest_macro(years: int = 15) -> int:
     return n
 
 
+def drop_synthetic() -> int:
+    """Borra los precios inventados del almacen.
+
+    Es obligatorio antes de la primera descarga real, y por una razon que no se
+    ve venir: el generador sintetico produce series hasta HOY, asi que la
+    ingesta incremental mira la ultima fecha por ticker, la encuentra al dia y
+    no descarga nada. El usuario ejecuta la ingesta, no da ningun error, y
+    sigue viendo los mismos precios inventados.
+    """
+    migrate()
+    with connect() as conn:
+        before = conn.execute(
+            "SELECT COUNT(*) FROM prices_daily WHERE source = 'synthetic'"
+        ).fetchone()[0]
+        if not before:
+            console.print("[green]No hay datos sinteticos que borrar.[/]")
+            return 0
+        # Todo lo que se calcula a partir de esos precios deja de valer.
+        for table in ("prices_daily", "indicators_daily", "factor_scores",
+                      "factor_contributions", "signals", "breadth_daily",
+                      "regime_daily", "sector_rotation", "signal_evidence"):
+            try:
+                if table == "prices_daily":
+                    conn.execute(
+                        "DELETE FROM prices_daily WHERE source = 'synthetic'"
+                    )
+                else:
+                    conn.execute(f"DELETE FROM {table}")
+            except Exception as exc:  # noqa: BLE001
+                console.print(f"[yellow]{table}: {exc}[/]")
+
+    console.print(
+        f"[green]Borrados {before} precios sinteticos[/] y todo lo calculado "
+        "a partir de ellos. La cartera y la watchlist se conservan."
+    )
+    return before
+
+
 def mixed_source_tickers() -> pd.DataFrame:
     """Series cuyo historico procede de mas de una fuente.
 
@@ -419,6 +485,18 @@ def main() -> None:
     )
     parser.add_argument("--full", action="store_true", help="backfill completo en vez de incremental")
     parser.add_argument(
+        "--years", type=int, default=None,
+        help="anos de historico a descargar (por defecto, los de settings.yaml)",
+    )
+    parser.add_argument(
+        "--universes", default=None,
+        help="limita a ciertas listas, separadas por comas (p.ej. INDICES,MACRO)",
+    )
+    parser.add_argument(
+        "--drop-synthetic", action="store_true",
+        help="borra los precios inventados antes de descargar los reales",
+    )
+    parser.add_argument(
         "--repair-mixed", action="store_true",
         help="reconstruye las series cuyo historico mezcla varias fuentes",
     )
@@ -428,10 +506,18 @@ def main() -> None:
         repair_mixed_sources(args.provider)
         return
 
+    if args.drop_synthetic:
+        drop_synthetic()
+
     if args.what in ("all", "universe"):
         ingest_universe(args.provider)
     if args.what in ("all", "prices"):
-        ingest_prices(args.provider, full=args.full)
+        universes = (
+            [u.strip().upper() for u in args.universes.split(",") if u.strip()]
+            if args.universes else None
+        )
+        ingest_prices(args.provider, full=args.full, years=args.years,
+                      universes=universes)
     if args.what in ("all", "fundamentals"):
         ingest_fundamentals(args.provider, all_tickers=args.full or args.provider == "synthetic")
     if args.what in ("all", "macro") and args.provider != "synthetic":
