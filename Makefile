@@ -1,5 +1,6 @@
 .PHONY: help setup migrate ingest ingest-demo compute compute-presets repair \
-	validate alerts alerts-dry daily run test lint fmt clean
+	validate alerts alerts-dry daily watch watch-test watch-status \
+	run test lint fmt clean
 
 PY := .venv/bin/python
 UV := uv
@@ -16,6 +17,8 @@ help:
 	@echo "make alerts       Evalua las reglas y envia los avisos"
 	@echo "make alerts-dry   Igual, pero sin guardar ni enviar nada"
 	@echo "make daily        Ciclo completo: ingesta + calculo + alertas"
+	@echo "make watch        Vigila el mercado en vivo y avisa si se desploma"
+	@echo "make watch-test   Simula un desplome del 8% para probar los avisos"
 	@echo "make run          Arranca el dashboard (solo 127.0.0.1)"
 	@echo "make test         Ejecuta los tests"
 	@echo "make lint         Comprueba estilo"
@@ -64,6 +67,19 @@ alerts-dry:
 # Lo que conviene poner en cron. Ver la cabecera del script.
 daily:
 	./scripts/daily_update.sh
+
+# Vigilancia en vivo. Se queda corriendo: dejalo en una terminal abierta, o
+# instalalo como servicio (ver README).
+watch:
+	$(PY) -m stocks_tracker.watch.run_watch
+
+# Simulacro. Fuerza una caida del 8% con datos sinteticos y manda los avisos
+# de verdad, para comprobar que llegan ANTES de necesitarlo.
+watch-test:
+	$(PY) -m stocks_tracker.watch.run_watch --test-crash 8
+
+watch-status:
+	$(PY) -m stocks_tracker.watch.run_watch --status
 
 # 127.0.0.1 de forma deliberada: Streamlit no tiene autenticacion.
 # Nunca exponer en 0.0.0.0. Para acceso remoto, tunel SSH o Tailscale.

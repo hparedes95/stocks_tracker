@@ -1,0 +1,102 @@
+# Vigilante de mercado en vivo.
+#
+# Esto NO es el dashboard. El dashboard analiza al cierre; esto solo vigila que
+# no se este cayendo todo mientras no miras, y avisa al movil si pasa.
+#
+# LATENCIA REAL: Yahoo sirve la renta variable con unos 15 minutos de retraso.
+# Bajar `interval_seconds` por debajo del minuto no acelera nada, solo gasta
+# peticiones y acerca el bloqueo. La cripto si va practicamente al momento.
+
+enabled: true
+
+# Cada cuanto se consulta. 60 s es un buen equilibrio: por debajo, el retraso
+# de la fuente domina de todos modos.
+interval_seconds: 60
+
+# Horario de vigilancia, en hora local del usuario (timezone de settings.yaml).
+# Fuera de estas horas el proceso duerme y no gasta peticiones.
+#
+# 15:30-22:00 cubre la sesion estadounidense desde Espana; 09:00-17:35, la
+# europea. La cripto se vigila siempre porque no cierra.
+schedule:
+  weekdays_only: true
+  windows:
+    - "09:00-17:35"    # sesion europea
+    - "15:30-22:05"    # sesion estadounidense
+  always_watch_crypto: true
+
+# Que se vigila. Deliberadamente pocos simbolos: un desplome se ve en los
+# indices, no hace falta sondear 600 valores. Cuantos mas, mas cerca del
+# bloqueo de Yahoo.
+symbols:
+  indices:
+    - SPY        # S&P 500
+    - QQQ        # Nasdaq 100
+    - ^IBEX      # IBEX 35
+    - ^STOXX50E  # Euro Stoxx 50
+  volatility:
+    - ^VIX
+  crypto:
+    - BTC-USD
+    - ETH-USD
+
+# Incluye tambien tus posiciones abiertas. Se leen del almacen al arrancar y se
+# refrescan cada hora.
+watch_portfolio: true
+
+# --------------------------------------------------------------------------
+# Umbrales
+# --------------------------------------------------------------------------
+# Los niveles de indice NO son inventados: -7%, -13% y -20% son los
+# cortacircuitos del mercado estadounidense (SEC Rule 80B), los porcentajes de
+# caida del S&P 500 a los que se detiene la negociacion. Anclar los avisos ahi
+# hace que "grave" signifique algo verificable y no una opinion mia.
+thresholds:
+  index_drop:
+    - {pct: -1.5, severity: media,   label: "caida notable"}
+    - {pct: -3.0, severity: alta,    label: "caida fuerte"}
+    - {pct: -7.0, severity: critica, label: "cortacircuitos nivel 1"}
+    - {pct: -13.0, severity: critica, label: "cortacircuitos nivel 2"}
+    - {pct: -20.0, severity: critica, label: "cortacircuitos nivel 3: sesion suspendida"}
+
+  # Un salto del VIX suele preceder o acompanar al desplome.
+  vix_level:
+    - {value: 30, severity: alta,    label: "VIX en zona de tension"}
+    - {value: 40, severity: critica, label: "VIX en zona de panico"}
+  vix_jump_pct:
+    - {pct: 20, severity: alta,    label: "salto del VIX"}
+    - {pct: 40, severity: critica, label: "salto extremo del VIX"}
+
+  # La cripto se mueve mas, asi que sus umbrales son mas anchos. Con los del
+  # indice avisaria casi a diario y dejarias de leerlo.
+  crypto_drop:
+    - {pct: -7.0,  severity: media,   label: "caida notable"}
+    - {pct: -12.0, severity: alta,    label: "caida fuerte"}
+    - {pct: -20.0, severity: critica, label: "desplome"}
+
+  # Tu cartera, valorada en vivo con las posiciones abiertas.
+  portfolio_drop:
+    - {pct: -3.0, severity: alta,    label: "tu cartera cae con fuerza"}
+    - {pct: -6.0, severity: critica, label: "tu cartera se desploma"}
+
+  # Un solo valor tuyo hundiendose suele ser una noticia concreta de la
+  # empresa, no el mercado. Merece aviso aparte.
+  position_drop:
+    - {pct: -8.0,  severity: alta,    label: "una posicion se hunde"}
+    - {pct: -15.0, severity: critica, label: "una posicion se desploma"}
+
+# --------------------------------------------------------------------------
+# Antirruido
+# --------------------------------------------------------------------------
+# Solo se avisa al CRUZAR un nivel nuevo, y peor que el ultimo avisado hoy.
+# Sin esto, un mercado parado en -3.2% mandaria un aviso cada minuto y a la
+# tercera vez silenciarias el canal, que es justo lo contrario de lo que
+# quieres el dia que de verdad haga falta.
+escalation_only: true
+
+# Minutos minimos entre dos avisos del mismo simbolo, aunque escale.
+min_minutes_between: 10
+
+# Al recuperarse por encima del primer umbral, se manda UN aviso de vuelta a la
+# normalidad y se rearma el sistema para el resto del dia.
+notify_recovery: true

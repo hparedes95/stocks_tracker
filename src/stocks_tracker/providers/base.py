@@ -22,6 +22,14 @@ OHLCV_COLUMNS = [
     "ticker", "date", "open", "high", "low", "close", "adj_close", "volume",
 ]
 
+# Cotizacion intradia. `previous_close` es el cierre de la sesion ANTERIOR, no
+# el ultimo precio: es contra el que se mide la caida del dia, y es lo que usan
+# los cortacircuitos del mercado.
+QUOTE_COLUMNS = [
+    "ticker", "as_of", "price", "previous_close", "change_pct",
+    "day_high", "day_low", "volume", "currency",
+]
+
 FUNDAMENTALS_COLUMNS = [
     "ticker", "as_of", "trailing_pe", "forward_pe", "peg_ratio", "price_to_book",
     "price_to_sales", "ev_to_ebitda", "ev_to_revenue", "fcf_yield", "earnings_yield",
@@ -68,6 +76,49 @@ class FundamentalsProvider(Protocol):
     def fetch_metadata(self, tickers: list[str]) -> pd.DataFrame:
         """Nombre, sector GICS, bolsa, divisa, capitalizacion."""
         ...
+
+
+@runtime_checkable
+class QuoteProvider(Protocol):
+    name: str
+
+    def fetch_quotes(self, tickers: list[str]) -> pd.DataFrame:
+        """Cotizacion actual. Devuelve QUOTE_COLUMNS, una fila por ticker."""
+        ...
+
+
+def empty_quotes() -> pd.DataFrame:
+    return pd.DataFrame(columns=QUOTE_COLUMNS)
+
+
+def normalize_quotes(df: pd.DataFrame, source: str) -> pd.DataFrame:
+    """Esquema canonico de cotizaciones y descarte de filas inservibles.
+
+    `change_pct` se recalcula SIEMPRE aqui en vez de fiarse del que traiga el
+    proveedor: es el numero con el que se decide si hay un desplome, y no puede
+    depender de que cada fuente lo redondee o lo defina a su manera.
+    """
+    if df is None or df.empty:
+        return empty_quotes()
+
+    out = df.copy()
+    for col in QUOTE_COLUMNS:
+        if col not in out.columns:
+            out[col] = pd.NA
+
+    out = out[QUOTE_COLUMNS]
+    for col in ("price", "previous_close", "day_high", "day_low", "volume"):
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    out = out[out["price"].notna() & (out["price"] > 0)]
+    if out.empty:
+        return empty_quotes()
+
+    prev = out["previous_close"].where(out["previous_close"] > 0)
+    out["change_pct"] = out["price"] / prev - 1.0
+
+    out["source"] = source
+    return out.reset_index(drop=True)
 
 
 def empty_ohlcv() -> pd.DataFrame:

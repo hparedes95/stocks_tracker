@@ -17,12 +17,14 @@ from datetime import date
 import pandas as pd
 
 from ..core.config import get_settings
+from ..core.timeutils import utcnow
 from .base import (
     FUNDAMENTALS_COLUMNS,
     ProviderError,
     RateLimitError,
     empty_fundamentals,
     normalize_ohlcv,
+    normalize_quotes,
 )
 
 
@@ -150,6 +152,88 @@ class YFinanceProvider:
             out.append(frame)
 
         return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
+
+    # ------------------------------------------------------------------
+    # Cotizacion intradia
+    # ------------------------------------------------------------------
+    def fetch_quotes(self, tickers: list[str]) -> pd.DataFrame:
+        """Precio actual y cierre anterior, en UNA peticion para todos.
+
+        Se usa `yf.download` con velas de un minuto sobre dos dias en lugar de
+        `Ticker.info` por valor: `info` es una peticion por ticker y con veinte
+        simbolos cada minuto Yahoo cortaria el acceso en una manana.
+
+        Aviso que hay que repetir en la interfaz: **estos datos llegan con
+        retraso**, tipicamente unos 15 minutos en renta variable. No es un fallo
+        que se pueda arreglar aqui; es lo que da Yahoo gratis.
+        """
+        yf = _import_yfinance()
+        if not tickers:
+            return normalize_quotes(pd.DataFrame(), self.name)
+
+        try:
+            raw = yf.download(
+                tickers=tickers,
+                period="2d",
+                interval="1m",
+                group_by="ticker",
+                auto_adjust=False,
+                actions=False,
+                prepost=False,
+                threads=self.use_threads,
+                progress=False,
+            )
+            self.requests_used += 1
+        except Exception as exc:  # noqa: BLE001
+            if _is_rate_limit(exc):
+                raise RateLimitError(str(exc)) from exc
+            raise ProviderError(f"No se pudieron leer cotizaciones: {exc}") from exc
+
+        rows = []
+        multi = isinstance(raw.columns, pd.MultiIndex)
+        for ticker in tickers:
+            try:
+                sub = raw[ticker] if multi else raw
+            except KeyError:
+                continue
+            if sub is None or sub.empty or "Close" not in sub.columns:
+                continue
+
+            closes = sub["Close"].dropna()
+            if closes.empty:
+                continue
+
+            # Las velas vienen en hora del mercado: se agrupan por fecha local
+            # para separar la sesion de hoy de la anterior.
+            by_day = closes.groupby(closes.index.date)
+            days = sorted(by_day.groups)
+            if not days:
+                continue
+
+            today = closes[closes.index.date == days[-1]]
+            previous = (
+                float(closes[closes.index.date == days[-2]].iloc[-1])
+                if len(days) > 1 else None
+            )
+
+            intraday = sub[sub.index.date == days[-1]]
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "as_of": utcnow(),
+                    "price": float(today.iloc[-1]),
+                    "previous_close": previous,
+                    "day_high": float(intraday["High"].max())
+                    if "High" in intraday else None,
+                    "day_low": float(intraday["Low"].min())
+                    if "Low" in intraday else None,
+                    "volume": float(intraday["Volume"].sum())
+                    if "Volume" in intraday else None,
+                    "currency": None,
+                }
+            )
+
+        return normalize_quotes(pd.DataFrame(rows), self.name)
 
     # ------------------------------------------------------------------
     # Fundamentales

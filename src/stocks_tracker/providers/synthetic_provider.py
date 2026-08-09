@@ -15,12 +15,13 @@ mercado: sirve para probar la maquinaria, no para sacar conclusiones.
 from __future__ import annotations
 
 import hashlib
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
 
-from .base import FUNDAMENTALS_COLUMNS, normalize_ohlcv
+from ..core.timeutils import utcnow
+from .base import FUNDAMENTALS_COLUMNS, normalize_ohlcv, normalize_quotes
 
 # Sectores GICS, para repartir el universo sinteticamente.
 GICS_SECTORS = [
@@ -138,6 +139,53 @@ class SyntheticProvider:
                 "volume": volume.astype("int64"),
             }
         )
+
+    # ------------------------------------------------------------------
+    # Cotizacion intradia
+    # ------------------------------------------------------------------
+    def fetch_quotes(self, tickers: list[str]) -> pd.DataFrame:
+        """Cotizaciones inventadas alrededor del ultimo cierre sintetico.
+
+        `STOCKS_TRACKER_FAKE_CRASH` multiplica el precio actual por (1 - valor)
+        para poder probar el vigilante de desplomes entero, incluido el envio
+        del aviso, sin esperar a que el mercado se caiga de verdad.
+        """
+        import os
+
+        crash = 0.0
+        try:
+            crash = float(os.environ.get("STOCKS_TRACKER_FAKE_CRASH", "0") or 0)
+        except ValueError:
+            crash = 0.0
+
+        today = date.today()
+        history = self.fetch_ohlcv(tickers, today - timedelta(days=10), today)
+        rows = []
+        for ticker in tickers:
+            serie = history[history["ticker"] == ticker]
+            if serie.empty:
+                continue
+            previous = float(serie["adj_close"].iloc[-1])
+            rng = np.random.default_rng(_seed_for(ticker) + int(today.strftime("%Y%m%d")))
+            price = previous * float(1 + rng.normal(0.0, 0.006))
+            if crash:
+                # En un desplome el VIX SUBE. Aplicarle la misma caida que a
+                # las acciones dejaria el simulacro sin probar las reglas de
+                # volatilidad, que son justo las que avisan primero.
+                price *= (1 + crash * 4.0) if ticker in _MEAN_REVERTING else (1 - crash)
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "as_of": utcnow(),
+                    "price": price,
+                    "previous_close": previous,
+                    "day_high": max(price, previous) * 1.002,
+                    "day_low": min(price, previous) * 0.998,
+                    "volume": float(rng.integers(1_000_000, 9_000_000)),
+                    "currency": "USD",
+                }
+            )
+        return normalize_quotes(pd.DataFrame(rows), self.name)
 
     # ------------------------------------------------------------------
     # Fundamentales y metadatos

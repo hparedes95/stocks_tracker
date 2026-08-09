@@ -16,6 +16,8 @@ from stocks_tracker.alerts.rules import get_rules, reload
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components.common import render_disclaimer
 from stocks_tracker.app.components.theme import STATUS, palette
+from stocks_tracker.watch import config as watch_config
+from stocks_tracker.watch import state as watch_state
 
 st.title("Alertas")
 
@@ -36,8 +38,8 @@ def _severity_of(payload) -> str:
         return "media"
 
 
-tab_history, tab_channels, tab_rules = st.tabs(
-    ["Historico", "Canales", "Reglas configuradas"]
+tab_history, tab_watch, tab_channels, tab_rules = st.tabs(
+    ["Historico", "Vigilancia en vivo", "Canales", "Reglas configuradas"]
 )
 
 # ---------------------------------------------------------------------------
@@ -80,6 +82,9 @@ with tab_history:
         view = pd.DataFrame(
             {
                 "Cuando": pd.to_datetime(alerts["triggered_at"]).dt.strftime("%d/%m %H:%M"),
+                "Origen": alerts["rule_id"].map(
+                    lambda r: "En vivo" if str(r).startswith("watch_") else "Cierre"
+                ),
                 "Gravedad": alerts["severidad"].str.capitalize(),
                 "Aviso": alerts["message"],
                 "Regla": alerts["rule_id"],
@@ -113,6 +118,91 @@ with tab_history:
         "dispararse para el mismo valor durante varios dias. Sin eso, la misma "
         "alerta se repetiria cada jornada mientras la condicion siga siendo "
         "cierta, y en una semana dejarias de leerlas."
+    )
+
+# ---------------------------------------------------------------------------
+# Vigilancia en vivo
+# ---------------------------------------------------------------------------
+with tab_watch:
+    st.subheader("Vigilante de desplomes")
+    st.caption(
+        "Un proceso aparte que mira el precio cada minuto y avisa al movil si "
+        "el mercado se cae. **No es el dashboard**: el dashboard analiza al "
+        "cierre, esto solo vigila."
+    )
+
+    wcfg = watch_config.get_watch_config()
+    st.code("make watch", language="bash")
+
+    status_cols = st.columns(4)
+    status_cols[0].metric("Activo", "Si" if wcfg.enabled else "No")
+    status_cols[1].metric("Cada", f"{wcfg.interval_seconds} s")
+    status_cols[2].metric("Simbolos", len(wcfg.all_symbols))
+    status_cols[3].metric(
+        "Vigilando ahora", "Si" if watch_config.is_watch_time() else "No",
+        help="Depende del horario configurado en config/watch.yaml.",
+    )
+
+    state = watch_state.load()
+    if state.levels:
+        st.warning(
+            f"Hay {len(state.levels)} umbrales cruzados en la sesion de "
+            f"{state.day}. El vigilante ya ha avisado de ellos y no repetira "
+            "hasta que empeoren.",
+            icon=":material/priority_high:",
+        )
+    else:
+        st.caption(":grey[Ningun umbral cruzado en la sesion actual.]")
+
+    st.markdown("**Umbrales de aviso**")
+    rows = []
+    for group, label in (
+        ("index_drop", "Indices"), ("crypto_drop", "Cripto"),
+        ("portfolio_drop", "Tu cartera"), ("position_drop", "Una posicion"),
+        ("vix_level", "VIX (nivel)"), ("vix_jump_pct", "VIX (salto)"),
+    ):
+        for threshold in wcfg.thresholds(group):
+            rows.append(
+                {
+                    "Que": label,
+                    "Umbral": (f"{threshold.value:+.1f}%" if group != "vix_level"
+                               else f"{threshold.value:.0f}"),
+                    "Gravedad": threshold.severity.capitalize(),
+                    "Significa": threshold.label,
+                }
+            )
+    st.dataframe(pd.DataFrame(rows), hide_index=True,
+                 height=min(420, 42 + 35 * len(rows)))
+
+    st.info(
+        "Los niveles de -7%, -13% y -20% en indices son los **cortacircuitos "
+        "del mercado estadounidense**: los porcentajes de caida del S&P 500 a "
+        "los que la SEC detiene la negociacion. No son cifras elegidas a ojo.",
+        icon=":material/gavel:",
+    )
+
+    with st.expander("Probar que funciona antes de necesitarlo"):
+        st.markdown(
+            """
+Un aviso de desplome que nunca has probado no sirve de nada: te enteras de que
+estaba mal configurado el dia que importa.
+
+```bash
+make watch-test          # simula un -8% y manda los avisos de verdad
+```
+
+Usa datos sinteticos y fuerza la caida, asi que recorre el camino entero
+—deteccion, mensaje, envio— sin esperar a que el mercado se caiga. Deberias
+recibirlo en el movil en segundos. Si no llega, revisa la pestana **Canales**.
+            """
+        )
+
+    st.caption(
+        "**Latencia real**: Yahoo sirve la renta variable con unos 15 minutos "
+        "de retraso. En un desplome de verdad te enteras antes por el propio "
+        "mercado que por esta herramienta si estas mirando la pantalla; su "
+        "valor esta en los dias en que NO estas mirando. La cripto si va al "
+        "momento."
     )
 
 # ---------------------------------------------------------------------------

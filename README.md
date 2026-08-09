@@ -16,14 +16,15 @@ bot de trading experimental, para uso personal.
 
 ## Estado
 
-**Fases 1 a 5 funcionando.** El dashboard ingiere datos, calcula indicadores,
+**Fases 1 a 5 funcionando, más vigilancia en vivo.** El dashboard ingiere datos, calcula indicadores,
 factores, señales, amplitud, rotación sectorial y régimen de riesgo, muestra el
 ranking de candidatos explicado, **valida cada señal contra su histórico** para
 distinguir las que aportan algo de las que son ruido, y **avisa** cuando pasa
 algo relevante en tu cartera, tu watchlist o el mercado. Puedes ver el mismo
 universo ordenado por **cinco estilos de inversión** distintos, y si Yahoo deja
-de responder hay un **proveedor de respaldo**. El bot de trading todavía no está
-implementado (fases 6 en adelante).
+de responder hay un **proveedor de respaldo**. Aparte del ciclo diario, un
+**vigilante en vivo** avisa al móvil si el mercado se desploma. El bot de
+trading todavía no está implementado (fases 6 en adelante).
 
 ## Puesta en marcha
 
@@ -36,6 +37,7 @@ make compute-presets  # puntúa además con los otros estilos de inversión
 make validate     # valida las señales contra su histórico y las etiqueta
 make alerts       # evalúa las reglas de aviso y las entrega
 make run          # abre el dashboard en http://127.0.0.1:8501
+make watch        # aparte: vigila el mercado en vivo y avisa si se desploma
 ```
 
 Si no tienes acceso a Yahoo Finance (red restringida, o solo quieres probar la
@@ -61,19 +63,19 @@ bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
 | **Oportunidades** | Ranking de candidatos en tarjetas, cada uno con sus motivos en castellano y sus banderas rojas; selector de estilo de inversión |
 | **Ficha de valor** | Gráfico de velas con nuestras señales, medias y niveles dibujados encima; gráfico de TradingView; fundamentales frente a la mediana del sector; perfil factorial y riesgo |
 | **Cartera y watchlist** | Tus posiciones con resultado y peso, diagnóstico de concentración (sector, perfil factorial, correlación media entre posiciones) y los valores que sigues |
-| **Alertas** | Histórico de avisos, estado de los canales de entrega y las reglas configuradas con su condición |
+| **Alertas** | Histórico de avisos (de cierre y en vivo), estado del vigilante de desplomes, canales de entrega y reglas configuradas |
 | **Validación de señales** | Qué señales aportan algo y cuáles son ruido: eventos, acierto, exceso sobre el universo, estabilidad entre ventanas y distribución de retornos |
 | **Estado de los datos** | Qué se descargó, cuándo, qué falló, calidad de datos por universo, procedencia de los precios y qué tickers no tienen equivalencia en TradingView |
 
 ## Desarrollo
 
 ```bash
-make test    # 277 tests, sin red
+make test    # 316 tests, sin red
 make lint    # estilo
 ```
 
 Los tests no tocan la red ni el almacén real: usan el proveedor sintético y una
-base de datos temporal. Los tres que más valen:
+base de datos temporal. Los que más valen:
 
 - `test_no_lookahead.py` altera el futuro de cada serie y comprueba que ningún
   indicador cambia en el pasado. Incluye una contraprueba con un indicador que
@@ -90,6 +92,10 @@ base de datos temporal. Los tres que más valen:
 - `test_providers_chain.py` simula la forma real en que Yahoo se rompe —
   responder a medias sin avisar — y comprueba que al respaldo solo se le piden
   los tickers que faltaban.
+- `test_watch.py` comprueba que el vigilante no te satura: el mismo nivel no
+  avisa dos veces, uno peor avisa al momento aunque hayan pasado dos minutos, y
+  la recuperación se anuncia una sola vez. Verificado desactivando el control
+  de escalado a propósito: dos tests fallan.
 
 ## Documentación
 
@@ -203,6 +209,108 @@ Lo que sí faltaba eran los dos componentes que el semáforo no tenía, y esos s
 han añadido al propio semáforo: **máximos frente a mínimos anuales** (en un
 techo, la amplitud aún aguanta mientras los nuevos máximos ya se secan) y
 **momentum del índice frente a su media de medio año**.
+
+## Vigilancia en vivo (avisos de desplome)
+
+El dashboard analiza **al cierre**. Aparte hay un proceso que mira el precio
+cada minuto y avisa al móvil si el mercado se está cayendo:
+
+```bash
+make watch          # se queda vigilando
+make watch-test     # simula un -8% y manda los avisos de verdad
+make watch-status   # qué vigila, cuándo, y si los canales están listos
+```
+
+Son dos cosas distintas a propósito. Recalcular el ranking cada minuto daría
+señales que cambian toda la mañana y solo significan algo al cierre; enterarse
+de que el mercado se desploma es otra pregunta, y esa sí es urgente.
+
+### Qué vigila
+
+Pocos símbolos, en [`config/watch.yaml`](config/watch.yaml): cuatro índices, el
+VIX, dos criptos y **tus posiciones abiertas**, que se leen solas del almacén.
+Cada símbolo es cuota de peticiones, y un desplome se ve en los índices — no
+hace falta sondear 600 valores.
+
+Los umbrales de índice **no son cifras elegidas a ojo**: −7%, −13% y −20% son
+los cortacircuitos del mercado estadounidense, los porcentajes de caída del
+S&P 500 a los que la SEC detiene la negociación. La cripto lleva umbrales más
+anchos porque con los del índice avisaría casi a diario.
+
+### Por qué no te va a saturar
+
+Un mercado parado en −3,2% cumple el umbral de −3% cada minuto durante seis
+horas. Sin control eso son 360 mensajes, y a la tercera silencias el canal —
+justo lo contrario de lo que quieres el día que haga falta. Así que:
+
+- Solo se avisa **al cruzar un nivel peor** que el ya avisado hoy.
+- Un nivel peor sale **al momento**, sin esperar. Pasar de −7% a −13% es pasar
+  de cortacircuitos nivel 1 a nivel 2, y hacerte esperar diez minutos para
+  contártelo sería tapar el caso para el que existe todo esto.
+- Al recuperarse, **un solo** aviso de vuelta a la normalidad, y el sistema se
+  rearma.
+- Cada sesión empieza de cero: los niveles se miden contra el cierre anterior.
+
+### Pruébalo antes de necesitarlo
+
+Un aviso de desplome que nunca has probado no sirve: te enteras de que estaba
+mal configurado el día que importa. `make watch-test` fuerza una caída del 8%
+con datos sintéticos y recorre el camino entero —detección, mensaje, envío—.
+Debería llegarte al móvil en segundos.
+
+### Dejarlo siempre encendido
+
+En **macOS**, con launchd (`~/Library/LaunchAgents/com.stockstracker.watch.plist`):
+
+```xml
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.stockstracker.watch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/ruta/a/stocks_tracker/.venv/bin/python</string>
+    <string>-m</string><string>stocks_tracker.watch.run_watch</string>
+  </array>
+  <key>WorkingDirectory</key><string>/ruta/a/stocks_tracker</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict></plist>
+```
+
+`launchctl load ~/Library/LaunchAgents/com.stockstracker.watch.plist`.
+
+En **Linux**, con un servicio de usuario en
+`~/.config/systemd/user/stocks-watch.service`:
+
+```ini
+[Unit]
+Description=Vigilante de mercado
+[Service]
+WorkingDirectory=/ruta/a/stocks_tracker
+ExecStart=/ruta/a/stocks_tracker/.venv/bin/python -m stocks_tracker.watch.run_watch
+Restart=always
+[Install]
+WantedBy=default.target
+```
+
+`systemctl --user enable --now stocks-watch`.
+
+### Lo que este vigilante no puede hacer
+
+Tres limitaciones que conviene tener claras antes de confiar en él:
+
+- **Yahoo sirve la renta variable con unos 15 minutos de retraso.** No es un
+  fallo que se pueda arreglar en el código: es lo que hay gratis. Si estás
+  mirando la pantalla, te enteras antes por el propio mercado. Su valor está en
+  los días en que **no** estás mirando. La cripto sí va al momento.
+- **Si tu ordenador está apagado o suspendido, no vigila.** Para cobertura real
+  de 24 horas hace falta algo siempre encendido: una Raspberry Pi o un VPS de
+  tres euros al mes valen de sobra.
+- **Avisa, no actúa.** No vende nada. Eso llegará —con aprobación tuya— con el
+  bot de las fases 6 en adelante.
+
+Necesitas **Telegram configurado** para que el aviso te llegue al móvil; con el
+canal de fichero solo se escribe en `data/alerts.jsonl`, que no te despierta.
+Ver la sección de canales más abajo.
 
 ## Alertas y ciclo diario
 
