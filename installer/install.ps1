@@ -46,30 +46,110 @@ Write-Host ""
 # ---------------------------------------------------------------------------
 Write-Step 1 6 "Comprobando Python"
 
+function Test-PythonExe($exe, $prefix = @()) {
+    <#
+        Comprueba que un ejecutable es un Python 3.11-3.13 de verdad.
+
+        Hace falta porque en Windows `python` suele ser el alias de la
+        Microsoft Store: un fichero de cero bytes que no interpreta nada, solo
+        abre la tienda.
+    #>
+    if (-not $exe) { return $null }
+    try {
+        $raw = & $exe @prefix '--version' 2>&1
+        $version = ($raw | Out-String).Trim()
+    } catch { return $null }
+
+    # Sin punto final obligatorio: hay instalaciones que dicen "Python 3.12"
+    # a secas, y exigir el parche las descartaba sin motivo.
+    if ($version -notmatch 'Python\s+3\.(\d+)') { return $null }
+    $minor = [int]$Matches[1]
+    if ($minor -lt 11 -or $minor -gt 13) { return $null }
+    return @{ Exe = $exe; Prefix = $prefix; Version = $version }
+}
+
 function Find-Python {
-    # OJO con `python` a secas: en Windows suele ser el alias de la Microsoft
-    # Store, que no es un interprete sino un acceso a la tienda. Se comprueba
-    # la version de verdad antes de fiarse.
-    foreach ($candidate in @('py', 'python', 'python3')) {
+    <#
+        Busca en cuatro sitios, por orden de fiabilidad. Mirar solo el PATH no
+        basta: el instalador de Python no lo modifica salvo que marques la
+        casilla, y winget tampoco, asi que lo normal es tenerlo instalado y
+        que `python` no exista en la consola.
+    #>
+    $checked = @()
+
+    # 1. El lanzador `py`, que sabe donde estan todas las versiones instaladas.
+    $pyCmd = Get-Command 'py' -ErrorAction SilentlyContinue
+    if ($pyCmd) {
+        foreach ($v in @('-3.12', '-3.11', '-3.13', '-3')) {
+            $found = Test-PythonExe $pyCmd.Source @($v)
+            if ($found) { return $found }
+        }
+        # `py -0p` lista version y ruta de cada instalacion.
+        try {
+            foreach ($line in (& $pyCmd.Source '-0p' 2>&1)) {
+                if ("$line" -match '([A-Za-z]:\\[^\s].*python\.exe)') {
+                    $checked += $Matches[1]
+                    $found = Test-PythonExe $Matches[1]
+                    if ($found) { return $found }
+                }
+            }
+        } catch { }
+    }
+
+    # 2. Lo que haya en el PATH.
+    foreach ($candidate in @('python', 'python3')) {
         $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
         if (-not $cmd) { continue }
-        $prefix = if ($candidate -eq 'py') { @('-3') } else { @() }
-        try {
-            $version = & $cmd.Source @prefix '--version' 2>&1
-        } catch { continue }
-        if ("$version" -match 'Python 3\.(\d+)\.') {
-            $minor = [int]$Matches[1]
-            if ($minor -ge 11 -and $minor -le 13) {
-                return @{ Exe = $cmd.Source; Prefix = $prefix; Version = "$version".Trim() }
+        # No se descarta WindowsApps: si Python viene de la Microsoft
+        # Store, ese alias SI es un interprete. El stub de cuando no esta
+        # instalado no imprime version, asi que Test-PythonExe lo filtra solo.
+        $checked += $cmd.Source
+        $found = Test-PythonExe $cmd.Source
+        if ($found) { return $found }
+    }
+
+    # 3. El registro, que es donde queda constancia de la instalacion.
+    foreach ($hive in @('HKLM:\SOFTWARE\Python\PythonCore',
+                        'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore',
+                        'HKCU:\SOFTWARE\Python\PythonCore')) {
+        if (-not (Test-Path $hive)) { continue }
+        foreach ($key in Get-ChildItem $hive -ErrorAction SilentlyContinue) {
+            $installPath = (Get-ItemProperty (Join-Path $key.PSPath 'InstallPath') `
+                            -ErrorAction SilentlyContinue).'(default)'
+            if (-not $installPath) { continue }
+            $exe = Join-Path $installPath 'python.exe'
+            if (Test-Path $exe) {
+                $checked += $exe
+                $found = Test-PythonExe $exe
+                if ($found) { return $found }
             }
         }
     }
+
+    # 4. Las carpetas donde se instala habitualmente.
+    $patterns = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe",
+        "$env:ProgramFiles\Python3*\python.exe",
+        "${env:ProgramFiles(x86)}\Python3*\python.exe",
+        "C:\Python3*\python.exe"
+    )
+    foreach ($pattern in $patterns) {
+        foreach ($exe in (Get-ChildItem $pattern -ErrorAction SilentlyContinue |
+                          Sort-Object FullName -Descending)) {
+            $checked += $exe.FullName
+            $found = Test-PythonExe $exe.FullName
+            if ($found) { return $found }
+        }
+    }
+
+    $script:PythonChecked = $checked
     return $null
 }
 
 $python = Find-Python
 if ($python) {
     Write-Host "  Encontrado: $($python.Version)"
+    Write-Host "  $($python.Exe)" -ForegroundColor DarkGray
 } else {
     Write-Host "  No hay una version compatible (hace falta 3.11, 3.12 o 3.13)."
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
@@ -78,18 +158,39 @@ if ($python) {
     }
 
     Write-Host "  Instalando Python 3.12..." -ForegroundColor Yellow
-    winget install --id Python.Python.3.12 --source winget `
-        --accept-package-agreements --accept-source-agreements --silent
+    # `--scope user` evita el aviso de administrador; si winget dice que ya
+    # estaba instalado, la busqueda posterior lo encontrara igualmente porque
+    # ahora se mira tambien el disco y el registro, no solo el PATH.
+    try {
+        winget install --id Python.Python.3.12 --source winget --scope user `
+            --accept-package-agreements --accept-source-agreements --silent
+    } catch {
+        # "Ya esta instalado" es un fallo de winget pero un exito para
+        # nosotros: la busqueda de despues lo encontrara en el disco.
+        Write-Host "  winget: $($_.Exception.Message)" -ForegroundColor DarkGray
+    }
 
     # winget no refresca el PATH de la sesion en curso.
     $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
                 [Environment]::GetEnvironmentVariable('Path', 'User')
     $python = Find-Python
+
     if (-not $python) {
-        Fail "Python se ha instalado pero esta sesion no lo ve." `
-             "Cierra esta ventana, abre otra y vuelve a ejecutar el instalador."
+        Write-Host ""
+        Write-Host "  Se ha buscado en:" -ForegroundColor DarkGray
+        if ($script:PythonChecked) {
+            foreach ($path in ($script:PythonChecked | Select-Object -Unique)) {
+                Write-Host "    $path" -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Host "    (ninguna ruta candidata)" -ForegroundColor DarkGray
+        }
+        Fail "Python esta instalado pero no se encuentra el ejecutable." `
+             ("Prueba a cerrar esta ventana y ejecutar el instalador otra vez. " +
+              "Si sigue fallando, ejecuta 'py -0p' en PowerShell y pasame la salida.")
     }
     Write-Host "  Instalado: $($python.Version)"
+    Write-Host "  $($python.Exe)" -ForegroundColor DarkGray
 }
 
 # ---------------------------------------------------------------------------

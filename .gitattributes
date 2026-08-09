@@ -1,0 +1,19 @@
+# OJO CON EL ORDEN: en gitattributes gana la ULTIMA regla que coincide, asi
+# que la general va primero y las excepciones despues. Al reves, `* text=auto`
+# pisaba a `*.bat` y los ficheros de Windows acababan con finales de Unix.
+
+# Norma general: normalizar en el repositorio, natural en cada equipo.
+* text=auto
+
+# Ficheros de Windows: se guardan con CRLF DENTRO del blob, no solo al hacer
+# checkout. La diferencia importa porque raw.githubusercontent.com sirve el
+# blob tal cual: quien descargue el instalador desde ahi recibe exactamente
+# estos bytes, sin conversion. Y cmd.exe tolera mal los saltos de Unix en un
+# .bat —con `goto` y etiquetas puede cortar la ejecucion sin decir por que—.
+*.bat -text
+*.cmd -text
+*.ps1 -text
+
+# Los de Unix, finales de Unix aunque se clone en Windows: un .sh con CRLF
+# falla con "bad interpreter".
+*.sh text eol=lf

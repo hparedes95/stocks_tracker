@@ -53,22 +53,64 @@ function Assert-Venv {
     }
 }
 
+function Test-PythonExe($exe, $prefix = @()) {
+    if (-not $exe) { return $null }
+    try {
+        $version = (& $exe @prefix '--version' 2>&1 | Out-String).Trim()
+    } catch { return $null }
+    if ($version -notmatch 'Python\s+3\.(\d+)') { return $null }
+    $minor = [int]$Matches[1]
+    if ($minor -lt 11 -or $minor -gt 13) { return $null }
+    return @{ Exe = $exe; Prefix = $prefix; Version = $version }
+}
+
 function Find-Python {
-    # `python` en Windows puede ser el alias de la Microsoft Store, que no
-    # instala nada y solo abre la tienda. `py -3` es mas fiable cuando existe.
-    foreach ($candidate in @('py', 'python', 'python3')) {
+    <#
+        Mirar solo el PATH no basta: el instalador de Python no lo modifica
+        salvo que marques la casilla, asi que lo normal es tenerlo instalado y
+        que `python` no exista en la consola. Se busca tambien en el registro y
+        en las carpetas habituales.
+    #>
+    $pyCmd = Get-Command 'py' -ErrorAction SilentlyContinue
+    if ($pyCmd) {
+        foreach ($v in @('-3.12', '-3.11', '-3.13', '-3')) {
+            $found = Test-PythonExe $pyCmd.Source @($v)
+            if ($found) { return $found }
+        }
+    }
+
+    foreach ($candidate in @('python', 'python3')) {
         $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
         if (-not $cmd) { continue }
-        try {
-            $args = if ($candidate -eq 'py') { @('-3', '--version') } else { @('--version') }
-            $version = & $cmd.Source @args 2>&1
-            if ($version -match 'Python 3\.(\d+)') {
-                $minor = [int]$Matches[1]
-                if ($minor -ge 11 -and $minor -le 13) {
-                    return @{ Exe = $cmd.Source; Prefix = $(if ($candidate -eq 'py') { @('-3') } else { @() }) }
-                }
+        $found = Test-PythonExe $cmd.Source
+        if ($found) { return $found }
+    }
+
+    foreach ($hive in @('HKLM:\SOFTWARE\Python\PythonCore',
+                        'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore',
+                        'HKCU:\SOFTWARE\Python\PythonCore')) {
+        if (-not (Test-Path $hive)) { continue }
+        foreach ($key in Get-ChildItem $hive -ErrorAction SilentlyContinue) {
+            $installPath = (Get-ItemProperty (Join-Path $key.PSPath 'InstallPath') `
+                            -ErrorAction SilentlyContinue).'(default)'
+            if ($installPath) {
+                $found = Test-PythonExe (Join-Path $installPath 'python.exe')
+                if ($found) { return $found }
             }
-        } catch { continue }
+        }
+    }
+
+    foreach ($pattern in @(
+        "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe",
+        "$env:ProgramFiles\Python3*\python.exe",
+        "${env:ProgramFiles(x86)}\Python3*\python.exe",
+        "C:\Python3*\python.exe"
+    )) {
+        foreach ($exe in (Get-ChildItem $pattern -ErrorAction SilentlyContinue |
+                          Sort-Object FullName -Descending)) {
+            $found = Test-PythonExe $exe.FullName
+            if ($found) { return $found }
+        }
     }
     return $null
 }
