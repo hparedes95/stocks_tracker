@@ -26,7 +26,34 @@ de responder hay un **proveedor de respaldo**. Aparte del ciclo diario, un
 **vigilante en vivo** avisa al móvil si el mercado se desploma. El bot de
 trading todavía no está implementado (fases 6 en adelante).
 
-## Puesta en marcha
+## Instalacion en Windows
+
+Descarga **[`Instalar Stocks Tracker.bat`](installer/Instalar%20Stocks%20Tracker.bat)**
+(boton derecho → *Guardar enlace como…*) y haz doble clic.
+
+Se encarga de todo: instala Python si no lo tienes, descarga el proyecto en tu
+carpeta de usuario, prepara el entorno, genera datos de prueba y deja un icono
+en el Escritorio. No hace falta ser administrador ni tener git.
+
+Windows SmartScreen avisará de que el fichero no es habitual — es lo normal con
+un `.bat` descargado y sin firmar. *Más información* → *Ejecutar de todas
+formas*. Puedes leer el fichero antes con el Bloc de notas: son 40 líneas.
+
+Después, para los comandos del día a día:
+
+```powershell
+cd $env:LOCALAPPDATA\StocksTracker
+.\scripts\windows\stocks.ps1 ingest    # datos reales de Yahoo
+.\scripts\windows\stocks.ps1 compute   # recalcular
+.\scripts\windows\stocks.ps1 run       # abrir el dashboard
+.\scripts\windows\stocks.ps1 watch     # vigilar el mercado en vivo
+```
+
+`scripts\windows\stocks.ps1` es el equivalente al Makefile, porque Windows no
+trae `make`. El ciclo diario automatico (`daily_update.sh`) es bash: en Windows
+usa `stocks.ps1 daily` desde el Programador de tareas.
+
+## Puesta en marcha (macOS y Linux)
 
 ```bash
 make setup        # crea el entorno e instala dependencias
