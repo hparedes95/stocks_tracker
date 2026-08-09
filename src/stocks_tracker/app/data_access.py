@@ -594,6 +594,97 @@ def remove_from_watchlist(ticker: str) -> None:
     get_watchlist.clear()
 
 
+# --------------------------------------------------------------------------
+# Alertas
+# --------------------------------------------------------------------------
+@st.cache_data(ttl=60, show_spinner=False)
+def get_alerts(days: int = 30, only_pending: bool = False) -> pd.DataFrame:
+    clause = " AND NOT acknowledged" if only_pending else ""
+    return _fetch(
+        f"""
+        SELECT a.*, inst.name, inst.gics_sector
+        FROM alerts a
+        LEFT JOIN instruments inst ON inst.ticker = a.ticker
+        WHERE a.triggered_at >= (CURRENT_TIMESTAMP - INTERVAL (?) DAY) {clause}
+        ORDER BY a.triggered_at DESC
+        """,
+        [days],
+    )
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def count_pending_alerts() -> int:
+    df = _fetch("SELECT COUNT(*) AS n FROM alerts WHERE NOT acknowledged")
+    return int(df.iloc[0]["n"]) if not df.empty else 0
+
+
+# --------------------------------------------------------------------------
+# Cartera
+# --------------------------------------------------------------------------
+@st.cache_data(ttl=60, show_spinner=False)
+def get_positions() -> pd.DataFrame:
+    """Posiciones abiertas con su valoracion actual."""
+    return _fetch(
+        """
+        SELECT p.id, p.ticker, p.qty, p.avg_cost, p.currency, p.opened_at, p.note,
+               inst.name, inst.gics_sector, inst.investment_type,
+               i.close, i.ret_1d, i.above_sma200, i.drawdown, i.realized_vol_252,
+               f.composite_pctile, f.value_z, f.growth_z, f.quality_z,
+               f.momentum_z, f.lowvol_z, f.dividend_z, f.technical_z
+        FROM positions p
+        LEFT JOIN instruments inst ON inst.ticker = p.ticker
+        LEFT JOIN indicators_daily i ON i.ticker = p.ticker
+             AND i.date = (SELECT MAX(date) FROM indicators_daily)
+        LEFT JOIN factor_scores f ON f.ticker = p.ticker
+             AND f.date = (SELECT MAX(date) FROM factor_scores)
+        WHERE p.closed_at IS NULL AND p.qty > 0
+        ORDER BY p.ticker
+        """
+    )
+
+
+def add_position(ticker: str, qty: float, avg_cost: float,
+                 currency: str = "USD", note: str = "") -> None:
+    import uuid
+
+    from ..core.timeutils import utcnow
+
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO positions VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+            [str(uuid.uuid4()), ticker, float(qty), float(avg_cost), currency,
+             date.today(), note, utcnow()],
+        )
+    get_positions.clear()
+
+
+def close_position(position_id: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE positions SET closed_at = ? WHERE id = ?", [date.today(), position_id]
+        )
+    get_positions.clear()
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_returns_matrix(tickers: tuple[str, ...], days: int = 250) -> pd.DataFrame:
+    """Retornos diarios en formato ancho, para calcular correlaciones."""
+    if not tickers:
+        return pd.DataFrame()
+    placeholders = ", ".join("?" for _ in tickers)
+    df = _fetch(
+        f"""
+        SELECT ticker, date, ret_1d FROM indicators_daily
+        WHERE ticker IN ({placeholders})
+          AND date >= (SELECT MAX(date) FROM indicators_daily) - INTERVAL (?) DAY
+        """,
+        [*tickers, days],
+    )
+    if df.empty:
+        return pd.DataFrame()
+    return df.pivot_table(index="date", columns="ticker", values="ret_1d")
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def get_watchlist() -> pd.DataFrame:
     return _fetch(

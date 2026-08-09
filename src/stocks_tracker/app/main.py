@@ -19,7 +19,10 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from stocks_tracker.app.components import tv_widgets  # noqa: E402
-from stocks_tracker.app.components.common import render_freshness_badge  # noqa: E402
+from stocks_tracker.app.components.common import (  # noqa: E402
+    render_freshness_badge,
+    render_pending_alerts_badge,
+)
 
 st.set_page_config(
     page_title="Stocks Tracker",
@@ -31,6 +34,11 @@ st.set_page_config(
 # Cinta de cotizaciones: pulso permanente, fuera de la navegacion para que
 # aparezca en todas las paginas.
 tv_widgets.ticker_tape(compact=True)
+
+# Se guarda aparte porque el aviso de la barra lateral enlaza con ella, y
+# `st.page_link` necesita el objeto de pagina, no su ruta.
+alerts_page = st.Page("pages/9_alertas.py", title="Alertas",
+                      icon=":material/notifications:", url_path="alertas")
 
 pages = {
     "Mercado": [
@@ -52,8 +60,9 @@ pages = {
                 icon=":material/science:", url_path="validacion"),
     ],
     "Mi cartera": [
-        st.Page("pages/5_watchlist.py", title="Watchlist",
+        st.Page("pages/5_watchlist.py", title="Cartera y watchlist",
                 icon=":material/bookmark:", url_path="watchlist"),
+        alerts_page,
     ],
     "Sistema": [
         st.Page("pages/8_estado.py", title="Estado de los datos",
@@ -61,9 +70,11 @@ pages = {
     ],
 }
 
+navigation = st.navigation(pages)
+
 with st.sidebar:
     st.markdown("### Stocks Tracker")
     render_freshness_badge()
+    render_pending_alerts_badge(alerts_page)
 
-navigation = st.navigation(pages)
 navigation.run()

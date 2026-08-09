@@ -44,6 +44,21 @@ def render_freshness_badge() -> None:
         st.caption(f":grey[{detail}]")
 
 
+def render_pending_alerts_badge(target) -> None:
+    """Avisos sin revisar. Solo aparece si hay alguno: un contador a cero es ruido.
+
+    `target` es el objeto `st.Page` de la pagina de alertas, no su ruta: con
+    `st.navigation`, `st.page_link` solo entiende paginas ya registradas.
+    """
+    pending = da.count_pending_alerts()
+    if not pending:
+        return
+    label = "aviso sin revisar" if pending == 1 else "avisos sin revisar"
+    st.page_link(
+        target, label=f"{pending} {label}", icon=":material/notifications_active:"
+    )
+
+
 def sidebar_filters(key_prefix: str = "") -> dict:
     """Filtros comunes de la barra lateral."""
     with st.sidebar:
@@ -206,7 +221,8 @@ def signal_chips(signals: list[str], labels: dict[str, str]) -> str:
 
 
 __all__ = [
-    "render_disclaimer", "render_freshness_badge", "sidebar_filters",
+    "render_disclaimer", "render_freshness_badge", "render_pending_alerts_badge",
+    "sidebar_filters",
     "metric_row", "render_reasons", "render_flags", "movers_table",
     "prepare_percent_columns", "signal_chips", "render_signal_chips",
     "format_pct", "format_market_cap",

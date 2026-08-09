@@ -277,6 +277,37 @@ CREATE TABLE IF NOT EXISTS watchlist (
   PRIMARY KEY (ticker, list_name)
 );
 
+-- Posiciones reales del usuario, introducidas a mano. No se conecta con ningun
+-- broker: sirve para ver la cartera junto al analisis y para que las alertas de
+-- ambito `portfolio` sepan que se tiene en cartera.
+CREATE TABLE IF NOT EXISTS positions (
+  id         VARCHAR PRIMARY KEY,
+  ticker     VARCHAR,
+  qty        DOUBLE,
+  avg_cost   DOUBLE,
+  currency   VARCHAR,
+  opened_at  DATE,
+  closed_at  DATE,
+  note       VARCHAR,
+  updated_at TIMESTAMP
+);
+
+-- Alertas disparadas. `triggered_at` sirve tambien para el periodo de espera:
+-- sin el, la misma alerta se repetiria cada dia mientras la condicion siga
+-- siendo cierta, y en una semana dejarian de leerse.
+CREATE TABLE IF NOT EXISTS alerts (
+  id           VARCHAR PRIMARY KEY,
+  rule_id      VARCHAR,
+  ticker       VARCHAR,           -- NULL en las reglas de ambito 'market'
+  triggered_at TIMESTAMP,
+  message      VARCHAR,
+  payload      VARCHAR,           -- JSON con los valores que dispararon la regla
+  delivered    BOOLEAN DEFAULT FALSE,
+  channel      VARCHAR,
+  acknowledged BOOLEAN DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_rule ON alerts(rule_id, triggered_at);
+
 -- ============ OPERACION ============
 CREATE TABLE IF NOT EXISTS ingest_log (
   run_id       VARCHAR,

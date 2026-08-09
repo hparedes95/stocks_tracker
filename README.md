@@ -16,11 +16,12 @@ bot de trading experimental, para uso personal.
 
 ## Estado
 
-**Fases 1, 2 y 3 funcionando.** El dashboard ingiere datos, calcula indicadores,
+**Fases 1 a 4 funcionando.** El dashboard ingiere datos, calcula indicadores,
 factores, señales, amplitud, rotación sectorial y régimen de riesgo, muestra el
-ranking de candidatos explicado, y **valida cada señal contra su histórico** para
-distinguir las que aportan algo de las que son ruido. El bot de trading todavía
-no está implementado (fases 6 en adelante).
+ranking de candidatos explicado, **valida cada señal contra su histórico** para
+distinguir las que aportan algo de las que son ruido, y **avisa** cuando pasa
+algo relevante en tu cartera, tu watchlist o el mercado. El bot de trading
+todavía no está implementado (fases 6 en adelante).
 
 ## Puesta en marcha
 
@@ -30,6 +31,7 @@ make migrate      # crea el almacén DuckDB
 make ingest       # descarga datos reales (Yahoo Finance + FRED si hay clave)
 make compute      # indicadores, señales, factores, amplitud, rotación y régimen
 make validate     # valida las señales contra su histórico y las etiqueta
+make alerts       # evalúa las reglas de aviso y las entrega
 make run          # abre el dashboard en http://127.0.0.1:8501
 ```
 
@@ -55,19 +57,20 @@ bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
 | **Macro y riesgo** | Semáforo risk-on/risk-off con su desglose, tipos y curva, crédito, actividad, termómetros de mercado y correlación media |
 | **Oportunidades** | Ranking de candidatos en tarjetas, cada uno con sus motivos en castellano y sus banderas rojas |
 | **Ficha de valor** | Gráfico de velas con nuestras señales, medias y niveles dibujados encima; gráfico de TradingView; fundamentales frente a la mediana del sector; perfil factorial y riesgo |
-| **Watchlist** | Valores seguidos y su evolución desde que se añadieron |
+| **Cartera y watchlist** | Tus posiciones con resultado y peso, diagnóstico de concentración (sector, perfil factorial, correlación media entre posiciones) y los valores que sigues |
+| **Alertas** | Histórico de avisos, estado de los canales de entrega y las reglas configuradas con su condición |
 | **Validación de señales** | Qué señales aportan algo y cuáles son ruido: eventos, acierto, exceso sobre el universo, estabilidad entre ventanas y distribución de retornos |
 | **Estado de los datos** | Qué se descargó, cuándo, qué falló y qué tickers no tienen equivalencia en TradingView |
 
 ## Desarrollo
 
 ```bash
-make test    # 168 tests, sin red
+make test    # 198 tests, sin red
 make lint    # estilo
 ```
 
 Los tests no tocan la red ni el almacén real: usan el proveedor sintético y una
-base de datos temporal. Los dos que más valen:
+base de datos temporal. Los tres que más valen:
 
 - `test_no_lookahead.py` altera el futuro de cada serie y comprueba que ningún
   indicador cambia en el pasado. Incluye una contraprueba con un indicador que
@@ -75,6 +78,9 @@ base de datos temporal. Los dos que más valen:
 - `test_backtest.py` verifica que la entrada está retardada un día: una señal
   detectada al cierre no se puede comprar a ese cierre. Sin ese retardo los
   resultados salen preciosos y el dinero real se pierde.
+- `test_alerts.py` comprueba que el período de espera suprime el aviso repetido
+  al día siguiente, que ninguna expresión peligrosa del YAML llega a ejecutarse
+  y que el estado de los canales no filtra credenciales.
 
 ## Documentación
 
@@ -86,7 +92,7 @@ base de datos temporal. Los dos que más valen:
 | [`docs/03-adenda-cripto-kraken-multivenue.md`](docs/03-adenda-cripto-kraken-multivenue.md) | Cripto en Kraken como segundo venue: stops nativos en el exchange, presupuesto de comisiones, autonomía por modo, ejecución en un equipo no permanente |
 
 Los documentos son acumulativos y describen el proyecto completo; el código
-implementa por ahora las fases 1, 2 y 3. Cada adenda empieza con un índice de qué
+implementa por ahora las fases 1 a 4. Cada adenda empieza con un índice de qué
 secciones del plan base sustituye.
 
 ## Universo
@@ -132,6 +138,59 @@ Cuatro decisiones que hacen honesto el resultado:
 Y el sesgo que queda, dicho en la propia página: el universo son los
 constituyentes de **hoy**, así que los resultados están sesgados al alza por
 supervivencia. Trátalos como una cota superior optimista.
+
+## Alertas y ciclo diario
+
+Las reglas viven en [`config/alerts.yaml`](config/alerts.yaml) y se editan a
+mano: cada una tiene un ámbito (`watchlist`, `portfolio`, `market`,
+`universe:SP500`, `sector:...`), una condición y un mensaje.
+
+```bash
+make alerts-dry   # evalúa sin guardar ni enviar: para afinar una regla nueva
+make alerts       # evalúa, guarda y entrega por los canales activos
+```
+
+Tres decisiones sostienen que el sistema se siga leyendo dentro de seis meses:
+
+- **Período de espera.** Una vez avisado un valor por una regla, esa regla no
+  vuelve a dispararse para él durante `cooldown_days`. Sin eso la misma alerta
+  se repetiría cada jornada mientras la condición siguiera siendo cierta, y en
+  una semana dejarías de leerlas.
+- **Solo señales con evidencia.** Con `require_validated_signals: true`, una
+  señal que no ha demostrado nada en `make validate` no interrumpe.
+- **Un resumen, no veinte mensajes.** Telegram y correo reciben un único
+  mensaje agrupado por gravedad.
+
+Las condiciones se interpretan con un evaluador que recorre el AST y solo
+admite comparaciones, booleanos y aritmética. **Nunca se llama a `eval()`**
+sobre el texto del YAML.
+
+### Canales
+
+El canal de **fichero** (`data/alerts.jsonl`) viene activado por defecto porque
+no depende de nada externo. Telegram y correo se activan en el YAML y leen sus
+credenciales **solo del entorno**: el YAML guarda el *nombre* de la variable,
+nunca su valor. Ponlas en `.env` (que está en `.gitignore`). Si un canal falla,
+los demás siguen entregando: perder un aviso porque Telegram estaba caído sería
+el peor resultado posible.
+
+La pestaña **Canales** de la página de alertas muestra qué falta configurar y
+permite mandar un mensaje de prueba, sin revelar ningún secreto.
+
+### Automatizar
+
+[`scripts/daily_update.sh`](scripts/daily_update.sh) encadena ingesta, cálculo y
+alertas, con `flock` para que dos ejecuciones no se solapen (la ingesta es el
+único escritor del almacén) y tolerancia a fallos por paso: es preferible tener
+el dashboard con datos de ayer que dejarlo a medias sin alertas.
+
+```cron
+# 23:15 de lunes a viernes, con el mercado estadounidense ya cerrado.
+15 23 * * 1-5 /ruta/a/stocks_tracker/scripts/daily_update.sh
+```
+
+La validación no va en el ciclo diario: cambia poco de un día para otro y es
+cara. Ejecútala a mano o con un cron semanal.
 
 ## Decisiones de partida
 

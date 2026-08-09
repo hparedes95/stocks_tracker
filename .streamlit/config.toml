@@ -1,0 +1,16 @@
+# Solo el color de acento. Deliberadamente NO se fija `base`: asi el dashboard
+# sigue el tema del navegador (claro u oscuro) en lugar de imponer uno.
+#
+# El rojo por defecto de Streamlit pinta de rojo las barras de progreso de las
+# tablas (peso en cartera, percentil del ranking), y en un panel financiero el
+# rojo significa perdida. Un peso del 84% no es una perdida.
+[theme]
+primaryColor = "#2a78d6"
+
+[server]
+# Nunca 0.0.0.0: Streamlit no tiene autenticacion.
+address = "127.0.0.1"
+headless = true
+
+[browser]
+gatherUsageStats = false

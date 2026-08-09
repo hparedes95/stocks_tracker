@@ -1,0 +1,113 @@
+# Reglas de alerta.
+#
+# Cada regla se evalua contra los datos del ultimo dia. La condicion `when` se
+# interpreta con un evaluador seguro (nunca `eval()`) sobre las columnas de
+# indicadores, scores y fundamentales.
+#
+# `cooldown_days` es lo que separa un aviso util de un sistema que se ignora:
+# sin el, la misma alerta se repetiria cada dia mientras la condicion siga
+# siendo cierta, y en una semana dejarias de leerlas.
+
+channels:
+  file:
+    enabled: true
+    path: data/alerts.jsonl
+  telegram:
+    enabled: false
+    bot_token_env: TELEGRAM_BOT_TOKEN
+    chat_id_env: TELEGRAM_CHAT_ID
+  email:
+    enabled: false
+    smtp_host_env: SMTP_HOST
+    smtp_port: 587
+    user_env: SMTP_USER
+    password_env: SMTP_PASSWORD
+    to_env: ALERT_EMAIL
+
+defaults:
+  cooldown_days: 10
+  severity: media
+  # Solo se avisa de senales con evidencia historica. Una senal que no ha
+  # demostrado nada no merece interrumpirte.
+  require_validated_signals: true
+
+rules:
+  - id: watchlist_pullback
+    name: "Correccion en tendencia alcista (watchlist)"
+    scope: watchlist
+    when: "above_sma200 and rsi14 < 35 and adx14 > 20"
+    severity: alta
+    cooldown_days: 10
+    message: "{ticker}: RSI {rsi14:.0f} en tendencia alcista, a {close:.2f}"
+    note: >
+      El patron mas util para buscar entradas: la tendencia de fondo sigue
+      intacta pero el precio ha retrocedido lo suficiente como para no comprar
+      en maximos.
+
+  - id: watchlist_target
+    name: "Precio objetivo alcanzado (watchlist)"
+    scope: watchlist
+    when: "target_price > 0 and close <= target_price"
+    severity: alta
+    cooldown_days: 30
+    message: "{ticker}: {close:.2f} ha alcanzado tu objetivo de {target_price:.2f}"
+
+  - id: watchlist_breakdown
+    name: "Perdida de la MM200 (watchlist)"
+    scope: watchlist
+    when: "above_sma200 == False and macd_hist < 0"
+    severity: alta
+    cooldown_days: 20
+    message: "{ticker}: pierde la MM200 con MACD negativo, a {close:.2f}"
+
+  - id: portfolio_stop
+    name: "Aviso tecnico en cartera"
+    scope: portfolio
+    when: "above_sma200 == False and macd_hist < 0"
+    severity: critica
+    cooldown_days: 15
+    message: "{ticker} (en cartera): pierde la MM200 con MACD negativo"
+    note: >
+      Es un aviso para que lo mires, no una orden de venta. La decision sigue
+      siendo tuya.
+
+  - id: portfolio_drawdown
+    name: "Caida fuerte en cartera"
+    scope: portfolio
+    when: "drawdown <= -0.25"
+    severity: critica
+    cooldown_days: 20
+    message: "{ticker} (en cartera): {drawdown:.0%} desde maximos"
+
+  - id: top_decile
+    name: "Entra en el decil superior del ranking"
+    scope: "universe:SP500"
+    when: "composite_pctile > 0.95 and coverage > 0.6 and above_sma200"
+    severity: media
+    cooldown_days: 20
+    message: "{ticker}: percentil {composite_pctile:.0%} del ranking, a {close:.2f}"
+
+  - id: unusual_volume
+    name: "Volumen muy inusual"
+    scope: watchlist
+    when: "rel_volume_20 > 3"
+    severity: media
+    cooldown_days: 5
+    message: "{ticker}: volumen {rel_volume_20:.1f} veces el habitual ({ret_1d:+.1%} hoy)"
+    note: "El volumen es un evento, no una direccion. Suele haber una noticia detras."
+
+  - id: regime_flip
+    name: "Cambio en el semaforo de riesgo"
+    scope: market
+    when: "regime_changed"
+    severity: alta
+    cooldown_days: 3
+    message: "El semaforo de riesgo pasa a {regime} (score {risk_score:+.0f})"
+
+  - id: breadth_extreme
+    name: "Amplitud en zona extrema"
+    scope: market
+    when: "pct_above_sma200 < 25 or pct_above_sma200 > 85"
+    severity: media
+    cooldown_days: 10
+    message: "Amplitud del mercado en {pct_above_sma200:.0f}%: zona extrema"

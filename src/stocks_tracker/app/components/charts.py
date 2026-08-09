@@ -131,6 +131,36 @@ def sector_bars(df: pd.DataFrame, value_col: str, height: int = 380) -> go.Figur
     return fig
 
 
+def weight_bars(weights: pd.Series, height: int = 240) -> go.Figure:
+    """Exposicion por categoria: barras desde cero, de un solo color.
+
+    Deliberadamente distinto de `sector_bars`: un peso no puede ser negativo,
+    asi que un eje divergente y el par rojo/verde sugeririan una lectura de
+    rendimiento que aqui no existe.
+    """
+    p = palette()
+    data = weights.dropna().sort_values()
+    if data.empty:
+        return apply_layout(go.Figure(), height=height)
+
+    values = data.astype(float) * 100
+    fig = go.Figure(
+        go.Bar(
+            x=values, y=[str(i) for i in data.index], orientation="h",
+            marker=dict(color=SEQUENTIAL_BLUE[6], line=dict(width=0)),
+            text=[f"{v:.1f}%" for v in values], textposition="outside",
+            textfont=dict(size=11, color=p["text_secondary"]),
+            hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
+            width=0.62,
+        )
+    )
+    fig = apply_layout(fig, height=height)
+    fig.update_xaxes(showgrid=True, gridcolor=p["grid"], ticksuffix="%",
+                     range=[0, float(values.max()) * 1.25])
+    fig.update_yaxes(showgrid=False, tickfont=dict(size=11, color=p["text_secondary"]))
+    return fig
+
+
 def breadth_lines(df: pd.DataFrame, height: int = 300) -> go.Figure:
     """Porcentaje de valores sobre sus medias.
 

@@ -150,7 +150,7 @@ table = pd.DataFrame(
     }
 )
 st.dataframe(
-    table, hide_index=True, height=min(430, 60 + 36 * len(table)),
+    table, hide_index=True, height=min(430, 42 + 35 * len(table)),
     column_config={
         "Eventos": st.column_config.NumberColumn(
             format="%d", help="Por debajo de 100 cualquier conclusion es anecdota."
