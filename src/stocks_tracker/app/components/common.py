@@ -21,6 +21,10 @@ def render_disclaimer(compact: bool = True) -> None:
 
 def render_freshness_badge() -> None:
     """Estado de los datos. Si estan viejos hay que decirlo, no disimularlo."""
+    if da.data_origin()["synthetic"]:
+        # El banner grande queda arriba y desaparece al bajar; esto acompana
+        # siempre.
+        st.error("DATOS DE PRUEBA", icon=":material/science:")
     info = da.data_freshness()
     last_date = info["last_price_date"]
     if last_date is None:
@@ -42,6 +46,52 @@ def render_freshness_badge() -> None:
         st.caption(f":orange[{detail} · {info['failures']} descargas fallidas]")
     else:
         st.caption(f":grey[{detail}]")
+
+
+def render_data_origin_banner() -> None:
+    """Aviso permanente cuando los precios NO son reales.
+
+    Va en `main.py`, fuera de la navegacion, para que salga en TODAS las
+    paginas y no se pueda cerrar. Es deliberadamente aparatoso: un numero
+    inventado con el mismo aspecto que uno real es peor que no tener numero,
+    porque invita a decidir con el.
+    """
+    origin = da.data_origin()
+
+    if origin["empty"]:
+        st.warning(
+            "**No hay datos cargados.** Ejecuta la ingesta antes de usar el "
+            "dashboard.",
+            icon=":material/database_off:",
+        )
+        return
+
+    if not origin["synthetic"]:
+        return
+
+    share = origin["synthetic_share"]
+    mixed = share < 0.999
+
+    st.error(
+        (
+            f"### DATOS DE PRUEBA — {'parte de los precios son' if mixed else 'los precios son'} INVENTADOS\n\n"
+            + (f"Un **{share:.0%}** de los precios los ha generado el simulador, "
+               "no el mercado. " if mixed else
+               "Ninguno de los precios que ves viene del mercado real: los ha "
+               "generado el simulador para que puedas probar la aplicacion sin "
+               "esperar la primera descarga. ")
+            + "No coinciden con la realidad y **no sirven para decidir nada**.\n\n"
+            "Para cargar precios reales, en la carpeta del programa:\n\n"
+            "```\n"
+            "Windows:  .\\scripts\\windows\\stocks.ps1 ingest\n"
+            "          .\\scripts\\windows\\stocks.ps1 compute\n"
+            "\n"
+            "macOS:    make ingest && make compute\n"
+            "```\n\n"
+            "La primera descarga tarda varios minutos."
+        ),
+        icon=":material/science:",
+    )
 
 
 def render_pending_alerts_badge(target) -> None:

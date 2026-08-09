@@ -461,6 +461,37 @@ def coverage_by_universe() -> pd.DataFrame:
     )
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def data_origin() -> dict:
+    """De donde salen los precios que se estan mostrando.
+
+    Existe por un fallo real de confianza: alguien instalo el programa, vio el
+    S&P 500 a 8.489 cuando el mercado habia cerrado a 7.757, y penso —con toda
+    la razon— que los calculos estaban mal. No lo estaban: eran los datos de
+    prueba que genera el instalador. Un dashboard financiero que no distingue a
+    simple vista un precio real de uno inventado no vale para nada, por bien
+    que calcule.
+    """
+    df = _fetch(
+        "SELECT source, COUNT(*) AS filas FROM prices_daily GROUP BY source"
+    )
+    if df.empty:
+        return {"empty": True, "synthetic": False, "synthetic_share": 0.0,
+                "sources": []}
+
+    total = float(df["filas"].sum())
+    synthetic = float(
+        df[df["source"] == "synthetic"]["filas"].sum()
+    ) if "synthetic" in set(df["source"]) else 0.0
+
+    return {
+        "empty": False,
+        "synthetic": synthetic > 0,
+        "synthetic_share": synthetic / total if total else 0.0,
+        "sources": sorted(df["source"].tolist()),
+    }
+
+
 @st.cache_data(ttl=TTL, show_spinner=False)
 def price_sources() -> pd.DataFrame:
     """De donde viene cada serie de precios, y cuales mezclan fuentes.

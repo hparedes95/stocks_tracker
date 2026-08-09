@@ -155,3 +155,35 @@ def test_installer_never_writes_outside_the_user_folder():
     content = text("installer/install.ps1")
     assert "LOCALAPPDATA" in content
     assert "ProgramFiles' 'StocksTracker" not in content
+
+
+# ---------------------------------------------------------------------------
+# El aviso de datos de prueba
+# ---------------------------------------------------------------------------
+def test_synthetic_warning_is_rendered_on_every_page():
+    """Motivado por un fallo de confianza real: el dashboard mostraba el S&P a
+    8.489 con datos del simulador mientras el mercado habia cerrado a 7.757, y
+    nada en la pantalla decia que fueran inventados.
+
+    El aviso va en main.py, fuera de la navegacion, para que salga en las nueve
+    paginas sin que cada una tenga que acordarse.
+    """
+    main = (project_root() / "src/stocks_tracker/app/main.py").read_text("utf-8")
+    assert "render_data_origin_banner()" in main, (
+        "El aviso de datos sinteticos no se pinta en main.py"
+    )
+    assert main.index("render_data_origin_banner()") < main.index("navigation.run()"), (
+        "El aviso debe pintarse ANTES del contenido de la pagina"
+    )
+
+
+def test_synthetic_warning_says_the_data_is_not_real():
+    """El texto tiene que ser inequivoco: 'modo demo' no le dice a nadie que
+    los precios no coinciden con el mercado."""
+    common = (project_root() / "src/stocks_tracker/app/components/common.py").read_text("utf-8")
+    banner = common[common.index("def render_data_origin_banner"):]
+    banner = banner[:banner.index("def render_pending_alerts_badge")]
+
+    for word in ("INVENTADOS", "no sirven para decidir", "ingest"):
+        assert word in banner, f"El aviso no menciona '{word}'"
+    assert "st.error" in banner, "El aviso debe usar st.error, no un simple caption"

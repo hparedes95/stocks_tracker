@@ -20,6 +20,7 @@ if str(_SRC) not in sys.path:
 
 from stocks_tracker.app.components import tv_widgets  # noqa: E402
 from stocks_tracker.app.components.common import (  # noqa: E402
+    render_data_origin_banner,
     render_freshness_badge,
     render_pending_alerts_badge,
 )
@@ -71,6 +72,10 @@ pages = {
 }
 
 navigation = st.navigation(pages)
+
+# Antes que nada: si los precios no son reales, hay que decirlo antes de que
+# el usuario lea una sola cifra.
+render_data_origin_banner()
 
 with st.sidebar:
     st.markdown("### Stocks Tracker")
