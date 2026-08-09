@@ -20,16 +20,24 @@
       run       Arranca el dashboard y abre el navegador
       daily     Ciclo completo: ingesta + calculo + alertas
       test      Ejecuta los tests
+      lint      Comprueba el estilo del codigo
 #>
 
 param(
     [Parameter(Position = 0)]
     [ValidateSet('setup', 'demo', 'ingest', 'compute', 'presets', 'validate',
-                 'alerts', 'watch', 'watchtest', 'run', 'daily', 'test', 'help')]
+                 'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
+                 'lint', 'help')]
     [string]$Task = 'help'
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Rango de Python soportado, el mismo que declara pyproject.toml.
+# Son dos ficheros que no se pueden validar entre si: si cambia alli,
+# hay que cambiarlo aqui.
+$script:MinPy = 11
+$script:MaxPy = 14
 
 # La raiz del proyecto son dos niveles por encima de este script, de modo que
 # funcione desde cualquier carpeta.
@@ -60,7 +68,7 @@ function Test-PythonExe($exe, $prefix = @()) {
     } catch { return $null }
     if ($version -notmatch 'Python\s+3\.(\d+)') { return $null }
     $minor = [int]$Matches[1]
-    if ($minor -lt 11 -or $minor -gt 13) { return $null }
+    if ($minor -lt $script:MinPy -or $minor -gt $script:MaxPy) { return $null }
     return @{ Exe = $exe; Prefix = $prefix; Version = $version }
 }
 
@@ -73,7 +81,7 @@ function Find-Python {
     #>
     $pyCmd = Get-Command 'py' -ErrorAction SilentlyContinue
     if ($pyCmd) {
-        foreach ($v in @('-3.12', '-3.11', '-3.13', '-3')) {
+        foreach ($v in @('-3.13', '-3.12', '-3.14', '-3.11', '-3')) {
             $found = Test-PythonExe $pyCmd.Source @($v)
             if ($found) { return $found }
         }
@@ -119,10 +127,10 @@ function Find-Python {
 switch ($Task) {
 
     'setup' {
-        Write-Step "Buscando Python 3.11-3.13"
+        Write-Step "Buscando Python compatible (3.11 a 3.14)"
         $python = Find-Python
         if (-not $python) {
-            Write-Host "No se ha encontrado Python 3.11, 3.12 o 3.13." -ForegroundColor Red
+            Write-Host "No se ha encontrado un Python compatible (3.11 a 3.14)." -ForegroundColor Red
             Write-Host ""
             Write-Host "Instalalo con:" -ForegroundColor Yellow
             Write-Host "    winget install Python.Python.3.12"
@@ -221,6 +229,11 @@ switch ($Task) {
     'test' {
         Assert-Venv
         & $Py -m pytest -q
+    }
+
+    'lint' {
+        Assert-Venv
+        & $Py -m ruff check src tests
     }
 
     'run' {

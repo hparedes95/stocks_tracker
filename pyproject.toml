@@ -2,7 +2,7 @@
 name = "stocks-tracker"
 version = "0.1.0"
 description = "Dashboard de monitorizacion de mercado y deteccion de oportunidades"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "streamlit>=1.40",
     "pandas>=2.2",

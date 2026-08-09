@@ -20,6 +20,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Rango de Python soportado, el mismo que declara pyproject.toml.
+# Son dos ficheros que no se pueden validar entre si: si cambia alli,
+# hay que cambiarlo aqui.
+$script:MinPy = 11
+$script:MaxPy = 14
 $Repo = 'hparedes95/stocks_tracker'
 
 function Write-Step($n, $total, $text) {
@@ -48,7 +54,7 @@ Write-Step 1 6 "Comprobando Python"
 
 function Test-PythonExe($exe, $prefix = @()) {
     <#
-        Comprueba que un ejecutable es un Python 3.11-3.13 de verdad.
+        Comprueba que un ejecutable es un Python compatible de verdad.
 
         Hace falta porque en Windows `python` suele ser el alias de la
         Microsoft Store: un fichero de cero bytes que no interpreta nada, solo
@@ -64,7 +70,7 @@ function Test-PythonExe($exe, $prefix = @()) {
     # a secas, y exigir el parche las descartaba sin motivo.
     if ($version -notmatch 'Python\s+3\.(\d+)') { return $null }
     $minor = [int]$Matches[1]
-    if ($minor -lt 11 -or $minor -gt 13) { return $null }
+    if ($minor -lt $script:MinPy -or $minor -gt $script:MaxPy) { return $null }
     return @{ Exe = $exe; Prefix = $prefix; Version = $version }
 }
 
@@ -80,7 +86,7 @@ function Find-Python {
     # 1. El lanzador `py`, que sabe donde estan todas las versiones instaladas.
     $pyCmd = Get-Command 'py' -ErrorAction SilentlyContinue
     if ($pyCmd) {
-        foreach ($v in @('-3.12', '-3.11', '-3.13', '-3')) {
+        foreach ($v in @('-3.13', '-3.12', '-3.14', '-3.11', '-3')) {
             $found = Test-PythonExe $pyCmd.Source @($v)
             if ($found) { return $found }
         }
@@ -151,7 +157,7 @@ if ($python) {
     Write-Host "  Encontrado: $($python.Version)"
     Write-Host "  $($python.Exe)" -ForegroundColor DarkGray
 } else {
-    Write-Host "  No hay una version compatible (hace falta 3.11, 3.12 o 3.13)."
+    Write-Host "  No hay una version compatible (hace falta de la 3.11 a la 3.14)."
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         Fail "No se ha podido instalar Python automaticamente." `
              "Descargalo de https://www.python.org/downloads/ y vuelve a ejecutar esto."

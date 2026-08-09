@@ -97,7 +97,7 @@ bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
 ## Desarrollo
 
 ```bash
-make test    # 376 tests, sin red
+make test    # 395 tests, sin red
 make lint    # estilo
 ```
 
@@ -122,6 +122,10 @@ base de datos temporal. Los que más valen:
 - `test_brokers.py` comprueba que «1.234,56» y «1,234.56» se leen igual, que
   los lotes de un mismo valor se agrupan con coste medio ponderado, y que un
   ISIN desconocido se reporta en vez de desaparecer sin más.
+- `test_windows_scripts.py` comprueba que el rango de versiones de Python que
+  aceptan los scripts de Windows coincide con el de `pyproject.toml`, y que los
+  `.bat` van con CRLF y en ASCII puro. Son ficheros que ningún otro test toca y
+  cuyo fallo solo se descubre al intentar instalar el programa.
 - `test_watch.py` comprueba que el vigilante no te satura: el mismo nivel no
   avisa dos veces, uno peor avisa al momento aunque hayan pasado dos minutos, y
   la recuperación se anuncia una sola vez. Verificado desactivando el control
