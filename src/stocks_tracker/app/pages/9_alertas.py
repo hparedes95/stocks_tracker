@@ -181,6 +181,36 @@ with tab_watch:
         icon=":material/gavel:",
     )
 
+    with st.expander("Combinalo con las alertas de TradingView (recomendado)"):
+        st.markdown(
+            """
+Los graficos de TradingView que ves en el dashboard van **en vivo**, pero no
+sirven para avisarte: son un `iframe` de otro dominio, asi que este codigo no
+puede leer los precios que hay dentro (la politica de mismo origen del
+navegador lo impide, y es la proteccion que evita que cualquier web espie lo
+que tienes abierto en otra pestana). Y ademas solo existen mientras tengas la
+pestana abierta delante.
+
+**TradingView si tiene alertas propias**, y esas corren en sus servidores:
+funcionan con el navegador cerrado, llegan al movil como notificacion y usan su
+feed, sin los ~15 minutos de retraso de Yahoo. Para "avisame si el S&P se
+desploma" son mejores que este vigilante.
+
+1. Abre el grafico de SPY o del S&P 500 en tradingview.com.
+2. Boton derecho sobre el grafico -> **Anadir alerta**.
+3. Condicion: *Variacion porcentual diaria* menor que **-3%** (y otra a -7% si
+   te caben).
+4. Marca la notificacion a la aplicacion movil.
+
+Con la cuenta gratuita tienes un numero limitado de alertas activas; consulta
+el limite vigente en su web, que cambia con los planes.
+
+**Lo que ellos no pueden hacer y este vigilante si**: valorar **tu cartera
+entera ponderada por posicion**. TradingView no sabe cuantas acciones tienes de
+cada cosa. Lo sensato es usar los dos.
+            """
+        )
+
     with st.expander("Probar que funciona antes de necesitarlo"):
         st.markdown(
             """

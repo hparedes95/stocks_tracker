@@ -294,6 +294,29 @@ WantedBy=default.target
 
 `systemctl --user enable --now stocks-watch`.
 
+### Por qué los gráficos de TradingView no valen para esto
+
+Los widgets de TradingView que lleva el dashboard **sí van en vivo** —el ticker
+de la cabecera, los mapas de calor, el gráfico de la ficha, el screener, el
+calendario—. Pero no pueden avisarte, por dos razones:
+
+- **No se puede leer su contenido.** Son un `iframe` servido desde
+  `tradingview.com`, y la política de mismo origen del navegador impide que
+  nuestro código lea los precios de dentro. Sacarlos por detrás atacando sus
+  endpoints internos incumpliría sus condiciones de uso.
+- **Solo existen mientras miras.** Un iframe vive en una pestaña abierta; no
+  evalúa umbrales ni manda notificaciones con el portátil cerrado.
+
+**La recomendación honesta**: TradingView tiene alertas propias que corren en
+sus servidores, llegan al móvil con el navegador cerrado y usan su feed, sin
+los ~15 minutos de retraso de Yahoo. Para "avísame si el S&P se desploma" son
+mejores que este vigilante. Botón derecho sobre el gráfico → Añadir alerta →
+variación diaria por debajo de −3%. La cuenta gratuita permite un número
+limitado de alertas activas.
+
+Lo que ellas no pueden hacer y este vigilante sí: **tu cartera entera ponderada
+por posición**, porque TradingView no sabe qué tienes. Usa los dos.
+
 ### Lo que este vigilante no puede hacer
 
 Tres limitaciones que conviene tener claras antes de confiar en él:
