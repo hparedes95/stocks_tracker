@@ -62,7 +62,7 @@ bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
 | **Macro y riesgo** | Semáforo risk-on/risk-off con su desglose, tipos y curva, crédito, actividad, termómetros de mercado y correlación media |
 | **Oportunidades** | Ranking de candidatos en tarjetas, cada uno con sus motivos en castellano y sus banderas rojas; selector de estilo de inversión |
 | **Ficha de valor** | Gráfico de velas con nuestras señales, medias y niveles dibujados encima; gráfico de TradingView; fundamentales frente a la mediana del sector; perfil factorial y riesgo |
-| **Cartera y watchlist** | Tus posiciones con resultado y peso, diagnóstico de concentración (sector, perfil factorial, correlación media entre posiciones) y los valores que sigues |
+| **Cartera y watchlist** | Tus posiciones con resultado y peso, importación desde eToro y Trade Republic, diagnóstico de concentración (sector, perfil factorial, correlación media entre posiciones) y los valores que sigues |
 | **Alertas** | Histórico de avisos (de cierre y en vivo), estado del vigilante de desplomes, canales de entrega y reglas configuradas |
 | **Validación de señales** | Qué señales aportan algo y cuáles son ruido: eventos, acierto, exceso sobre el universo, estabilidad entre ventanas y distribución de retornos |
 | **Estado de los datos** | Qué se descargó, cuándo, qué falló, calidad de datos por universo, procedencia de los precios y qué tickers no tienen equivalencia en TradingView |
@@ -70,7 +70,7 @@ bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
 ## Desarrollo
 
 ```bash
-make test    # 316 tests, sin red
+make test    # 376 tests, sin red
 make lint    # estilo
 ```
 
@@ -92,6 +92,9 @@ base de datos temporal. Los que más valen:
 - `test_providers_chain.py` simula la forma real en que Yahoo se rompe —
   responder a medias sin avisar — y comprueba que al respaldo solo se le piden
   los tickers que faltaban.
+- `test_brokers.py` comprueba que «1.234,56» y «1,234.56» se leen igual, que
+  los lotes de un mismo valor se agrupan con coste medio ponderado, y que un
+  ISIN desconocido se reporta en vez de desaparecer sin más.
 - `test_watch.py` comprueba que el vigilante no te satura: el mismo nivel no
   avisa dos veces, uno peor avisa al momento aunque hayan pasado dos minutos, y
   la recuperación se anuncia una sola vez. Verificado desactivando el control
@@ -209,6 +212,46 @@ Lo que sí faltaba eran los dos componentes que el semáforo no tenía, y esos s
 han añadido al propio semáforo: **máximos frente a mínimos anuales** (en un
 techo, la amplitud aún aguanta mientras los nuevos máximos ya se secan) y
 **momentum del índice frente a su media de medio año**.
+
+## Importar tu cartera (eToro, Trade Republic)
+
+**Ninguno de los dos se puede conectar automáticamente**, y conviene saber por
+qué antes de buscar alternativas raras:
+
+- **eToro** no ofrece API de lectura de cartera a clientes particulares.
+- **Trade Republic** no tiene API pública de ningún tipo. Existen clientes no
+  oficiales que inician sesión con tu teléfono y tu PIN; eso significa entregar
+  tus credenciales a un script de terceros e incumplir sus condiciones de uso,
+  así que **no está implementado aquí** y no pienso implementarlo por defecto.
+
+El camino soportado es exportar del broker e importar el fichero, en **Cartera
+y watchlist → Importar desde eToro o Trade Republic**. Es manual y periódico,
+pero no le entregas tus credenciales a nadie.
+
+- **eToro**: cuenta → *Historial* → descargar *Extracto de cuenta* (XLSX). Se
+  sube tal cual; se detecta sola la hoja de posiciones abiertas.
+- **Trade Republic**: perfil → *Documentos / Informes*. Si solo consigues PDF,
+  la pestaña *Escribir a mano* trae una tabla editable que para quince valores
+  va más rápido que pelearse con el PDF.
+
+Tres cosas que hace el importador y que son la diferencia entre que funcione y
+que parezca que funciona:
+
+- **Traduce ISIN a ticker.** Trade Republic identifica todo por ISIN: trae
+  `US0378331005` donde nosotros esperamos `AAPL`. La tabla está en
+  [`config/isin_map.yaml`](config/isin_map.yaml) con los valores y ETF más
+  habituales; lo que no reconozca te lo dice para que lo añadas.
+- **Agrupa lotes con coste medio ponderado.** Los brokers listan cada compra
+  por separado. Diez acciones a 100 y treinta a 200 dan 175, no 150.
+- **Reemplaza, no añade.** Un extracto es una foto completa de tu cartera. Si
+  se añadiera, reimportar el mismo fichero duplicaría cada posición y lo que
+  hubieras vendido contaría para siempre.
+
+Y una que no puede hacer: `1.234` significa mil doscientos treinta y cuatro
+para un europeo y uno coma dos tres cuatro para un anglosajón, y **no hay forma
+de saberlo mirando el valor**. Se lee como decimal, se avisa, y por eso el
+importador siempre enseña una vista previa con el total invertido: compáralo
+con lo que dice tu broker antes de confirmar.
 
 ## Vigilancia en vivo (avisos de desplome)
 

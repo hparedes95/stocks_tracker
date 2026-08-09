@@ -1,0 +1,61 @@
+# ISIN -> ticker.
+#
+# Trade Republic identifica los valores por ISIN, no por simbolo. Un extracto
+# suyo trae "US0378331005" donde nosotros esperamos "AAPL", asi que hace falta
+# esta traduccion.
+#
+# El importador rellena solo lo que reconoce y te dice que ISIN se han quedado
+# sin resolver. Anadelos aqui y vuelve a importar; se quedan para siempre.
+#
+# Truco para encontrar el ticker de un ISIN: buscalo en Yahoo Finance. Ojo con
+# los valores cotizados en varias bolsas, porque el ISIN es unico pero el
+# ticker no: SAP tiene ISIN aleman y cotiza como SAP.DE en Xetra y como SAP en
+# Nueva York. Elige el mercado en el que lo compraste, que es donde esta el
+# precio que pagaste.
+
+isin_to_ticker:
+  # --- Estados Unidos ---
+  US0378331005: AAPL      # Apple
+  US5949181045: MSFT      # Microsoft
+  US02079K3059: GOOGL     # Alphabet clase A
+  US0231351067: AMZN      # Amazon
+  US67066G1040: NVDA      # NVIDIA
+  US30303M1027: META      # Meta Platforms
+  US88160R1014: TSLA      # Tesla
+  US0846707026: BRK-B     # Berkshire Hathaway clase B
+  US4781601046: JNJ       # Johnson & Johnson
+  US91324P1021: UNH       # UnitedHealth
+  US46625H1005: JPM       # JPMorgan Chase
+  US92826C8394: V         # Visa
+  US57636Q1040: MA        # Mastercard
+  US7427181091: PG        # Procter & Gamble
+  US1912161007: KO        # Coca-Cola
+
+  # --- Espana (IBEX 35) ---
+  ES0113900J37: SAN.MC    # Banco Santander
+  ES0113211835: BBVA.MC   # BBVA
+  ES0144580Y14: IBE.MC    # Iberdrola
+  ES0178430E18: TEF.MC    # Telefonica
+  ES0173516115: REP.MC    # Repsol
+  ES0118900010: FER.MC    # Ferrovial
+  ES0105066007: MRL.MC    # Merlin Properties
+  ES0130960018: ENG.MC    # Enagas
+  ES0116870314: NTGY.MC   # Naturgy
+  ES0148396007: ITX.MC    # Inditex
+
+  # --- Europa ---
+  NL0010273215: ASML.AS   # ASML
+  DE0007164600: SAP.DE    # SAP (cotizacion de Xetra)
+  DE0007236101: SIE.DE    # Siemens
+  DE0005190003: BMW.DE    # BMW
+  FR0000121014: MC.PA     # LVMH
+  FR0000120321: OR.PA     # L'Oreal
+  CH0038863350: NESN.SW   # Nestle
+  DK0062498333: NOVO-B.CO # Novo Nordisk
+
+  # --- ETF habituales en Trade Republic ---
+  IE00B4L5Y983: IWDA.AS   # iShares Core MSCI World
+  IE00B5BMR087: CSPX.AS   # iShares Core S&P 500
+  IE00BK5BQT80: VWCE.DE   # Vanguard FTSE All-World
+  IE00B3RBWM25: VWRL.AS   # Vanguard FTSE All-World (reparto)
+  LU1781541179: LYP6.DE   # Amundi Euro Stoxx 50

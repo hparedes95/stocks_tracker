@@ -13,6 +13,10 @@ import streamlit as st
 
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components import charts, tv_widgets
+from stocks_tracker.app.components.broker_import import (
+    render_broker_import,
+    render_manual_table,
+)
 from stocks_tracker.app.components.common import render_disclaimer
 from stocks_tracker.app.components.theme import format_money, format_pct
 
@@ -28,9 +32,8 @@ with tab_portfolio:
 
     with st.expander("Anadir una posicion"):
         st.caption(
-            "Se introduce a mano: el dashboard no se conecta con ningun broker. "
-            "Sirve para ver tu cartera junto al analisis y para que las alertas "
-            "de ambito `portfolio` sepan que tienes."
+            "Para una posicion suelta. Si tienes la cartera en eToro o Trade "
+            "Republic, usa la importacion de abajo."
         )
         form_cols = st.columns([2, 1, 1, 1])
         with form_cols[0]:
@@ -47,6 +50,13 @@ with tab_portfolio:
         if st.button("Anadir", type="primary", disabled=not (new_ticker and new_qty > 0)):
             da.add_position(new_ticker, new_qty, new_cost, new_currency)
             st.rerun()
+
+    with st.expander("Importar desde eToro o Trade Republic"):
+        import_tab, manual_tab = st.tabs(["Subir extracto", "Escribir a mano"])
+        with import_tab:
+            render_broker_import()
+        with manual_tab:
+            render_manual_table()
 
     if positions.empty:
         st.info("Sin posiciones registradas. Anade la primera arriba.")

@@ -798,6 +798,49 @@ def add_position(ticker: str, qty: float, avg_cost: float,
     get_positions.clear()
 
 
+def replace_positions(frame: pd.DataFrame, note: str = "") -> int:
+    """Sustituye la cartera entera por la importada.
+
+    Se reemplaza en vez de anadir porque un extracto es una FOTO completa de lo
+    que tienes. Anadiendo, reimportar el mismo fichero duplicaria cada
+    posicion; y una posicion que vendiste seguiria contando para siempre.
+
+    Se hace en una transaccion: si algo falla a medias, es preferible quedarse
+    con la cartera anterior que con media importada.
+    """
+    import uuid
+
+    from ..core.timeutils import utcnow
+
+    if frame is None or frame.empty:
+        return 0
+
+    now = utcnow()
+    today = date.today()
+    rows = [
+        (
+            str(uuid.uuid4()), str(r["ticker"]), float(r["qty"]), float(r["avg_cost"]),
+            str(r.get("currency") or "EUR"), today, None, note, now,
+        )
+        for _, r in frame.iterrows()
+    ]
+
+    with connect() as conn:
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            conn.execute("DELETE FROM positions WHERE closed_at IS NULL")
+            conn.executemany(
+                "INSERT INTO positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows
+            )
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+    get_positions.clear()
+    return len(rows)
+
+
 def close_position(position_id: str) -> None:
     with connect() as conn:
         conn.execute(
