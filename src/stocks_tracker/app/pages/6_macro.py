@@ -13,6 +13,7 @@ from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components import charts, tv_widgets
 from stocks_tracker.app.components.common import render_disclaimer
 from stocks_tracker.app.components.theme import format_num, format_pct
+from stocks_tracker.core import sentiment
 from stocks_tracker.core.config import get_fred_series, get_macro_config
 
 st.title("Macro y riesgo")
@@ -29,26 +30,54 @@ if regime.empty:
     st.stop()
 
 latest = regime.iloc[-1]
+risk_score = float(latest["risk_score"])
+fg_value = sentiment.to_fear_greed(risk_score)
+fg_label = sentiment.label(fg_value)
+
 gauge_col, detail_col = st.columns([1, 2])
 
 with gauge_col:
     st.plotly_chart(
-        charts.risk_gauge(float(latest["risk_score"]), str(latest["regime"])),
+        charts.risk_gauge(risk_score, str(latest["regime"])),
         width="stretch", config={"displayModeBar": False},
     )
+    if fg_value is not None:
+        st.caption(f"**Miedo y codicia: {fg_label}**")
+        st.plotly_chart(
+            charts.fear_greed_strip(fg_value, sentiment.bands()),
+            width="stretch", config={"displayModeBar": False},
+            key="macro_fear_greed",
+        )
 
 with detail_col:
     st.subheader("Que empuja el semaforo")
-    components = get_macro_config().get("regime_components", {})
     st.caption(
-        "El semaforo es la media de varios componentes normalizados. Se muestra "
-        "el desglose para que se vea **que** lo mueve, no solo el numero."
+        "El semaforo es la media de varios componentes normalizados de -100 a "
+        "+100. Miedo y codicia **es la misma cifra** en la escala 0-100 a la "
+        "que acostumbra el indice de CNN: no son dos indicadores, es uno "
+        "leido de dos maneras."
     )
-    rows = []
-    for key, spec in components.items():
-        rows.append({"Componente": spec.get("label", key), "Peso": spec.get("weight", 1.0)})
-    if rows:
-        st.dataframe(pd.DataFrame(rows), hide_index=True, height=210)
+
+    component_values = da.regime_components(latest)
+    if component_values:
+        labels = get_macro_config().get("regime_components", {})
+        rows = [
+            {
+                "Componente": labels.get(key, {}).get("label", key.replace("_", " ")),
+                "Lectura": value,
+            }
+            for key, value in component_values.items()
+        ]
+        st.dataframe(
+            pd.DataFrame(rows), hide_index=True,
+            height=min(280, 42 + 35 * len(rows)),
+            column_config={
+                "Lectura": st.column_config.NumberColumn(
+                    format="%+.0f",
+                    help="De -100 (aversion maxima) a +100 (apetito maximo).",
+                )
+            },
+        )
 
     metrics = st.columns(3)
     metrics[0].metric("VIX", format_num(latest.get("vix"), 1))
@@ -63,6 +92,8 @@ with detail_col:
         f"{float(latest['pct_above_sma200']):.0f}%"
         if pd.notna(latest.get("pct_above_sma200")) else "—",
     )
+
+st.info(sentiment.reading(fg_value), icon=":material/thermostat:")
 
 st.divider()
 

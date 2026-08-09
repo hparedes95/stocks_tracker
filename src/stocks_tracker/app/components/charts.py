@@ -90,10 +90,59 @@ def risk_gauge(score: float, regime: str, height: int = 220) -> go.Figure:
             ),
         )
     )
+    # Margenes laterales generosos: con 16 px, Plotly recorta las etiquetas de
+    # los extremos del arco y "-100" se lee "00", que es peor que no ponerla.
     fig.update_layout(
-        height=height, margin=dict(l=16, r=16, t=40, b=16),
+        height=height, margin=dict(l=44, r=44, t=40, b=16),
         paper_bgcolor="rgba(0,0,0,0)", font=dict(color=p["text_secondary"]),
     )
+    return fig
+
+
+def fear_greed_strip(value: float, bands: list[tuple[float, float, str]],
+                     height: int = 120) -> go.Figure:
+    """Miedo y codicia como una franja 0-100 con un marcador.
+
+    Deliberadamente NO es un medidor. Es la misma cifra que el semaforo de
+    riesgo en otra escala, y ponerle un segundo dial al lado la convertiria
+    visualmente en un segundo indicador: dos agujas que no coinciden del todo
+    no informan mas, solo siembran la duda de a cual hacer caso.
+
+    Los tramos van rotulados con su nombre, asi que el color no carga con el
+    significado el solo.
+    """
+    p = palette()
+    shades = [
+        STATUS["critical"], STATUS["warning"], p["grid"],
+        SEQUENTIAL_BLUE[4], STATUS["good"],
+    ]
+
+    fig = go.Figure()
+    for i, (start, end, name) in enumerate(bands):
+        fig.add_shape(
+            type="rect", x0=start, x1=end, y0=0, y1=1,
+            fillcolor=shades[i % len(shades)], opacity=0.28, line=dict(width=0),
+        )
+        fig.add_annotation(
+            x=(start + end) / 2, y=-0.55, text=name, showarrow=False,
+            font=dict(size=9, color=p["text_secondary"]),
+        )
+
+    fig.add_shape(
+        type="line", x0=value, x1=value, y0=-0.12, y1=1.12,
+        line=dict(color=p["text_primary"], width=3),
+    )
+    fig.add_annotation(
+        x=value, y=1.7, text=f"<b>{value:.0f}</b>", showarrow=False,
+        font=dict(size=22, color=p["text_primary"]),
+    )
+
+    fig = apply_layout(fig, height=height)
+    fig.update_xaxes(range=[0, 100], showgrid=False, zeroline=False,
+                     tickvals=[0, 25, 45, 55, 75, 100],
+                     tickfont=dict(size=9, color=p["muted"]))
+    fig.update_yaxes(range=[-1.1, 2.2], visible=False)
+    fig.update_layout(margin=dict(l=8, r=8, t=8, b=4))
     return fig
 
 

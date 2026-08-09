@@ -19,6 +19,7 @@ from ..core.config import (
     get_universes,
 )
 from ..core.db import connect
+from ..core.scoring import preset_hash, preset_names
 from ..core.timeutils import hours_since
 
 TTL = 900  # 15 minutos: los datos se actualizan una vez al dia
@@ -27,6 +28,37 @@ TTL = 900  # 15 minutos: los datos se actualizan una vez al dia
 def _fetch(sql: str, params: list | None = None) -> pd.DataFrame:
     with connect(read_only=True) as conn:
         return conn.execute(sql, params or []).fetchdf()
+
+
+def default_preset() -> str:
+    return str(get_settings().compute.get("weights_preset", "balanced"))
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def available_presets() -> list[str]:
+    """Perfiles con scores ya calculados en el almacen.
+
+    Ofrecer en el selector un perfil que nadie ha calculado dejaria la pagina
+    vacia sin explicar por que.
+    """
+    stored = set(_fetch("SELECT DISTINCT weights_hash FROM factor_scores")["weights_hash"])
+    return [name for name in preset_names() if preset_hash(name) in stored]
+
+
+def _preset_hash(preset: str | None) -> str:
+    """Hash del perfil pedido, con caida al que si este calculado.
+
+    Toda consulta a `factor_scores` DEBE filtrar por este hash: los scores de
+    todos los perfiles conviven en la misma tabla y, sin el filtro, cada valor
+    aparece una vez por perfil.
+    """
+    if preset:
+        return preset_hash(preset)
+    available = available_presets()
+    fallback = default_preset()
+    if available and fallback not in available:
+        fallback = available[0]
+    return preset_hash(fallback)
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
@@ -135,6 +167,7 @@ def get_movers(universe: str = "TODOS", n: int = 10, ascending: bool = False,
         FROM indicators_daily i
         JOIN instruments inst ON inst.ticker = i.ticker
         LEFT JOIN factor_scores f ON f.ticker = i.ticker AND f.date = i.date
+             AND f.weights_hash = ?
         WHERE i.date = (SELECT MAX(date) FROM indicators_daily)
           AND inst.asset_class IN ('equity', 'etf')
           AND i.ret_1d IS NOT NULL
@@ -144,7 +177,7 @@ def get_movers(universe: str = "TODOS", n: int = 10, ascending: bool = False,
         ORDER BY i.ret_1d {order}
         LIMIT ?
         """,
-        [min_dollar_volume, *params, n],
+        [_preset_hash(None), min_dollar_volume, *params, n],
     )
 
 
@@ -387,6 +420,109 @@ def get_regime(days: int = 400) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
+def coverage_by_universe() -> pd.DataFrame:
+    """Cuanta informacion fundamental hay, por universo.
+
+    Es el diagnostico que mas falta hacia para Europa: Yahoo deja muchos
+    campos vacios fuera de Estados Unidos, y un valor con la mitad de los
+    datos no compite en igualdad con uno que los tiene todos. El score ya
+    penaliza por cobertura, pero sin verlo aqui no hay forma de saber si un
+    universo entero esta jugando en desventaja.
+    """
+    return _fetch(
+        """
+        SELECT m.universe,
+               COUNT(DISTINCT m.ticker) AS instrumentos,
+               COUNT(DISTINCT fu.ticker) AS con_fundamentales,
+               AVG(fu.completeness) AS cobertura_media,
+               COUNT(DISTINCT CASE WHEN inst.gics_sector IS NULL THEN m.ticker END)
+                   AS sin_sector,
+               COUNT(DISTINCT CASE WHEN i.ticker IS NULL THEN m.ticker END)
+                   AS sin_precio,
+               -- Solo las acciones y los ETF entran en el ranking. Un universo
+               -- de indices sin fundamentales no esta en desventaja: es que no
+               -- compite.
+               COUNT(DISTINCT CASE WHEN inst.asset_class IN ('equity', 'etf')
+                                   THEN m.ticker END) AS puntuables
+        FROM universe_membership m
+        JOIN instruments inst ON inst.ticker = m.ticker
+        LEFT JOIN (
+            SELECT f.ticker, f.completeness FROM fundamentals_snapshot f
+            JOIN (SELECT ticker, MAX(as_of) AS as_of
+                  FROM fundamentals_snapshot GROUP BY ticker) l
+              USING (ticker, as_of)
+        ) fu ON fu.ticker = m.ticker
+        LEFT JOIN indicators_daily i ON i.ticker = m.ticker
+             AND i.date = (SELECT MAX(date) FROM indicators_daily)
+        WHERE m.valid_to IS NULL
+        GROUP BY m.universe
+        ORDER BY cobertura_media
+        """
+    )
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def price_sources() -> pd.DataFrame:
+    """De donde viene cada serie de precios, y cuales mezclan fuentes.
+
+    Una serie con dos fuentes tiene un salto artificial el dia del relevo:
+    Yahoo ajusta el cierre por dividendos y Stooq no.
+    """
+    return _fetch(
+        """
+        SELECT source AS fuente,
+               COUNT(DISTINCT ticker) AS instrumentos,
+               COUNT(*) AS filas,
+               MAX(date) AS hasta
+        FROM prices_daily
+        GROUP BY source
+        ORDER BY filas DESC
+        """
+    )
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def mixed_source_series() -> pd.DataFrame:
+    return _fetch(
+        """
+        SELECT ticker,
+               string_agg(DISTINCT source, ', ') AS fuentes,
+               COUNT(DISTINCT source) AS n_fuentes
+        FROM prices_daily
+        GROUP BY ticker
+        HAVING COUNT(DISTINCT source) > 1
+        ORDER BY ticker
+        """
+    )
+
+
+def regime_components(row) -> dict[str, float]:
+    """Desglose del semaforo del dia, ordenado por magnitud.
+
+    Se guarda como texto de un diccionario de Python, no como JSON, asi que
+    `json.loads` no vale. `ast.literal_eval` lo lee sin ejecutar nada.
+    """
+    import ast
+
+    raw = row.get("components") if hasattr(row, "get") else None
+    if not raw:
+        return {}
+    try:
+        parsed = ast.literal_eval(str(raw))
+    except (ValueError, SyntaxError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+
+    clean = {
+        str(k): float(v)
+        for k, v in parsed.items()
+        if isinstance(v, (int, float)) and float(v) == float(v)
+    }
+    return dict(sorted(clean.items(), key=lambda kv: abs(kv[1]), reverse=True))
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
 def get_market_kpis() -> pd.DataFrame:
     """Indices y activos macro para la fila de indicadores de cabecera."""
     return _fetch(
@@ -407,7 +543,7 @@ def get_market_kpis() -> pd.DataFrame:
 # --------------------------------------------------------------------------
 @st.cache_data(ttl=TTL, show_spinner=False)
 def get_candidates(universe: str = "TODOS", sectors: tuple[str, ...] = (),
-                   limit: int = 200) -> pd.DataFrame:
+                   limit: int = 200, preset: str | None = None) -> pd.DataFrame:
     """Ranking con todo lo necesario para explicar cada candidato."""
     where, params = _universe_filter(universe)
     sector_clause = ""
@@ -438,25 +574,27 @@ def get_candidates(universe: str = "TODOS", sectors: tuple[str, ...] = (),
         LEFT JOIN fundamentals_snapshot fu ON fu.ticker = f.ticker
              AND fu.as_of = (SELECT MAX(as_of) FROM fundamentals_snapshot
                              WHERE ticker = f.ticker)
-        WHERE f.date = (SELECT MAX(date) FROM factor_scores)
+        WHERE f.weights_hash = ?
+          AND f.date = (SELECT MAX(date) FROM factor_scores)
           {where} {sector_clause}
         ORDER BY f.composite DESC
         LIMIT ?
         """,
-        [*params, limit],
+        [_preset_hash(preset), *params, limit],
     )
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
-def get_contributions(ticker: str) -> pd.DataFrame:
+def get_contributions(ticker: str, preset: str | None = None) -> pd.DataFrame:
     return _fetch(
         """
         SELECT factor, zscore, weight, contribution
         FROM factor_contributions
-        WHERE ticker = ? AND date = (SELECT MAX(date) FROM factor_contributions)
+        WHERE ticker = ? AND weights_hash = ?
+          AND date = (SELECT MAX(date) FROM factor_contributions)
         ORDER BY ABS(contribution) DESC
         """,
-        [ticker],
+        [ticker, _preset_hash(preset)],
     )
 
 
@@ -637,9 +775,11 @@ def get_positions() -> pd.DataFrame:
              AND i.date = (SELECT MAX(date) FROM indicators_daily)
         LEFT JOIN factor_scores f ON f.ticker = p.ticker
              AND f.date = (SELECT MAX(date) FROM factor_scores)
+             AND f.weights_hash = ?
         WHERE p.closed_at IS NULL AND p.qty > 0
         ORDER BY p.ticker
-        """
+        """,
+        [_preset_hash(None)],
     )
 
 
@@ -697,7 +837,9 @@ def get_watchlist() -> pd.DataFrame:
              AND i.date = (SELECT MAX(date) FROM indicators_daily)
         LEFT JOIN factor_scores f ON f.ticker = w.ticker
              AND f.date = (SELECT MAX(date) FROM factor_scores)
+             AND f.weights_hash = ?
         WHERE w.list_name = 'default'
         ORDER BY w.added_at DESC
-        """
+        """,
+        [_preset_hash(None)],
     )

@@ -16,12 +16,14 @@ bot de trading experimental, para uso personal.
 
 ## Estado
 
-**Fases 1 a 4 funcionando.** El dashboard ingiere datos, calcula indicadores,
+**Fases 1 a 5 funcionando.** El dashboard ingiere datos, calcula indicadores,
 factores, señales, amplitud, rotación sectorial y régimen de riesgo, muestra el
 ranking de candidatos explicado, **valida cada señal contra su histórico** para
 distinguir las que aportan algo de las que son ruido, y **avisa** cuando pasa
-algo relevante en tu cartera, tu watchlist o el mercado. El bot de trading
-todavía no está implementado (fases 6 en adelante).
+algo relevante en tu cartera, tu watchlist o el mercado. Puedes ver el mismo
+universo ordenado por **cinco estilos de inversión** distintos, y si Yahoo deja
+de responder hay un **proveedor de respaldo**. El bot de trading todavía no está
+implementado (fases 6 en adelante).
 
 ## Puesta en marcha
 
@@ -30,6 +32,7 @@ make setup        # crea el entorno e instala dependencias
 make migrate      # crea el almacén DuckDB
 make ingest       # descarga datos reales (Yahoo Finance + FRED si hay clave)
 make compute      # indicadores, señales, factores, amplitud, rotación y régimen
+make compute-presets  # puntúa además con los otros estilos de inversión
 make validate     # valida las señales contra su histórico y las etiqueta
 make alerts       # evalúa las reglas de aviso y las entrega
 make run          # abre el dashboard en http://127.0.0.1:8501
@@ -55,17 +58,17 @@ bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
 | **Qué se mueve hoy** | Resumen del día en lenguaje natural, mayores movimientos, rupturas anuales, volumen inusual, cambios de tendencia, sectores líderes, amplitud y semáforo de riesgo |
 | **Sectores y rotación** | Mapa de rotación (qué sectores lideran y cuáles se debilitan), rendimiento por sector y horizonte, mapa de superficie, amplitud interna |
 | **Macro y riesgo** | Semáforo risk-on/risk-off con su desglose, tipos y curva, crédito, actividad, termómetros de mercado y correlación media |
-| **Oportunidades** | Ranking de candidatos en tarjetas, cada uno con sus motivos en castellano y sus banderas rojas |
+| **Oportunidades** | Ranking de candidatos en tarjetas, cada uno con sus motivos en castellano y sus banderas rojas; selector de estilo de inversión |
 | **Ficha de valor** | Gráfico de velas con nuestras señales, medias y niveles dibujados encima; gráfico de TradingView; fundamentales frente a la mediana del sector; perfil factorial y riesgo |
 | **Cartera y watchlist** | Tus posiciones con resultado y peso, diagnóstico de concentración (sector, perfil factorial, correlación media entre posiciones) y los valores que sigues |
 | **Alertas** | Histórico de avisos, estado de los canales de entrega y las reglas configuradas con su condición |
 | **Validación de señales** | Qué señales aportan algo y cuáles son ruido: eventos, acierto, exceso sobre el universo, estabilidad entre ventanas y distribución de retornos |
-| **Estado de los datos** | Qué se descargó, cuándo, qué falló y qué tickers no tienen equivalencia en TradingView |
+| **Estado de los datos** | Qué se descargó, cuándo, qué falló, calidad de datos por universo, procedencia de los precios y qué tickers no tienen equivalencia en TradingView |
 
 ## Desarrollo
 
 ```bash
-make test    # 198 tests, sin red
+make test    # 277 tests, sin red
 make lint    # estilo
 ```
 
@@ -81,6 +84,12 @@ base de datos temporal. Los tres que más valen:
 - `test_alerts.py` comprueba que el período de espera suprime el aviso repetido
   al día siguiente, que ninguna expresión peligrosa del YAML llega a ejecutarse
   y que el estado de los canales no filtra credenciales.
+- `test_presets.py` comprueba que las consultas devuelven una fila por valor y
+  no una por estilo. Verificado quitando el filtro a propósito: cuatro tests
+  fallan.
+- `test_providers_chain.py` simula la forma real en que Yahoo se rompe —
+  responder a medias sin avisar — y comprueba que al respaldo solo se le piden
+  los tickers que faltaban.
 
 ## Documentación
 
@@ -92,7 +101,7 @@ base de datos temporal. Los tres que más valen:
 | [`docs/03-adenda-cripto-kraken-multivenue.md`](docs/03-adenda-cripto-kraken-multivenue.md) | Cripto en Kraken como segundo venue: stops nativos en el exchange, presupuesto de comisiones, autonomía por modo, ejecución en un equipo no permanente |
 
 Los documentos son acumulativos y describen el proyecto completo; el código
-implementa por ahora las fases 1 a 4. Cada adenda empieza con un índice de qué
+implementa por ahora las fases 1 a 5. Cada adenda empieza con un índice de qué
 secciones del plan base sustituye.
 
 ## Universo
@@ -138,6 +147,62 @@ Cuatro decisiones que hacen honesto el resultado:
 Y el sesgo que queda, dicho en la propia página: el universo son los
 constituyentes de **hoy**, así que los resultados están sesgados al alza por
 supervivencia. Trátalos como una cota superior optimista.
+
+## Estilos de inversión
+
+El mismo universo, ordenado según lo que a ti te importe. Los cinco estilos de
+[`config/factors.yaml`](config/factors.yaml) —equilibrado, valor, crecimiento,
+dividendo y momentum— reparten los pesos de los siete factores de otra manera y
+producen rankings distintos. Se eligen en la barra lateral de **Oportunidades**.
+
+Un estilo **no filtra: reordena**. Las guardas de sensatez (tendencia, RSI,
+cobertura, caída máxima) son otra cosa y se controlan aparte.
+
+```bash
+make compute-presets   # puntúa el universo con los cinco estilos
+```
+
+Los scores de todos los estilos conviven en la misma tabla, distinguidos por un
+hash de los pesos. Es un detalle interno con una consecuencia práctica: **toda
+consulta a `factor_scores` debe filtrar por ese hash**, o cada valor aparece una
+vez por estilo. Hay cuatro tests que lo vigilan porque es un fallo que no da
+error, solo multiplica filas en silencio.
+
+## Si Yahoo deja de responder
+
+yfinance es una API **no oficial** que ya se ha roto antes y se volverá a
+romper. La cadena de `settings.yaml` es `[yfinance, stooq]`, y el relevo ocurre
+**por ticker y después de intentarlo**: lo que el primero no consigue traer se
+le pide al segundo. El relevo anterior solo actuaba si el proveedor no se podía
+ni construir, que no es como Yahoo se rompe en la práctica —el import funciona,
+la llamada funciona, y lo que vuelve está vacío—.
+
+Stooq no pide clave, pero tiene dos limitaciones que conviene conocer:
+
+- **Una petición por ticker**, no por lote. Es el camino de emergencia.
+- **No ajusta el cierre por dividendos**, y Yahoo sí. Una serie servida a medias
+  por cada fuente tendría un escalón artificial el día del relevo, y ese escalón
+  no es un movimiento del mercado pero los indicadores no saben distinguirlo:
+  aparece como un retorno enorme y puede disparar una señal.
+
+Por eso la página de **Estado** detecta las series con fuentes mezcladas y
+`make repair` las reconstruye enteras desde una sola fuente. Solo reemplaza lo
+que consigue volver a descargar: borrar una serie que luego no se puede reponer
+sería destruir datos por una mejora.
+
+## Miedo y codicia
+
+El semáforo de riesgo, releído en la escala 0-100 del índice de CNN. **No es un
+indicador nuevo**: es la misma cifra. La tentación era construir un Fear & Greed
+propio, pero cinco de sus siete componentes ya estaban en el semáforo, así que
+habrían salido dos números midiendo casi lo mismo en escalas distintas — y dos
+termómetros que no coinciden del todo no dan más información, dan la duda de a
+cuál hacer caso.
+
+Lo que sí faltaba eran los dos componentes que el semáforo no tenía, y esos se
+han añadido al propio semáforo: **máximos frente a mínimos anuales** (en un
+techo, la amplitud aún aguanta mientras los nuevos máximos ya se secan) y
+**momentum del índice frente a su media de medio año**.
 
 ## Alertas y ciclo diario
 
@@ -195,8 +260,9 @@ cara. Ejecútala a mano o con un cron semanal.
 ## Decisiones de partida
 
 - **Stack**: Python 3.11+ y Streamlit multipágina.
-- **Datos**: fuentes gratuitas (yfinance para precios y fundamentales, FRED para
-  macro), aisladas tras una capa de proveedores intercambiables.
+- **Datos**: fuentes gratuitas (yfinance para precios y fundamentales, Stooq de
+  respaldo para precios, FRED para macro), aisladas tras una capa de proveedores
+  intercambiables.
 - **Universo**: EE.UU. (S&P 500, Nasdaq 100), Europa (IBEX 35, Euro Stoxx 50),
   ETFs e índices, más cripto y materias primas como termómetro de riesgo.
 - **Gráficos**: widgets de TradingView para el mercado, `lightweight-charts` para
@@ -204,6 +270,20 @@ cara. Ejecútala a mano o con un cron semanal.
 - **Bot**: dos carteras independientes — cripto en Kraken (EUR) y acciones en Alpaca
   (USD) —, mandato conservador diversificado, y aprobación humana obligatoria en el
   momento en que entra dinero real.
+
+## Pendiente de la fase 5
+
+La fase 5 es refinamiento continuo. Queda sin hacer, a propósito:
+
+- **Noticias y sentimiento** (Finnhub / Marketaux). Requieren clave y no se
+  pueden probar de verdad sin ella; las variables ya están reservadas en
+  `.env.example`.
+- **Exportación de un informe diario** en Markdown o PDF. Hoy solo hay descarga
+  a CSV en Oportunidades y en Alertas.
+- **Verificar el mapeo de Stooq mercado por mercado.** Los sufijos siguen la
+  convención pública de Stooq, pero solo está comprobado el caso estadounidense;
+  un ticker europeo que Stooq no reconozca queda registrado como fallido, que es
+  el comportamiento correcto de un respaldo pero no una cobertura garantizada.
 
 ## Alcance excluido explícitamente
 

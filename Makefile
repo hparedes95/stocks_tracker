@@ -1,5 +1,5 @@
-.PHONY: help setup migrate ingest ingest-demo compute validate alerts alerts-dry \
-	daily run test lint fmt clean
+.PHONY: help setup migrate ingest ingest-demo compute compute-presets repair \
+	validate alerts alerts-dry daily run test lint fmt clean
 
 PY := .venv/bin/python
 UV := uv
@@ -10,6 +10,8 @@ help:
 	@echo "make ingest       Descarga datos reales (yfinance) del universo configurado"
 	@echo "make ingest-demo  Genera datos sinteticos para probar sin red"
 	@echo "make compute      Calcula indicadores, factores, scores y senales"
+	@echo "make compute-presets  Puntua el universo con todos los estilos de inversion"
+	@echo "make repair       Reconstruye series con fuentes de precios mezcladas"
 	@echo "make validate     Valida las senales contra su historico y las etiqueta"
 	@echo "make alerts       Evalua las reglas y envia los avisos"
 	@echo "make alerts-dry   Igual, pero sin guardar ni enviar nada"
@@ -38,6 +40,15 @@ ingest-demo:
 
 compute:
 	$(PY) -m stocks_tracker.compute.run_compute
+
+# Puntua el universo con todos los estilos de factors.yaml, para poder
+# comparar rankings desde el dashboard.
+compute-presets:
+	$(PY) -m stocks_tracker.compute.run_compute --only scores --all-presets
+
+# Reconstruye las series cuyo historico mezcla varias fuentes de precios.
+repair:
+	$(PY) -m stocks_tracker.ingest.run_ingest --repair-mixed
 
 # Decide que senales se quedan en el dashboard. Ejecutar tras `make compute`.
 validate:

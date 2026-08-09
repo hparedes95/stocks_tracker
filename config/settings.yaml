@@ -8,8 +8,13 @@ paths:
 timezone: Europe/Madrid
 
 providers:
-  # Cadena de fallback: se prueban en orden hasta que uno responde.
-  price: [yfinance]
+  # Cadena de respaldo. El relevo ocurre POR TICKER y despues de intentarlo:
+  # lo que yfinance no consigue traer se le pide a Stooq. Ver providers/chain.py.
+  #
+  # Stooq no ajusta el cierre por dividendos, asi que una serie servida a
+  # medias por cada fuente tendria un salto artificial. `make repair` detecta
+  # esas series y las reconstruye enteras desde una sola fuente.
+  price: [yfinance, stooq]
   fundamentals: [yfinance]
 
 ingest:

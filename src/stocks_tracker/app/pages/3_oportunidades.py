@@ -25,6 +25,7 @@ from stocks_tracker.app.components.theme import (
 from stocks_tracker.core.config import get_factor_config
 from stocks_tracker.core.explain import build_reasons
 from stocks_tracker.core.flags import red_flags
+from stocks_tracker.core.scoring import PRESET_DESCRIPTIONS, preset_label
 
 st.title("Oportunidades")
 st.caption(
@@ -39,9 +40,31 @@ cfg = get_factor_config()
 # Controles
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.subheader("Perfil")
+    st.subheader("Estilo de inversion")
+    presets = da.available_presets()
+    if presets:
+        style = st.selectbox(
+            "Que factores pesan mas",
+            options=presets,
+            index=presets.index(da.default_preset()) if da.default_preset() in presets
+            else 0,
+            format_func=preset_label,
+            help=(
+                "Cambia el reparto de pesos entre los siete factores y, con el, "
+                "todo el ranking. No filtra: reordena."
+            ),
+        )
+        st.caption(PRESET_DESCRIPTIONS.get(style, ""))
+    else:
+        style = None
+        st.caption(
+            "Solo hay un juego de pesos calculado. Ejecuta "
+            "`make compute-presets` para poder comparar estilos."
+        )
+
+    st.subheader("Perfil de riesgo")
     profile = st.radio(
-        "Perfil de riesgo",
+        "Exigencia de las guardas",
         options=["conservador", "equilibrado", "agresivo"],
         index=1,
         help=(
@@ -72,7 +95,9 @@ with st.sidebar:
         help="Un valor en colapso puede seguir cayendo.",
     )
 
-candidates = da.get_candidates(filters["universe"], filters["sectors"], limit=400)
+candidates = da.get_candidates(
+    filters["universe"], filters["sectors"], limit=400, preset=style
+)
 
 # Etiquetas de validacion historica: sin ellas, una senal sin evidencia se
 # mostraria con la misma autoridad que una validada.
@@ -158,7 +183,9 @@ def _render_card(row: pd.Series) -> None:
         cov = row.get("coverage")
         price_cols[3].caption(f"**Datos** {cov:.0%}" if pd.notna(cov) else "**Datos** —")
 
-        contributions = da.get_contributions(ticker)
+        # Con el perfil: si el ranking se ordena con unos pesos y los
+        # motivos se explican con otros, la explicacion no explica nada.
+        contributions = da.get_contributions(ticker, preset=style)
         signals = da.get_active_signals(ticker)
         medians = da.get_sector_medians(row.get("gics_sector") or "")
         zscores = {

@@ -201,14 +201,30 @@ def ingest_prices(provider_name: str | None = None, full: bool = False) -> int:
             with connect() as conn:
                 _log(conn, run_id, "prices", str(start), "FAILED", error="sin datos")
             continue
+        relayed = df.attrs.get("relayed_tickers", {})
+        notes = []
+        if failed:
+            notes.append(f"{len(failed)} tickers fallidos")
+        if relayed:
+            # Saber que el respaldo entro en juego es la senal de que la fuente
+            # principal se esta rompiendo. Sin registrarlo, el relevo es
+            # silencioso y nadie se entera hasta que falla del todo.
+            by_provider = ", ".join(
+                f"{name}: {sum(1 for v in relayed.values() if v == name)}"
+                for name in sorted(set(relayed.values()))
+            )
+            notes.append(f"relevo -> {by_provider}")
+
         with connect() as conn:
             n = upsert_df(conn, "prices_daily", df, keys=["ticker", "date"])
             status = "PARTIAL" if failed else "OK"
             _log(conn, run_id, "prices", str(start), status, rows=n,
                  requests=df.attrs.get("requests_used", 0),
-                 error=f"{len(failed)} tickers fallidos" if failed else "")
+                 error="; ".join(notes))
         total += n
-        console.print(f"  [green]{n} filas[/]" + (f" · {len(failed)} fallidos" if failed else ""))
+        console.print(f"  [green]{n} filas[/]")
+        if notes:
+            console.print(f"  [yellow]{'; '.join(notes)}[/]")
 
     return total
 
@@ -312,6 +328,84 @@ def ingest_macro(years: int = 15) -> int:
     return n
 
 
+def mixed_source_tickers() -> pd.DataFrame:
+    """Series cuyo historico procede de mas de una fuente.
+
+    Importa porque las fuentes no significan lo mismo. Yahoo ajusta el cierre
+    por dividendos y Stooq no, asi que una serie servida a medias por cada una
+    tiene un salto artificial el dia del relevo. Ese salto no es un movimiento
+    del mercado, pero los indicadores no saben distinguirlo: aparece como un
+    retorno enorme, contamina la volatilidad y puede disparar una senal.
+    """
+    with connect(read_only=True) as conn:
+        return conn.execute(
+            """
+            SELECT ticker,
+                   COUNT(DISTINCT source) AS n_fuentes,
+                   string_agg(DISTINCT source, ', ') AS fuentes,
+                   MIN(date) AS desde,
+                   MAX(date) AS hasta
+            FROM prices_daily
+            GROUP BY ticker
+            HAVING COUNT(DISTINCT source) > 1
+            ORDER BY ticker
+            """
+        ).fetchdf()
+
+
+def repair_mixed_sources(provider_name: str | None = None) -> int:
+    """Reconstruye desde cero las series con fuentes mezcladas.
+
+    Se borra el historico del ticker y se vuelve a descargar entero, de modo
+    que toda la serie tenga la misma convencion de ajuste. Es preferible
+    perder cobertura (si la unica fuente disponible tiene menos historico) a
+    conservar una serie con un escalon inventado en medio.
+    """
+    migrate()
+    mixed = mixed_source_tickers()
+    if mixed.empty:
+        console.print("[green]Ninguna serie tiene fuentes mezcladas.[/]")
+        return 0
+
+    tickers = mixed["ticker"].tolist()
+    console.print(
+        f"[yellow]{len(tickers)} series con fuentes mezcladas.[/] "
+        "Se reconstruyen enteras desde una sola fuente."
+    )
+
+    provider = get_price_provider(provider_name)
+    settings = get_settings()
+    today = date.today()
+    start = today - timedelta(days=365 * int(settings.ingest.get("backfill_years", 10)))
+    run_id = str(uuid.uuid4())
+
+    df = provider.fetch_ohlcv(tickers, start, today + timedelta(days=1))
+    if df.empty:
+        console.print("[red]No se pudo redescargar ninguna serie. No se borra nada.[/]")
+        return 0
+
+    # Solo se reemplaza lo que se ha conseguido redescargar. Borrar una serie
+    # que luego no se puede reponer seria destruir datos por una mejora.
+    recovered = sorted(set(df["ticker"].unique()))
+    with connect() as conn:
+        conn.execute(
+            "DELETE FROM prices_daily WHERE ticker IN "
+            f"({','.join(['?'] * len(recovered))})",
+            recovered,
+        )
+        n = upsert_df(conn, "prices_daily", df, keys=["ticker", "date"])
+        _log(conn, run_id, "repair", "mixed_sources", "OK", rows=n)
+
+    missing = sorted(set(tickers) - set(recovered))
+    console.print(f"[green]{len(recovered)} series reconstruidas ({n} filas).[/]")
+    if missing:
+        console.print(
+            f"[yellow]{len(missing)} sin redescargar, se dejan como estaban:[/] "
+            + ", ".join(missing[:10]) + ("..." if len(missing) > 10 else "")
+        )
+    return n
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingesta de datos de mercado")
     parser.add_argument(
@@ -319,9 +413,20 @@ def main() -> None:
         choices=["all", "universe", "prices", "fundamentals", "macro"],
         help="que descargar",
     )
-    parser.add_argument("--provider", default=None, help="fuerza un proveedor (yfinance|synthetic)")
+    parser.add_argument(
+        "--provider", default=None,
+        help="fuerza un proveedor (yfinance|stooq|synthetic) en vez de la cadena",
+    )
     parser.add_argument("--full", action="store_true", help="backfill completo en vez de incremental")
+    parser.add_argument(
+        "--repair-mixed", action="store_true",
+        help="reconstruye las series cuyo historico mezcla varias fuentes",
+    )
     args = parser.parse_args()
+
+    if args.repair_mixed:
+        repair_mixed_sources(args.provider)
+        return
 
     if args.what in ("all", "universe"):
         ingest_universe(args.provider)

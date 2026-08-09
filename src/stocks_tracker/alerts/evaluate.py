@@ -21,6 +21,7 @@ import pandas as pd
 from ..core.db import connect
 from ..core.safe_eval import evaluate as safe_evaluate
 from ..core.safe_eval import safe_format
+from ..core.scoring import preset_hash
 from ..core.timeutils import utcnow
 from .rules import Rule, get_defaults, get_rules
 
@@ -52,6 +53,18 @@ def _row_variables(row: pd.Series) -> dict:
     return out
 
 
+def _alert_preset() -> str:
+    """Perfil con el que se evaluan las reglas.
+
+    Las alertas usan siempre el perfil por defecto, no el que tengas
+    seleccionado en la pantalla: un aviso no puede depender de en que pestana
+    dejaste el navegador.
+    """
+    from ..core.config import get_settings
+
+    return str(get_settings().compute.get("weights_preset", "balanced"))
+
+
 def _load_context() -> dict[str, pd.DataFrame]:
     """Foto del ultimo dia: indicadores, scores, watchlist, cartera y regimen."""
     with connect(read_only=True) as conn:
@@ -65,12 +78,16 @@ def _load_context() -> dict[str, pd.DataFrame]:
             JOIN instruments inst ON inst.ticker = i.ticker
             LEFT JOIN factor_scores f
                    ON f.ticker = i.ticker AND f.date = i.date
+                  AND f.weights_hash = ?
             LEFT JOIN fundamentals_snapshot fu
                    ON fu.ticker = i.ticker
                   AND fu.as_of = (SELECT MAX(as_of) FROM fundamentals_snapshot
                                   WHERE ticker = i.ticker)
             WHERE i.date = (SELECT MAX(date) FROM indicators_daily)
-            """
+            """,
+            # Sin filtrar por perfil, un valor apareceria una vez por perfil
+            # calculado y la misma regla dispararia varias alertas identicas.
+            [preset_hash(_alert_preset())],
         ).fetchdf()
 
         watchlist = conn.execute(

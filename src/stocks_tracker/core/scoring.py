@@ -31,6 +31,50 @@ def weights_hash(weights: dict[str, float]) -> str:
     return hashlib.blake2s(payload.encode(), digest_size=6).hexdigest()
 
 
+# Nombres de los perfiles para la interfaz. La clave es la del YAML.
+PRESET_LABELS = {
+    "balanced": "Equilibrado",
+    "value": "Valor",
+    "growth": "Crecimiento",
+    "dividend": "Dividendo",
+    "momentum": "Momentum",
+}
+
+PRESET_DESCRIPTIONS = {
+    "balanced": "Reparto parejo entre los siete factores. El punto de partida "
+                "si no tienes una preferencia clara.",
+    "value": "Prima lo barato respecto a sus beneficios y libros, con un filtro "
+             "de calidad para no comprar empresas baratas por buenas razones.",
+    "growth": "Prima el crecimiento de ventas y beneficios, y el momentum que "
+              "suele acompanarlo. Es el perfil mas volatil.",
+    "dividend": "Prima el reparto sostenible: rentabilidad por dividendo, "
+                "calidad y baja volatilidad. Payout desbocado penaliza.",
+    "momentum": "Prima lo que ya lo esta haciendo bien. Funciona en tendencia "
+                "y sufre en los giros de mercado.",
+}
+
+
+def preset_hash(preset: str) -> str:
+    """Hash de pesos de un preset con nombre.
+
+    Los scores de todos los perfiles conviven en la misma tabla, distinguidos
+    por este hash. Cualquier lectura de `factor_scores` que no filtre por el
+    devolveria una fila por perfil y multiplicaria los valores del ranking.
+    """
+    return weights_hash(get_factor_config().weights(preset))
+
+
+def preset_names() -> list[str]:
+    """Perfiles configurados, con `balanced` siempre el primero."""
+    names = list(get_factor_config().presets)
+    names.sort(key=lambda n: (n != "balanced", n))
+    return names
+
+
+def preset_label(preset: str) -> str:
+    return PRESET_LABELS.get(preset, preset.capitalize())
+
+
 def sanitize(series: pd.Series, spec: SubmetricSpec) -> pd.Series:
     """Descarta valores imposibles antes de puntuar.
 

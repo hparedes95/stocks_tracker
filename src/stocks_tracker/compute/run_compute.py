@@ -26,7 +26,7 @@ from ..core.config import (
     get_universes,
 )
 from ..core.db import connect, migrate, upsert_df
-from ..core.scoring import compute_scores, weights_hash
+from ..core.scoring import compute_scores, preset_names, weights_hash
 
 console = Console()
 
@@ -115,17 +115,52 @@ def compute_indicators(lookback: int | None = None) -> int:
     return n
 
 
-def compute_factor_scores(preset: str | None = None) -> int:
+def _prune_stale_scores(conn, day, whash: str, scored: list[str]) -> int:
+    """Borra scores del mismo dia y perfil para tickers ya no puntuables.
+
+    El upsert actualiza y anade, pero nunca quita. Si un ticker deja de
+    cumplir los requisitos —cambia de clase de activo, pierde el sector, se
+    queda sin fundamentales— su score del ultimo calculo se queda ahi y sigue
+    apareciendo en el ranking de candidatos. Asi es como el indice del dolar
+    acabo listado como una accion que comprar.
+    """
+    if not scored:
+        return 0
+    placeholders = ",".join(["?"] * len(scored))
+    removed = conn.execute(
+        f"""
+        DELETE FROM factor_scores
+        WHERE date = ? AND weights_hash = ? AND ticker NOT IN ({placeholders})
+        """,
+        [day, whash, *scored],
+    ).fetchall()
+    conn.execute(
+        f"""
+        DELETE FROM factor_contributions
+        WHERE date = ? AND weights_hash = ? AND ticker NOT IN ({placeholders})
+        """,
+        [day, whash, *scored],
+    )
+    return len(removed)
+
+
+def compute_factor_scores(preset: str | None = None, all_presets: bool = False) -> int:
     """Scores para la ultima fecha disponible.
 
     Se calcula solo el ultimo dia: el ranking historico solo hace falta para el
     backtest (fase 3), y calcularlo cada noche multiplicaria el tiempo sin que
     nadie lo mire.
+
+    Con `all_presets` se puntua el universo con todos los perfiles de
+    `factors.yaml`. La parte cara (leer el almacen, cruzar fundamentales,
+    calcular el factor tecnico) se hace UNA vez y solo se repite la
+    ponderacion, que es aritmetica sobre un DataFrame ya montado.
     """
     cfg = get_factor_config()
-    preset = preset or get_settings().compute.get("weights_preset", "balanced")
-    weights = cfg.weights(preset)
-    whash = weights_hash(weights)
+    if all_presets:
+        presets = preset_names()
+    else:
+        presets = [preset or get_settings().compute.get("weights_preset", "balanced")]
 
     with connect(read_only=True) as conn:
         last_date = conn.execute("SELECT MAX(date) FROM indicators_daily").fetchone()[0]
@@ -175,25 +210,37 @@ def compute_factor_scores(preset: str | None = None) -> int:
         lambda r: sig_mod.technical_score(r, signals_by_ticker.get(r["ticker"], [])), axis=1
     )
 
-    scores, contributions = compute_scores(merged, weights, cfg, group_col="gics_sector")
-    if scores.empty:
-        return 0
+    total = 0
+    for name in presets:
+        weights = cfg.weights(name)
+        whash = weights_hash(weights)
 
-    scores["date"] = last_date
-    scores["weights_hash"] = whash
-    contributions["date"] = last_date
-    contributions["weights_hash"] = whash
+        scores, contributions = compute_scores(
+            merged, weights, cfg, group_col="gics_sector"
+        )
+        if scores.empty:
+            continue
 
-    with connect() as conn:
-        n = upsert_df(conn, "factor_scores", scores, keys=["ticker", "date", "weights_hash"])
-        if not contributions.empty:
-            upsert_df(
-                conn, "factor_contributions", contributions,
-                keys=["ticker", "date", "weights_hash", "factor"],
+        scores["date"] = last_date
+        scores["weights_hash"] = whash
+        contributions["date"] = last_date
+        contributions["weights_hash"] = whash
+
+        with connect() as conn:
+            n = upsert_df(
+                conn, "factor_scores", scores, keys=["ticker", "date", "weights_hash"]
             )
+            if not contributions.empty:
+                upsert_df(
+                    conn, "factor_contributions", contributions,
+                    keys=["ticker", "date", "weights_hash", "factor"],
+                )
+            _prune_stale_scores(conn, last_date, whash, scores["ticker"].tolist())
 
-    console.print(f"[green]Scores: {n} valores[/] (preset '{preset}', hash {whash})")
-    return n
+        total += n
+        console.print(f"[green]Scores: {n} valores[/] (perfil '{name}', hash {whash})")
+
+    return total
 
 
 def compute_rotation() -> int:
@@ -313,7 +360,8 @@ def compute_regime() -> int:
         ).fetchdf()
         breadth = conn.execute(
             """
-            SELECT date, pct_above_sma200 FROM breadth_daily
+            SELECT date, pct_above_sma200, new_highs_52w, new_lows_52w
+            FROM breadth_daily
             WHERE scope = ? ORDER BY date
             """,
             [get_breadth_scope()],
@@ -345,8 +393,16 @@ def compute_regime() -> int:
         index = vix_s.index
     if not breadth.empty:
         breadth["date"] = pd.to_datetime(breadth["date"])
-        b = breadth.set_index("date")["pct_above_sma200"]
+        breadth = breadth.set_index("date")
+        b = breadth["pct_above_sma200"]
         frames["BREADTH"] = b
+        # Maximos frente a minimos anuales: mide la fuerza en los extremos, que
+        # es informacion distinta de cuantos valores estan sobre su media. En
+        # un techo, la amplitud aun aguanta mientras los nuevos maximos ya se
+        # secan.
+        if "new_highs_52w" in breadth.columns:
+            frames["NEW_HIGHS"] = breadth["new_highs_52w"]
+            frames["NEW_LOWS"] = breadth["new_lows_52w"]
         index = b.index if index is None else index.union(b.index)
 
     if index is None or len(index) == 0:
@@ -372,6 +428,18 @@ def compute_regime() -> int:
     if "XLY" in df and "XLP" in df:
         rel = df["XLY"].pct_change(63) - df["XLP"].pct_change(63)
         components["ciclico_vs_defensivo"] = (rel * 400).clip(-100, 100)
+    if "NEW_HIGHS" in df and "NEW_LOWS" in df:
+        highs = df["NEW_HIGHS"].fillna(0)
+        lows = df["NEW_LOWS"].fillna(0)
+        total = (highs + lows).replace(0, np.nan)
+        # Proporcion de maximos sobre el total de extremos, centrada en cero.
+        components["maximos_vs_minimos"] = ((highs / total) - 0.5) * 200
+    if "SPY" in df:
+        # Momentum del mercado: distancia del indice a su media de medio ano.
+        sma = df["SPY"].rolling(125, min_periods=60).mean()
+        components["momentum_mercado"] = (
+            (df["SPY"] / sma - 1.0) * 1000
+        ).clip(-100, 100)
 
     if not components:
         return 0
@@ -420,7 +488,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Calculo de indicadores, factores y scores")
     parser.add_argument("--only", default=None,
                         choices=["indicators", "scores", "breadth", "rotation", "regime"])
-    parser.add_argument("--preset", default=None, help="preset de pesos a usar")
+    parser.add_argument("--preset", default=None, help="perfil de pesos a usar")
+    parser.add_argument(
+        "--all-presets", action="store_true",
+        help="puntua el universo con todos los perfiles de factors.yaml",
+    )
     parser.add_argument("--lookback", type=int, default=None)
     args = parser.parse_args()
 
@@ -430,7 +502,7 @@ def main() -> None:
         "breadth": compute_breadth,
         "rotation": compute_rotation,
         "regime": compute_regime,
-        "scores": lambda: compute_factor_scores(args.preset),
+        "scores": lambda: compute_factor_scores(args.preset, args.all_presets),
     }
     order = ["indicators", "breadth", "rotation", "regime", "scores"]
 

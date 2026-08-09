@@ -95,6 +95,14 @@ regime_components:
     scope: "SP500"
     weight: 1.0
     label: "Amplitud del mercado"
+  maximos_vs_minimos:
+    scope: "SP500"
+    weight: 1.0
+    label: "Maximos frente a minimos anuales"
+  momentum_mercado:
+    ticker: "SPY"
+    weight: 1.0
+    label: "Momentum del indice (frente a su MM125)"
 
 thresholds:
   risk_on: 30

@@ -59,6 +59,92 @@ if not instruments.empty:
         )
 
 st.divider()
+st.subheader("Calidad de los datos por universo")
+st.caption(
+    "El score penaliza la falta de datos, pero esa penalizacion no se ve. "
+    "Aqui si: un universo con cobertura baja compite en desventaja, y conviene "
+    "saberlo antes de extranarse de que apenas aparezcan sus valores."
+)
+coverage = da.coverage_by_universe()
+if coverage.empty:
+    st.caption("Sin universos registrados.")
+else:
+    view = coverage.copy()
+    view["cobertura_media"] = view["cobertura_media"].fillna(0) * 100
+    view["puntuables"] = view["puntuables"].astype(int)
+    view = view[
+        ["universe", "instrumentos", "puntuables", "con_fundamentales",
+         "cobertura_media", "sin_sector", "sin_precio"]
+    ]
+    st.dataframe(
+        view.rename(
+            columns={
+                "universe": "Universo", "instrumentos": "Instrumentos",
+                "puntuables": "Puntuables",
+                "con_fundamentales": "Con fundamentales",
+                "cobertura_media": "Cobertura media",
+                "sin_sector": "Sin sector", "sin_precio": "Sin precio hoy",
+            }
+        ),
+        hide_index=True, height=min(320, 42 + 35 * len(view)),
+        column_config={
+            "Puntuables": st.column_config.NumberColumn(
+                help="Acciones y ETF. Solo estos entran en el ranking.",
+            ),
+            "Cobertura media": st.column_config.ProgressColumn(
+                min_value=0.0, max_value=100.0, format="%.0f%%",
+                help="Fraccion media de campos fundamentales disponibles.",
+            ),
+        },
+    )
+
+    # Un universo de indices sin fundamentales no esta en desventaja: es que no
+    # se puntua. Avisar de el seria una falsa alarma cada vez que se abre la
+    # pagina, y las alarmas que siempre saltan dejan de leerse.
+    scoreable = coverage[coverage["puntuables"] > 0]
+    if not scoreable.empty:
+        worst = scoreable.iloc[0]
+        if pd.notna(worst["cobertura_media"]) and float(worst["cobertura_media"]) < 0.5:
+            st.warning(
+                f"**{worst['universe']}** tiene una cobertura media del "
+                f"{float(worst['cobertura_media']):.0%}. Sus valores apareceran "
+                "poco en el ranking, y no porque sean peores: es que no hay "
+                "datos con los que puntuarlos.",
+                icon=":material/warning:",
+            )
+
+st.subheader("Procedencia de los precios")
+sources = da.price_sources()
+if not sources.empty:
+    st.dataframe(
+        sources.rename(
+            columns={"fuente": "Fuente", "instrumentos": "Instrumentos",
+                     "filas": "Filas", "hasta": "Hasta"}
+        ),
+        hide_index=True, height=min(200, 42 + 35 * len(sources)),
+    )
+
+mixed = da.mixed_source_series()
+if not mixed.empty:
+    st.warning(
+        f"{len(mixed)} series mezclan varias fuentes de precios. Yahoo ajusta "
+        "el cierre por dividendos y Stooq no, asi que en el dia del relevo hay "
+        "un salto que no es un movimiento real del mercado. Reconstruyelas con "
+        "`make repair`.",
+        icon=":material/call_split:",
+    )
+    st.dataframe(
+        mixed.rename(columns={"ticker": "Valor", "fuentes": "Fuentes",
+                              "n_fuentes": "Cuantas"}),
+        hide_index=True, height=min(240, 42 + 35 * len(mixed)),
+    )
+else:
+    st.caption(
+        ":grey[Ninguna serie mezcla fuentes: todas tienen la misma convencion "
+        "de ajuste.]"
+    )
+
+st.divider()
 st.subheader("Registro de ingesta")
 with connect(read_only=True) as conn:
     log = conn.execute(
@@ -86,15 +172,18 @@ else:
 st.divider()
 st.subheader("Como actualizar")
 st.code(
-    "make ingest     # datos reales de Yahoo Finance\n"
-    "make ingest-demo # datos sinteticos, sin red\n"
-    "make compute    # indicadores, senales, factores y amplitud",
+    "make ingest           # datos reales (Yahoo, con Stooq de respaldo)\n"
+    "make ingest-demo      # datos sinteticos, sin red\n"
+    "make compute          # indicadores, senales, factores y amplitud\n"
+    "make compute-presets  # puntua con todos los estilos de inversion\n"
+    "make repair           # reconstruye series con fuentes mezcladas",
     language="bash",
 )
 st.caption(
     "La descarga se hace por lotes y sin hilos a proposito: la concurrencia es "
     "lo que dispara el bloqueo de Yahoo. Un universo de 750 valores son unas 16 "
-    "peticiones, no 750."
+    "peticiones, no 750. Si Yahoo deja de responder para algunos valores, se "
+    "le piden a Stooq: el relevo queda anotado en el registro de arriba."
 )
 
 render_disclaimer()

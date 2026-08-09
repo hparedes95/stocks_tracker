@@ -19,7 +19,14 @@ def _build_yfinance():
     return YFinanceProvider()
 
 
+def _build_stooq():
+    from .stooq_provider import StooqProvider
+
+    return StooqProvider()
+
+
 _BUILDERS["yfinance"] = _build_yfinance
+_BUILDERS["stooq"] = _build_stooq
 _BUILDERS["synthetic"] = SyntheticProvider
 
 
@@ -27,32 +34,41 @@ def available_providers() -> list[str]:
     return sorted(_BUILDERS)
 
 
-def get_price_provider(name: str | None = None):
-    """Devuelve el primer proveedor de precios utilizable.
+def build_provider(name: str):
+    builder = _BUILDERS.get(name)
+    if builder is None:
+        raise ProviderError(f"Proveedor desconocido: {name}")
+    return builder()
 
-    Con `name` se fuerza uno concreto; sin el, se recorre la cadena de
-    `settings.yaml`.
+
+def get_price_provider(name: str | None = None):
+    """Proveedor de precios: uno concreto, o la cadena de `settings.yaml`.
+
+    Con la cadena, el relevo no ocurre solo si el primero no se puede
+    construir, sino tambien con lo que el primero no consigue traer. Ver
+    `chain.ChainPriceProvider`.
     """
     if name:
-        builder = _BUILDERS.get(name)
-        if builder is None:
-            raise ProviderError(f"Proveedor desconocido: {name}")
-        return builder()
+        return build_provider(name)
 
+    built = []
     errors: list[str] = []
     for candidate in get_settings().price_providers:
-        builder = _BUILDERS.get(candidate)
-        if builder is None:
-            errors.append(f"{candidate}: no registrado")
-            continue
         try:
-            return builder()
+            built.append(build_provider(candidate))
         except ProviderError as exc:
             errors.append(f"{candidate}: {exc}")
 
-    raise ProviderError(
-        "Ningun proveedor de precios disponible. Detalle: " + "; ".join(errors)
-    )
+    if not built:
+        raise ProviderError(
+            "Ningun proveedor de precios disponible. Detalle: " + "; ".join(errors)
+        )
+    if len(built) == 1:
+        return built[0]
+
+    from .chain import ChainPriceProvider
+
+    return ChainPriceProvider(built)
 
 
 def get_fundamentals_provider(name: str | None = None):

@@ -30,6 +30,13 @@ GICS_SECTORS = [
 ]
 
 
+# Indices que no son precios sino niveles acotados: (minimo, media, maximo).
+_MEAN_REVERTING = {
+    "^VIX": (9.0, 18.0, 80.0),
+    "^VXN": (11.0, 22.0, 85.0),
+}
+
+
 def _seed_for(ticker: str) -> int:
     """Semilla estable por ticker: el mismo ticker da siempre la misma serie."""
     return int(hashlib.blake2s(ticker.encode(), digest_size=4).hexdigest(), 16)
@@ -94,6 +101,19 @@ class SyntheticProvider:
         cum = cum - 0.25 * (cum - trend)
 
         close = base_price * np.exp(cum)
+
+        # El VIX no es un precio: es un nivel acotado con reversion fuerte a la
+        # media. Un paseo aleatorio libre lo lleva a 700, y entonces la pagina
+        # de macro muestra una cifra imposible que hace dudar del resto de los
+        # datos sinteticos con razon.
+        if ticker in _MEAN_REVERTING:
+            floor, mean, ceiling = _MEAN_REVERTING[ticker]
+            level = np.full(n, mean)
+            noise = rng.normal(0.0, 0.09, n)
+            for i in range(1, n):
+                pull = 0.04 * (mean - level[i - 1])
+                level[i] = level[i - 1] * (1 + noise[i]) + pull
+            close = np.clip(level, floor, ceiling)
 
         intraday = np.abs(rng.normal(0.0, 0.008, n)) + 0.002
         high = close * (1 + intraday)
