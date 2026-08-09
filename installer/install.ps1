@@ -50,7 +50,7 @@ Write-Host ""
 # ---------------------------------------------------------------------------
 # 1. Python
 # ---------------------------------------------------------------------------
-Write-Step 1 6 "Comprobando Python"
+Write-Step 1 8 "Comprobando Python"
 
 function Test-PythonExe($exe, $prefix = @()) {
     <#
@@ -202,7 +202,7 @@ if ($python) {
 # ---------------------------------------------------------------------------
 # 2. Descarga
 # ---------------------------------------------------------------------------
-Write-Step 2 6 "Descargando el proyecto desde GitHub"
+Write-Step 2 8 "Descargando el proyecto desde GitHub"
 
 $temp = Join-Path $env:TEMP ("stockstracker_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
@@ -222,7 +222,7 @@ try {
 }
 Write-Host "  Descargado ($([math]::Round((Get-Item $zip).Length / 1MB, 1)) MB)"
 
-Write-Step 3 6 "Instalando en $InstallDir"
+Write-Step 3 8 "Instalando en $InstallDir"
 
 if (Test-Path $InstallDir) {
     # Se conservan los datos y la configuracion: reinstalar no puede borrarte
@@ -258,7 +258,7 @@ Write-Host "  Copiado"
 # ---------------------------------------------------------------------------
 # 4. Entorno
 # ---------------------------------------------------------------------------
-Write-Step 4 6 "Preparando el entorno (esto tarda un par de minutos)"
+Write-Step 4 8 "Preparando el entorno (esto tarda un par de minutos)"
 
 Set-Location $InstallDir
 & $python.Exe @($python.Prefix) -m venv .venv
@@ -276,7 +276,7 @@ Write-Host "  Entorno listo"
 # 5. Datos de prueba
 # ---------------------------------------------------------------------------
 if (-not $SkipDemo) {
-    Write-Step 5 6 "Generando datos de prueba"
+    Write-Step 5 8 "Generando datos de prueba"
     Write-Host "  Son inventados: sirven para ver la aplicacion funcionando"
     Write-Host "  sin esperar los diez minutos de la primera descarga real."
     & $Py -m stocks_tracker.ingest.run_ingest --what all --provider synthetic
@@ -284,13 +284,13 @@ if (-not $SkipDemo) {
     & $Py -m stocks_tracker.compute.run_compute --only scores --all-presets
     & $Py -m stocks_tracker.backtest.run_backtest --tag-signals
 } else {
-    Write-Step 5 6 "Datos de prueba omitidos"
+    Write-Step 5 8 "Datos de prueba omitidos"
 }
 
 # ---------------------------------------------------------------------------
 # 6. Acceso directo
 # ---------------------------------------------------------------------------
-Write-Step 6 6 "Creando el acceso directo"
+Write-Step 6 8 "Creando el acceso directo"
 
 $launcher = Join-Path $InstallDir 'Stocks Tracker.bat'
 @"
@@ -316,6 +316,47 @@ $shortcut.Description = 'Dashboard de mercado y deteccion de oportunidades'
 $shortcut.IconLocation = "$env:SystemRoot\System32\SHELL32.dll,167"
 $shortcut.Save()
 Write-Host "  Acceso directo creado en el Escritorio"
+
+# ---------------------------------------------------------------------------
+# 7. Precios reales
+# ---------------------------------------------------------------------------
+Write-Step 7 8 "Descargando precios reales de los indices"
+Write-Host "  Sustituyen a los datos de prueba. Un minuto."
+try {
+    & $Py -m stocks_tracker.ingest.run_ingest --drop-synthetic --what prices `
+        --universes INDICES,MACRO --years 3
+    & $Py -m stocks_tracker.compute.run_compute
+    Write-Host "  Listo: la portada ya muestra el mercado de verdad." -ForegroundColor Green
+} catch {
+    Write-Host "  No se ha podido descargar ahora: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "  El programa se abrira igualmente y lo reintentara al arrancar."
+}
+
+# ---------------------------------------------------------------------------
+# 8. Actualizacion automatica
+# ---------------------------------------------------------------------------
+Write-Step 8 8 "Programando la actualizacion diaria"
+try {
+    $daily = New-ScheduledTaskAction -Execute 'powershell.exe' `
+        -Argument ("-NoProfile -ExecutionPolicy Bypass -File `"" +
+                   (Join-Path $InstallDir 'scripts\windows\stocks.ps1') + "`" daily") `
+        -WorkingDirectory $InstallDir
+    $trigger = New-ScheduledTaskTrigger -Daily -At '23:15'
+    # StartWhenAvailable es lo que hace que esto sirva en un ordenador personal:
+    # si a las 23:15 estaba apagado, la tarea corre al encenderlo en lugar de
+    # perderse hasta el dia siguiente.
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+        -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries `
+        -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+    Register-ScheduledTask -TaskName 'Stocks Tracker - actualizacion diaria' `
+        -Action $daily -Trigger $trigger -Settings $settings `
+        -Description 'Descarga precios, recalcula y evalua las alertas.' `
+        -Force | Out-Null
+    Write-Host "  Cada dia a las 23:15. Si el equipo esta apagado, al encenderlo."
+} catch {
+    Write-Host "  No se ha podido programar: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "  Actívala luego con: .\scripts\windows\stocks.ps1 autostart"
+}
 
 Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
 

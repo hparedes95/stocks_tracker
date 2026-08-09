@@ -91,9 +91,13 @@ def test_windows_scripts_use_crlf(script):
     sin dar un error que lo explique."""
     raw = read(script)
     assert b"\r\n" in raw, f"{script} no tiene CRLF"
-    assert raw.replace(b"\r\n", b"") .count(b"\n") == 0, (
+    assert raw.replace(b"\r\n", b"").count(b"\n") == 0, (
         f"{script} mezcla CRLF con LF sueltos"
     )
+    # Normalizar dos veces produce \r\r\n, que rompe la comparacion de
+    # cadenas al editar el fichero y ya provoco que un bloque entero no se
+    # insertara.
+    assert b"\r\r" not in raw, f"{script} tiene retornos de carro duplicados"
 
 
 @pytest.mark.parametrize("script", BAT_SCRIPTS)
@@ -187,3 +191,68 @@ def test_synthetic_warning_says_the_data_is_not_real():
     for word in ("INVENTADOS", "no sirven para decidir", "ingest"):
         assert word in banner, f"El aviso no menciona '{word}'"
     assert "st.error" in banner, "El aviso debe usar st.error, no un simple caption"
+
+
+# ---------------------------------------------------------------------------
+# Automatizacion
+# ---------------------------------------------------------------------------
+def test_installer_steps_are_numbered_consistently():
+    """Un contador desincronizado ("[7/6]") hace dudar de todo lo demas."""
+    src = text("installer/install.ps1")
+    steps = re.findall(r"Write-Step (\d+) (\d+) ", src)
+    assert steps, "El instalador no numera sus pasos"
+
+    numbers = [int(a) for a, _ in steps]
+    totals = {int(b) for _, b in steps}
+
+    assert len(totals) == 1, f"El total cambia entre pasos: {totals}"
+    assert max(numbers) == totals.pop(), "El ultimo paso no coincide con el total"
+    # Un mismo numero puede repetirse (dos ramas de un if), pero nunca bajar.
+    assert numbers == sorted(numbers), f"Los pasos van desordenados: {numbers}"
+
+
+def test_daily_update_is_scheduled_by_the_installer():
+    """Lo pedido es que funcione sin tocar nada: si el instalador no programa
+    la tarea, el usuario tiene que acordarse de ejecutarla."""
+    src = text("installer/install.ps1")
+    assert "Register-ScheduledTask" in src
+    assert "StartWhenAvailable" in src, (
+        "Sin StartWhenAvailable la tarea se pierde cada noche que el equipo "
+        "este apagado, que en un ordenador personal son casi todas"
+    )
+
+
+def test_launcher_updates_before_opening():
+    """La red de seguridad de la tarea nocturna: al abrir el programa se pone
+    al dia si hace falta."""
+    for launcher in ("scripts/windows/Ver dashboard.bat",):
+        content = text(launcher)
+        assert "update" in content, f"{launcher} no actualiza antes de arrancar"
+        assert content.index("update") < content.index("run"), (
+            f"{launcher} arranca el dashboard antes de actualizar"
+        )
+
+
+def test_every_declared_task_exists_in_the_switch():
+    """El fallo que motivo este test: `update` y `autostart` estaban en la
+    lista de tareas validas pero no en el switch, asi que ejecutarlas caia en
+    el `default` y no hacia absolutamente nada. Sin error, sin mensaje.
+    """
+    src = text("scripts/windows/stocks.ps1")
+    declared = re.search(r"\[ValidateSet\((.*?)\)\]", src, re.S).group(1)
+    tasks = set(re.findall(r"'([a-z-]+)'", declared)) - {"help"}
+
+    implemented = set(re.findall(r"^    '([a-z-]+)' \{", src, re.MULTILINE))
+
+    missing = tasks - implemented
+    assert not missing, f"Tareas declaradas sin implementar: {sorted(missing)}"
+
+
+def test_update_task_is_a_noop_when_data_is_fresh():
+    """Se ejecuta en cada arranque: si no fuera instantaneo con los datos al
+    dia, abrir el programa costaria minutos."""
+    src = text("scripts/windows/stocks.ps1")
+    block = src[src.index("'update' {"):]
+    block = block[:block.index("'autostart' {")]
+    assert "--check-stale" in block
+    assert "if ($LASTEXITCODE -eq 0) { return }" in block

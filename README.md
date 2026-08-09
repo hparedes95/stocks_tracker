@@ -39,7 +39,21 @@ Windows SmartScreen avisará de que el fichero no es habitual — es lo normal c
 un `.bat` descargado y sin firmar. *Más información* → *Ejecutar de todas
 formas*. Puedes leer el fichero antes con el Bloc de notas: son 40 líneas.
 
-Después, para los comandos del día a día:
+### Se actualiza solo
+
+El instalador deja programada una tarea diaria a las **23:15**, con el mercado
+estadounidense ya cerrado. Lleva `StartWhenAvailable`, que es lo que hace que
+esto sirva en un ordenador personal: si a esa hora el equipo estaba apagado, la
+tarea se ejecuta al encenderlo en vez de perderse.
+
+Y como red de seguridad, **al abrir el programa se pone al día** si los datos
+se han quedado viejos. Cuando ya están al día no hace nada, así que abrir el
+dashboard sigue siendo instantáneo.
+
+En la práctica: no tienes que ejecutar nada nunca. Para desactivarlo,
+`.\scripts\windows\stocks.ps1 autostart-off`.
+
+Después, si quieres lanzar algo a mano:
 
 ```powershell
 cd $env:LOCALAPPDATA\StocksTracker
@@ -97,7 +111,7 @@ bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
 ## Desarrollo
 
 ```bash
-make test    # 395 tests, sin red
+make test    # 402 tests, sin red
 make lint    # estilo
 ```
 

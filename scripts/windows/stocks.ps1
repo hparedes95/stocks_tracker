@@ -11,6 +11,8 @@
       setup     Crea el entorno e instala las dependencias
       demo      Genera datos sinteticos (sin internet) y los calcula
       real      Cambia los datos de prueba por precios reales (rapido)
+      update    Actualiza solo si los datos estan viejos
+      autostart Programa la actualizacion diaria automatica
       ingest    Descarga el universo completo de Yahoo Finance
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
@@ -28,7 +30,7 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet('setup', 'demo', 'ingest', 'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
-                 'real',
+                 'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
     [string]$Task = 'help'
 )
@@ -191,7 +193,54 @@ switch ($Task) {
         Write-Host "    .\scripts\windows\stocks.ps1 ingest"
     }
 
-    'ingest' {
+    'update' {
+        # Se pone al dia solo si hace falta. Lo llama el lanzador en cada
+        # arranque, asi que tiene que ser instantaneo cuando no hay nada nuevo.
+        Assert-Venv
+        & $Py -m stocks_tracker.ingest.run_ingest --check-stale
+        if ($LASTEXITCODE -eq 0) { return }
+
+        Write-Step "Actualizando datos del mercado"
+        & $Py -m stocks_tracker.ingest.run_ingest --what all
+        & $Py -m stocks_tracker.compute.run_compute
+        & $Py -m stocks_tracker.compute.run_compute --only scores --all-presets
+        & $Py -m stocks_tracker.alerts.run_alerts
+    }
+
+    'autostart' {
+        # Registra la actualizacion nocturna en el Programador de tareas.
+        # StartWhenAvailable es lo que hace que sirva en un ordenador personal:
+        # si a las 23:15 estaba apagado, la tarea corre al encenderlo en lugar
+        # de perderse hasta el dia siguiente.
+        $taskScript = Join-Path $Root 'scripts\windows\stocks.ps1'
+        $daily = New-ScheduledTaskAction -Execute 'powershell.exe' `
+            -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$taskScript`" daily" `
+            -WorkingDirectory $Root
+        $trigger = New-ScheduledTaskTrigger -Daily -At '23:15'
+        $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+            -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries `
+            -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+
+        Register-ScheduledTask -TaskName 'Stocks Tracker - actualizacion diaria' `
+            -Action $daily -Trigger $trigger -Settings $settings `
+            -Description 'Descarga precios, recalcula y evalua las alertas.' `
+            -Force | Out-Null
+
+        Write-Host ""
+        Write-Host "Actualizacion automatica activada." -ForegroundColor Green
+        Write-Host "  Cada dia a las 23:15, con el mercado americano ya cerrado."
+        Write-Host "  Si el ordenador esta apagado, se ejecuta al encenderlo."
+        Write-Host ""
+        Write-Host "Para desactivarla:  .\scripts\windows\stocks.ps1 autostart-off"
+    }
+
+    'autostart-off' {
+        Unregister-ScheduledTask -TaskName 'Stocks Tracker - actualizacion diaria' `
+            -Confirm:$false -ErrorAction SilentlyContinue
+        Write-Host "Actualizacion automatica desactivada." -ForegroundColor Yellow
+    }
+
+    'ingest' {
         Assert-Venv
         Write-Step "Descargando datos reales (la primera vez tarda varios minutos)"
         & $Py -m stocks_tracker.ingest.run_ingest --what all

@@ -356,6 +356,50 @@ def ingest_macro(years: int = 15) -> int:
     return n
 
 
+def needs_update(max_age_hours: float | None = None) -> tuple[bool, str]:
+    """¿Hacen falta datos nuevos? Devuelve (si_hace_falta, motivo).
+
+    Se consulta desde el lanzador para ponerse al dia solo al abrir el
+    programa. En un ordenador personal, la tarea programada de la noche se
+    pierde cada vez que el equipo esta apagado, y si nadie compensa eso el
+    dashboard acaba mostrando la semana pasada como si fuera hoy.
+
+    No depende de Streamlit a proposito: tiene que poder ejecutarse desde un
+    .bat antes de que arranque nada.
+    """
+    migrate()
+    settings = get_settings()
+    limit = float(
+        max_age_hours
+        if max_age_hours is not None
+        else settings.ui.get("data_freshness_warn_hours", 30)
+    )
+
+    with connect(read_only=True) as conn:
+        synthetic = conn.execute(
+            "SELECT COUNT(*) FROM prices_daily WHERE source = 'synthetic'"
+        ).fetchone()[0]
+        last_price = conn.execute("SELECT MAX(date) FROM prices_daily").fetchone()[0]
+        last_run = conn.execute(
+            "SELECT MAX(finished_at) FROM ingest_log WHERE status IN ('OK','PARTIAL')"
+        ).fetchone()[0]
+
+    if synthetic:
+        return True, f"hay {synthetic} precios de prueba"
+    if last_price is None:
+        return True, "el almacen esta vacio"
+    if last_run is None:
+        return True, "no consta ninguna descarga"
+
+    hours = (utcnow() - pd.Timestamp(last_run)).total_seconds() / 3600.0
+    if hours > limit:
+        return True, f"la ultima descarga fue hace {hours:.0f} h"
+
+    # El mercado no abre en fin de semana: con datos del viernes, el sabado no
+    # hay nada nuevo que traer y volver a preguntar solo gasta cuota.
+    return False, f"al dia (ultima descarga hace {hours:.0f} h)"
+
+
 def drop_synthetic() -> int:
     """Borra los precios inventados del almacen.
 
@@ -493,6 +537,14 @@ def main() -> None:
         help="limita a ciertas listas, separadas por comas (p.ej. INDICES,MACRO)",
     )
     parser.add_argument(
+        "--if-stale", action="store_true",
+        help="no hace nada si los datos ya estan al dia",
+    )
+    parser.add_argument(
+        "--check-stale", action="store_true",
+        help="solo comprueba: codigo 1 si hacen falta datos nuevos, 0 si no",
+    )
+    parser.add_argument(
         "--drop-synthetic", action="store_true",
         help="borra los precios inventados antes de descargar los reales",
     )
@@ -505,6 +557,19 @@ def main() -> None:
     if args.repair_mixed:
         repair_mixed_sources(args.provider)
         return
+
+    if args.check_stale:
+        stale, reason = needs_update()
+        console.print(("[yellow]Hacen falta datos nuevos: " if stale
+                       else "[green]Datos ") + reason + "[/]")
+        raise SystemExit(1 if stale else 0)
+
+    if args.if_stale:
+        stale, reason = needs_update()
+        if not stale:
+            console.print(f"[green]Datos {reason}. No hay nada que descargar.[/]")
+            return
+        console.print(f"[cyan]Actualizando: {reason}.[/]")
 
     if args.drop_synthetic:
         drop_synthetic()
