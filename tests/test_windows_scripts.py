@@ -162,6 +162,45 @@ def test_installer_never_writes_outside_the_user_folder():
 
 
 # ---------------------------------------------------------------------------
+# Reinstalar es la forma de actualizar
+# ---------------------------------------------------------------------------
+# No hay `git pull` posible: el instalador descarga un ZIP, no clona. Asi que
+# volver a ejecutar el .bat es el unico camino para traerse una correccion, y
+# tiene que ser seguro hacerlo sobre una instalacion en uso.
+def test_reinstalling_keeps_data_keys_and_config():
+    src = text("installer/install.ps1")
+    block = src[src.index("if (Test-Path $InstallDir) {"):src.index("Expand-Archive")]
+
+    for item in ("'data'", "'.env'", "'config'"):
+        assert item in block, f"reinstalar borraria {item}"
+    assert block.index("Copy-Item") < block.index("Remove-Item $InstallDir"), (
+        "se borra la instalacion antes de poner a salvo los datos"
+    )
+
+
+def test_reinstalling_does_not_regenerate_demo_data():
+    """Si al actualizar se volviesen a generar los datos de prueba, se tiraria
+    la descarga del universo completo —minutos de trabajo— y quedarian precios
+    inventados mezclados con los reales si fallase la descarga del paso 7."""
+    src = text("installer/install.ps1")
+    step5 = src[src.index("# 5. Datos de prueba"):src.index("# 6. Acceso directo")]
+
+    guard = step5.index("$script:PreservedData")
+    assert guard < step5.index("--provider synthetic"), (
+        "la generacion de datos de prueba no esta protegida al reinstalar"
+    )
+
+
+def test_the_preserved_data_flag_is_actually_set():
+    """La guardia anterior no sirve de nada si nadie enciende la bandera."""
+    src = text("installer/install.ps1")
+    setter = "if ($item -eq 'data') { $script:PreservedData = $true }"
+    assert setter in src, "la bandera de datos conservados no se activa nunca"
+    # Y tiene que activarse antes de leerse.
+    assert src.index(setter) < src.index("if ($script:PreservedData) {")
+
+
+# ---------------------------------------------------------------------------
 # El aviso de datos de prueba
 # ---------------------------------------------------------------------------
 def test_synthetic_warning_is_rendered_on_every_page():

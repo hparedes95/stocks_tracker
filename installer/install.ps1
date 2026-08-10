@@ -239,6 +239,12 @@ if (Test-Path $InstallDir) {
         if (Test-Path $source) {
             Copy-Item $source -Destination $keep -Recurse -Force
             Write-Host "  Conservando $item"
+            # Reinstalar es tambien la forma de actualizar el programa. Si ya
+            # habia almacen, sus precios se conservan y NO hay que volver a
+            # generar los de prueba encima: seria tirar por la borda la
+            # descarga del universo completo y dejar datos inventados
+            # mezclados con los reales si la descarga del paso 7 fallase.
+            if ($item -eq 'data') { $script:PreservedData = $true }
         }
     }
     Remove-Item $InstallDir -Recurse -Force
@@ -280,7 +286,10 @@ Write-Host "  Entorno listo"
 # ---------------------------------------------------------------------------
 # 5. Datos de prueba
 # ---------------------------------------------------------------------------
-if (-not $SkipDemo) {
+if ($script:PreservedData) {
+    Write-Step 5 8 "Datos ya existentes: no se generan los de prueba"
+    Write-Host "  Se conserva el almacen de la instalacion anterior."
+} elseif (-not $SkipDemo) {
     Write-Step 5 8 "Generando datos de prueba"
     Write-Host "  Son inventados: sirven para ver la aplicacion funcionando"
     Write-Host "  sin esperar los diez minutos de la primera descarga real."
