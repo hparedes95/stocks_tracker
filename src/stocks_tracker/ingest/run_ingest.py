@@ -25,6 +25,7 @@ from ..core.config import (
     get_universes,
 )
 from ..core.db import connect, migrate, upsert_df
+from ..core.locking import AlreadyRunning, single_writer
 from ..core.symbols import resolve_all
 from ..core.timeutils import utcnow
 from ..providers.base import completeness
@@ -367,7 +368,6 @@ def needs_update(max_age_hours: float | None = None) -> tuple[bool, str]:
     No depende de Streamlit a proposito: tiene que poder ejecutarse desde un
     .bat antes de que arranque nada.
     """
-    migrate()
     settings = get_settings()
     limit = float(
         max_age_hours
@@ -375,14 +375,28 @@ def needs_update(max_age_hours: float | None = None) -> tuple[bool, str]:
         else settings.ui.get("data_freshness_warn_hours", 30)
     )
 
-    with connect(read_only=True) as conn:
-        synthetic = conn.execute(
-            "SELECT COUNT(*) FROM prices_daily WHERE source = 'synthetic'"
-        ).fetchone()[0]
-        last_price = conn.execute("SELECT MAX(date) FROM prices_daily").fetchone()[0]
-        last_run = conn.execute(
-            "SELECT MAX(finished_at) FROM ingest_log WHERE status IN ('OK','PARTIAL')"
-        ).fetchone()[0]
+    # Deliberadamente NO se llama a migrate(): abre el almacen en
+    # lectura-escritura y DuckDB rechaza la conexion si el dashboard ya lo
+    # tiene abierto para leer. Esta funcion se ejecuta justo antes de arrancar
+    # el dashboard, asi que ese choque es el caso normal, no el raro. Si el
+    # fichero no existe todavia, la respuesta correcta es "si, hacen falta
+    # datos", no un error.
+    if not settings.warehouse_path.exists():
+        return True, "el almacen todavia no existe"
+
+    try:
+        with connect(read_only=True) as conn:
+            synthetic = conn.execute(
+                "SELECT COUNT(*) FROM prices_daily WHERE source = 'synthetic'"
+            ).fetchone()[0]
+            last_price = conn.execute("SELECT MAX(date) FROM prices_daily").fetchone()[0]
+            last_run = conn.execute(
+                "SELECT MAX(finished_at) FROM ingest_log WHERE status IN ('OK','PARTIAL')"
+            ).fetchone()[0]
+    except Exception as exc:  # noqa: BLE001
+        # Si no se puede ni leer, lo prudente es NO lanzar una descarga: puede
+        # que otro proceso este escribiendo justo ahora.
+        return False, f"no se ha podido consultar el almacen ({type(exc).__name__})"
 
     if synthetic:
         return True, f"hay {synthetic} precios de prueba"
@@ -395,8 +409,6 @@ def needs_update(max_age_hours: float | None = None) -> tuple[bool, str]:
     if hours > limit:
         return True, f"la ultima descarga fue hace {hours:.0f} h"
 
-    # El mercado no abre en fin de semana: con datos del viernes, el sabado no
-    # hay nada nuevo que traer y volver a preguntar solo gasta cuota.
     return False, f"al dia (ultima descarga hace {hours:.0f} h)"
 
 
@@ -537,10 +549,6 @@ def main() -> None:
         help="limita a ciertas listas, separadas por comas (p.ej. INDICES,MACRO)",
     )
     parser.add_argument(
-        "--if-stale", action="store_true",
-        help="no hace nada si los datos ya estan al dia",
-    )
-    parser.add_argument(
         "--check-stale", action="store_true",
         help="solo comprueba: codigo 1 si hacen falta datos nuevos, 0 si no",
     )
@@ -554,26 +562,31 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.repair_mixed:
-        repair_mixed_sources(args.provider)
-        return
-
+    # Solo consulta: no escribe, asi que no toma el bloqueo.
     if args.check_stale:
         stale, reason = needs_update()
         console.print(("[yellow]Hacen falta datos nuevos: " if stale
                        else "[green]Datos ") + reason + "[/]")
         raise SystemExit(1 if stale else 0)
 
-    if args.if_stale:
-        stale, reason = needs_update()
-        if not stale:
-            console.print(f"[green]Datos {reason}. No hay nada que descargar.[/]")
-            return
-        console.print(f"[cyan]Actualizando: {reason}.[/]")
+    # Todo lo que escribe va dentro del bloqueo, incluido el borrado de los
+    # datos de prueba y la reparacion: son las operaciones mas destructivas y
+    # las que peor llevarian un solapamiento.
+    try:
+        with single_writer("ingesta"):
+            if args.repair_mixed:
+                repair_mixed_sources(args.provider)
+                return
+            if args.drop_synthetic:
+                drop_synthetic()
+            _run(args)
+    except AlreadyRunning as exc:
+        # No es un error: otro proceso llego antes. Codigo 0 para que el
+        # lanzador no lo confunda con un fallo de descarga.
+        console.print(f"[yellow]{exc} Se omite esta ejecucion.[/]")
 
-    if args.drop_synthetic:
-        drop_synthetic()
 
+def _run(args) -> None:
     if args.what in ("all", "universe"):
         ingest_universe(args.provider)
     if args.what in ("all", "prices"):

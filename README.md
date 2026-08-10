@@ -111,7 +111,7 @@ bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
 ## Desarrollo
 
 ```bash
-make test    # 402 tests, sin red
+make test    # 417 tests, sin red
 make lint    # estilo
 ```
 
@@ -136,6 +136,9 @@ base de datos temporal. Los que más valen:
 - `test_brokers.py` comprueba que «1.234,56» y «1,234.56» se leen igual, que
   los lotes de un mismo valor se agrupan con coste medio ponderado, y que un
   ISIN desconocido se reporta en vez de desaparecer sin más.
+- `test_locking.py` comprueba que dos procesos no escriben a la vez en el
+  almacén. Pasa al encender el equipo: la tarea nocturna que se perdió arranca
+  mientras el lanzador se pone al día, y DuckDB solo admite un escritor.
 - `test_windows_scripts.py` comprueba que el rango de versiones de Python que
   aceptan los scripts de Windows coincide con el de `pyproject.toml`, y que los
   `.bat` van con CRLF y en ASCII puro. Son ficheros que ningún otro test toca y

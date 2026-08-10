@@ -36,6 +36,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# En PowerShell 7.4+ un comando nativo que sale con codigo != 0 lanza
+# excepcion. Este script lee $LASTEXITCODE a proposito (--check-stale sale
+# con 1 cuando hacen falta datos), asi que se desactiva ese comportamiento.
+if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 
 # Rango de Python soportado, el mismo que declara pyproject.toml.
 # Son dos ficheros que no se pueden validar entre si: si cambia alli,
@@ -183,7 +189,7 @@ switch ($Task) {
         # cuadre ya; el universo completo despues, que es lo que tarda.
         Assert-Venv
         Write-Step "Borrando los datos de prueba"
-        & $Py -m stocks_tracker.ingest.run_ingest --drop-synthetic --what prices ``
+        & $Py -m stocks_tracker.ingest.run_ingest --drop-synthetic --what prices `
             --universes INDICES,MACRO --years 3
         Write-Step "Calculando con los precios reales"
         & $Py -m stocks_tracker.compute.run_compute
@@ -201,7 +207,14 @@ switch ($Task) {
         if ($LASTEXITCODE -eq 0) { return }
 
         Write-Step "Actualizando datos del mercado"
-        & $Py -m stocks_tracker.ingest.run_ingest --what all
+        # --drop-synthetic es obligatorio aqui: el simulador genera series
+        # hasta hoy, asi que sin borrarlas la descarga incremental las ve
+        # al dia y no trae nada. Es inocuo si no hay datos de prueba.
+        & $Py -m stocks_tracker.ingest.run_ingest --drop-synthetic --what all
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "La descarga ha fallado. Se conservan los datos anteriores." -ForegroundColor Yellow
+            return
+        }
         & $Py -m stocks_tracker.compute.run_compute
         & $Py -m stocks_tracker.compute.run_compute --only scores --all-presets
         & $Py -m stocks_tracker.alerts.run_alerts

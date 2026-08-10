@@ -225,12 +225,85 @@ def test_daily_update_is_scheduled_by_the_installer():
 def test_launcher_updates_before_opening():
     """La red de seguridad de la tarea nocturna: al abrir el programa se pone
     al dia si hace falta."""
-    for launcher in ("scripts/windows/Ver dashboard.bat",):
-        content = text(launcher)
-        assert "update" in content, f"{launcher} no actualiza antes de arrancar"
-        assert content.index("update") < content.index("run"), (
-            f"{launcher} arranca el dashboard antes de actualizar"
+    content = text("scripts/windows/Ver dashboard.bat")
+    assert "update" in content, "el lanzador no actualiza antes de arrancar"
+    assert content.index("update") < content.index("run"), (
+        "el lanzador arranca el dashboard antes de actualizar"
+    )
+
+
+def test_installer_generated_launcher_also_updates():
+    """El acceso directo del Escritorio es el camino que el instalador dice que
+    uses, y es OTRO fichero: se genera dentro de install.ps1. Tenia el mismo
+    hueco y el test anterior no lo miraba porque recorria una tupla de un solo
+    elemento.
+    """
+    src = text("installer/install.ps1")
+    start = src.index("$launcher = Join-Path")
+    launcher = src[start:src.index('| Set-Content -Path $launcher', start)]
+
+    assert "stocks.ps1" in launcher and "update" in launcher, (
+        "El lanzador que genera el instalador no llama a `update`"
+    )
+    assert launcher.index("update") < launcher.index("streamlit run"), (
+        "El lanzador arranca Streamlit antes de actualizar"
+    )
+
+
+def test_update_clears_synthetic_data_before_downloading():
+    """Sin --drop-synthetic la actualizacion no sirve para nada: el simulador
+    genera series hasta hoy, la descarga incremental las ve al dia y no trae
+    nada, asi que la bandera de "datos de prueba" no se limpia nunca y cada
+    arranque repite una ingesta completa inutil.
+    """
+    src = text("scripts/windows/stocks.ps1")
+    block = src[src.index("'update' {"):src.index("'autostart' {")]
+    # Sin comentarios: el que explica por que hace falta la bandera menciona su
+    # nombre, y buscarla en crudo daba un falso positivo.
+    code = "\n".join(line.split("#", 1)[0] for line in block.splitlines())
+    assert "--drop-synthetic" in code, (
+        "`update` descarga sin borrar antes los datos de prueba"
+    )
+
+
+@pytest.mark.parametrize("script", PS_SCRIPTS)
+def test_no_escaped_backtick_where_a_continuation_was_meant(script):
+    """`` es un backtick literal, no una continuacion de linea. Partia el
+    comando en dos y la tarea `real` fallaba entera."""
+    for number, line in enumerate(text(script).splitlines(), start=1):
+        assert not line.rstrip().endswith("``"), (
+            f"{script}:{number} acaba en doble backtick: "
+            "eso es un backtick escapado, no una continuacion"
         )
+
+
+@pytest.mark.parametrize("script", PS_SCRIPTS)
+def test_native_exit_codes_do_not_throw(script):
+    """Estos scripts leen $LASTEXITCODE, pero PowerShell 7.4+ lanza excepcion
+    ante un codigo distinto de cero si no se desactiva."""
+    assert "PSNativeCommandUseErrorActionPreference" in text(script), (
+        f"{script} lee codigos de salida sin desactivar el lanzamiento de "
+        "excepciones de PowerShell 7.4+"
+    )
+
+
+def test_staleness_check_never_opens_the_store_for_writing():
+    """`needs_update()` corre justo antes de arrancar el dashboard. Si abriera
+    el almacen en lectura-escritura, DuckDB rechazaria la conexion cuando el
+    dashboard ya lo tiene abierto, y el lanzador leeria ese fallo como "hacen
+    falta datos" lanzando una descarga completa cada vez.
+    """
+    src = (project_root() / "src/stocks_tracker/ingest/run_ingest.py").read_text("utf-8")
+    body = src[src.index("def needs_update"):src.index("def drop_synthetic")]
+
+    # Solo el codigo: el comentario que explica por que NO se llama a migrate()
+    # menciona la palabra, y buscarla en crudo daba un falso positivo.
+    code = "\n".join(
+        line.split("#", 1)[0] for line in body.splitlines()
+    )
+
+    assert "migrate()" not in code, "needs_update() abre el almacen para escribir"
+    assert "read_only=True" in code
 
 
 def test_every_declared_task_exists_in_the_switch():

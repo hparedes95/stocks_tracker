@@ -20,6 +20,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# En PowerShell 7.4+ un comando nativo con codigo != 0 lanza excepcion, y
+# aqui se lee $LASTEXITCODE a proposito.
+if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 
 # Rango de Python soportado, el mismo que declara pyproject.toml.
 # Son dos ficheros que no se pueden validar entre si: si cambia alli,
@@ -297,8 +302,11 @@ $launcher = Join-Path $InstallDir 'Stocks Tracker.bat'
 @echo off
 title Stocks Tracker
 cd /d "%~dp0"
-echo Arrancando el dashboard...
+echo Comprobando si hay datos nuevos del mercado...
 echo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\stocks.ps1" update
+echo.
+echo Arrancando el dashboard...
 echo Se abrira solo en el navegador. Cierra esta ventana para pararlo.
 echo.
 start "" /b powershell -NoProfile -Command "Start-Sleep 6; Start-Process 'http://127.0.0.1:8501'"
@@ -322,14 +330,21 @@ Write-Host "  Acceso directo creado en el Escritorio"
 # ---------------------------------------------------------------------------
 Write-Step 7 8 "Descargando precios reales de los indices"
 Write-Host "  Sustituyen a los datos de prueba. Un minuto."
-try {
-    & $Py -m stocks_tracker.ingest.run_ingest --drop-synthetic --what prices `
-        --universes INDICES,MACRO --years 3
+# Se comprueba $LASTEXITCODE y no try/catch: un comando nativo que sale con
+# codigo distinto de cero NO lanza excepcion en Windows PowerShell, asi que el
+# catch nunca se ejecutaba y se anunciaba exito aunque la descarga fallase.
+& $Py -m stocks_tracker.ingest.run_ingest --drop-synthetic --what prices `
+    --universes INDICES,MACRO --years 3
+if ($LASTEXITCODE -eq 0) {
     & $Py -m stocks_tracker.compute.run_compute
+}
+if ($LASTEXITCODE -eq 0) {
     Write-Host "  Listo: la portada ya muestra el mercado de verdad." -ForegroundColor Green
-} catch {
-    Write-Host "  No se ha podido descargar ahora: $($_.Exception.Message)" -ForegroundColor Yellow
+    $script:HasRealData = $true
+} else {
+    Write-Host "  No se ha podido descargar ahora." -ForegroundColor Yellow
     Write-Host "  El programa se abrira igualmente y lo reintentara al arrancar."
+    $script:HasRealData = $false
 }
 
 # ---------------------------------------------------------------------------
@@ -368,11 +383,23 @@ Write-Host "  ================================================" -ForegroundColor
 Write-Host ""
 Write-Host "  Abrelo con el icono 'Stocks Tracker' del Escritorio."
 Write-Host ""
-Write-Host "  Ahora mismo lleva datos INVENTADOS. Para usar datos reales,"
-Write-Host "  abre PowerShell en $InstallDir y ejecuta:"
+# El mensaje depende de si el paso 7 consiguio descargar: anunciar datos
+# reales cuando la descarga fallo es peor que no decir nada.
+if ($script:HasRealData) {
+    Write-Host "  Los indices muestran ya el mercado real."
+} else {
+    Write-Host "  ATENCION: no se han podido descargar precios reales." -ForegroundColor Yellow
+    Write-Host "  Lo que veas de momento son DATOS DE PRUEBA, inventados." -ForegroundColor Yellow
+    Write-Host "  El programa lo reintentara al abrirlo. El dashboard avisa en rojo"
+    Write-Host "  mientras haya datos inventados."
+}
+Write-Host ""
+Write-Host "  Se actualiza solo: cada noche a las 23:15, y tambien al abrirlo si"
+Write-Host "  los datos se han quedado viejos. No tienes que ejecutar nada."
+Write-Host ""
+Write-Host "  Para el ranking sobre las 600 empresas del universo completo"
+Write-Host "  (varios minutos, una sola vez):"
 Write-Host "      .\scripts\windows\stocks.ps1 ingest" -ForegroundColor Cyan
-Write-Host "      .\scripts\windows\stocks.ps1 compute" -ForegroundColor Cyan
-Write-Host "  La primera descarga tarda varios minutos."
 Write-Host ""
 
 $answer = Read-Host "  Abrir el dashboard ahora? (S/n)"
