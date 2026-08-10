@@ -95,28 +95,58 @@ st.info("  \n".join(f"· {line}" for line in summary))
 # ---------------------------------------------------------------------------
 # Indicadores de cabecera
 # ---------------------------------------------------------------------------
-if not kpis.empty:
-    wanted = ["^GSPC", "^NDX", "^IBEX", "^STOXX50E", "^VIX", "BTC-USD", "GC=F", "CL=F"]
-    names = {
-        "^GSPC": "S&P 500", "^NDX": "Nasdaq 100", "^IBEX": "IBEX 35",
-        "^STOXX50E": "Euro Stoxx 50", "^VIX": "VIX", "BTC-USD": "Bitcoin",
-        "GC=F": "Oro", "CL=F": "Petroleo",
-    }
-    items = []
-    for ticker in wanted:
-        row = kpis[kpis["ticker"] == ticker]
-        if row.empty:
-            continue
-        r = row.iloc[0]
-        items.append(
-            {
-                "label": names.get(ticker, ticker),
-                "value": f"{float(r['close']):,.2f}".replace(",", " "),
-                "delta": format_pct(r["ret_1d"]),
-            }
+# Dos filas a proposito, y la distincion importa: la de TradingView se mueve
+# ahora mismo pero no sabe nada de nuestros calculos; la nuestra es del cierre
+# y es la que usan el ranking, las senales y las alertas. Mezclarlas en una
+# sola daria un numero que no se sabe de cuando es.
+if tv_widgets.enabled():
+    live_tab, close_tab = st.tabs(["En vivo", "Al cierre"])
+else:
+    live_tab, close_tab = None, st.container()
+
+if live_tab is not None:
+    with live_tab:
+        # El texto va ANTES del widget a proposito. El widget es un iframe de
+        # TradingView: si la red lo bloquea o tarda, deja un hueco en blanco de
+        # 380 px sin decir nada, y esta es la primera pestana que ve cualquiera
+        # al abrir el programa. Un aviso que siempre se pinta convierte ese
+        # vacio en algo comprensible.
+        st.caption(
+            ":grey[Precios **en directo** de TradingView. No alimentan el "
+            "analisis: el ranking, las senales y las alertas se calculan sobre "
+            "el cierre del dia, que es la pestana de al lado. Si aqui debajo no "
+            "aparece nada, tu red esta bloqueando TradingView.]"
         )
-    if items:
-        metric_row(items, columns=min(4, len(items)))
+        tv_widgets.market_overview(height=380)
+
+with close_tab:
+    if not kpis.empty:
+        wanted = ["^GSPC", "^NDX", "^IBEX", "^STOXX50E", "^VIX", "BTC-USD",
+                  "GC=F", "CL=F"]
+        names = {
+            "^GSPC": "S&P 500", "^NDX": "Nasdaq 100", "^IBEX": "IBEX 35",
+            "^STOXX50E": "Euro Stoxx 50", "^VIX": "VIX", "BTC-USD": "Bitcoin",
+            "GC=F": "Oro", "CL=F": "Petroleo",
+        }
+        items = []
+        for ticker in wanted:
+            row = kpis[kpis["ticker"] == ticker]
+            if row.empty:
+                continue
+            r = row.iloc[0]
+            items.append(
+                {
+                    "label": names.get(ticker, ticker),
+                    "value": f"{float(r['close']):,.2f}".replace(",", " "),
+                    "delta": format_pct(r["ret_1d"]),
+                }
+            )
+        if items:
+            metric_row(items, columns=min(4, len(items)))
+            st.caption(
+                f":grey[Cierre del {last_date:%d/%m/%Y}. Estos son los numeros "
+                "con los que se calculan el ranking, las senales y las alertas.]"
+            )
 
 st.divider()
 

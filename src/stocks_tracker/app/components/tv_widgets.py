@@ -115,6 +115,71 @@ def ticker_tape(symbols: list[dict] | None = None, compact: bool = True) -> None
     _render("ticker-tape", config, height, _key("tape"))
 
 
+def market_overview(height: int = 400, groups: list[dict] | None = None) -> None:
+    """Panel de indices y activos macro, con precio EN VIVO.
+
+    Complementa a las tarjetas propias, no las sustituye. Las nuestras salen de
+    los cierres del almacen y llevan el contexto que calculamos —distancia a
+    maximos, percentil del VIX, amplitud—; este widget no sabe nada de eso,
+    pero se mueve mientras miras.
+
+    Los datos viven dentro del iframe: no se pueden leer desde aqui (politica
+    de mismo origen del navegador) ni alimentan ningun calculo. Es una ventana,
+    no una fuente.
+    """
+    if not enabled():
+        return
+
+    groups = groups or [
+        {
+            "name": "Indices",
+            "originalName": "Indices",
+            "symbols": [
+                {"name": "SP:SPX", "displayName": "S&P 500"},
+                {"name": "NASDAQ:NDX", "displayName": "Nasdaq 100"},
+                {"name": "BME:IBC", "displayName": "IBEX 35"},
+                {"name": "INDEX:SX5E", "displayName": "Euro Stoxx 50"},
+                {"name": "TVC:DAX", "displayName": "DAX"},
+            ],
+        },
+        {
+            "name": "Riesgo y materias primas",
+            "originalName": "Riesgo",
+            "symbols": [
+                {"name": "TVC:VIX", "displayName": "VIX"},
+                {"name": "TVC:GOLD", "displayName": "Oro"},
+                {"name": "TVC:USOIL", "displayName": "Petroleo"},
+                {"name": "FX:EURUSD", "displayName": "EUR/USD"},
+                {"name": "TVC:DXY", "displayName": "Dolar"},
+            ],
+        },
+        {
+            "name": "Cripto",
+            "originalName": "Cripto",
+            "symbols": [
+                {"name": "CRYPTO:BTCUSD", "displayName": "Bitcoin"},
+                {"name": "CRYPTO:ETHUSD", "displayName": "Ethereum"},
+            ],
+        },
+    ]
+
+    config = {
+        **_locale_defaults(),
+        "tabs": groups,
+        "showChart": True,
+        "isTransparent": True,
+        "showSymbolLogo": True,
+        "showFloatingTooltip": True,
+        "width": "100%",
+        "height": height,
+        "plotLineColorGrowing": "rgba(41, 98, 255, 1)",
+        "plotLineColorFalling": "rgba(41, 98, 255, 1)",
+        "gridLineColor": "rgba(240, 243, 250, 0)",
+        "scaleFontColor": "rgba(120, 123, 134, 1)",
+    }
+    _render("market-overview", config, height, _key("overview"))
+
+
 def advanced_chart(
     tv_symbol: str | None, height: int = 620, interval: str = "D",
     studies: list[str] | None = None, fallback: Callable[[], None] | None = None,

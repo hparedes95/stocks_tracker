@@ -329,3 +329,41 @@ def test_update_task_is_a_noop_when_data_is_fresh():
     block = block[:block.index("'autostart' {")]
     assert "--check-stale" in block
     assert "if ($LASTEXITCODE -eq 0) { return }" in block
+
+
+# ---------------------------------------------------------------------------
+# Precios en vivo frente a precios de cierre
+# ---------------------------------------------------------------------------
+def test_live_prices_are_labelled_as_not_feeding_the_analysis():
+    """Dos filas de numeros para los mismos indices, con valores distintos, es
+    una invitacion a confundirse. La pestana en vivo tiene que decir de donde
+    sale y que NO es lo que usa el ranking.
+    """
+    page = (project_root() / "src/stocks_tracker/app/pages/1_que_se_mueve_hoy.py"
+            ).read_text("utf-8")
+
+    assert "market_overview" in page, "no hay panel de precios en vivo"
+    assert "No alimentan el" in page, (
+        "la pestana en vivo no aclara que no alimenta el analisis"
+    )
+
+
+def test_the_live_caption_renders_before_the_iframe():
+    """El widget es un iframe: si la red lo bloquea deja un hueco mudo, y es la
+    primera pestana que se ve al abrir el programa. El aviso, que si se pinta
+    siempre, tiene que ir antes.
+    """
+    page = (project_root() / "src/stocks_tracker/app/pages/1_que_se_mueve_hoy.py"
+            ).read_text("utf-8")
+    block = page[page.index("with live_tab:"):page.index("with close_tab:")]
+
+    assert block.index("st.caption") < block.index("market_overview"), (
+        "el aviso se pinta despues del iframe: si el iframe falla, no se ve nada"
+    )
+
+
+def test_closing_prices_say_which_day_they_are_from():
+    page = (project_root() / "src/stocks_tracker/app/pages/1_que_se_mueve_hoy.py"
+            ).read_text("utf-8")
+    block = page[page.index("with close_tab:"):]
+    assert "Cierre del" in block, "las tarjetas de cierre no dicen de que dia son"
