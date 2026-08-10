@@ -13,9 +13,33 @@ REM y el mensaje de error no dice como arreglarlo. El -ExecutionPolicy Bypass
 REM afecta solo a esta ejecucion: no cambia la configuracion del equipo.
 
 title Stocks Tracker - universo completo
-cd /d "%~dp0..\.."
+setlocal
 
-set PS=powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\stocks.ps1"
+REM Buscar la instalacion. La primera version daba por hecho que este fichero
+REM estaba DENTRO de la carpeta del programa, y quien se lo descargaba suelto
+REM desde GitHub lo ejecutaba desde Descargas: ahi no hay ningun stocks.ps1 y
+REM el error no decia por que.
+set "APP=%~dp0..\.."
+if exist "%APP%\scripts\windows\stocks.ps1" goto :found
+
+set "APP=%LOCALAPPDATA%\StocksTracker"
+if exist "%APP%\scripts\windows\stocks.ps1" goto :found
+
+echo.
+echo   No encuentro Stocks Tracker instalado.
+echo.
+echo   Se ha buscado en:
+echo     %~dp0..\..
+echo     %LOCALAPPDATA%\StocksTracker
+echo.
+echo   Instala primero el programa con "Instalar Stocks Tracker.bat".
+echo.
+pause
+exit /b 1
+
+:found
+cd /d "%APP%"
+set "PS=powershell -NoProfile -ExecutionPolicy Bypass -File "%APP%\scripts\windows\stocks.ps1""
 
 if not exist ".venv\Scripts\python.exe" (
     echo.
@@ -29,6 +53,7 @@ echo.
 echo   Descarga del universo completo
 echo   ==============================
 echo.
+echo   Carpeta: %APP%
 echo   Son cuatro pasos y entre 20 y 45 minutos en total.
 echo   Puedes minimizar esta ventana, pero no la cierres.
 echo.
@@ -40,7 +65,7 @@ echo.
 echo   Listo. Ya puedes abrir el dashboard.
 echo.
 pause
-goto :eof
+exit /b 0
 
 :error
 echo.
@@ -48,3 +73,4 @@ echo   Algo ha fallado. Lee el mensaje de arriba.
 echo   Se puede volver a ejecutar: lo ya descargado no se repite.
 echo.
 pause
+exit /b 1

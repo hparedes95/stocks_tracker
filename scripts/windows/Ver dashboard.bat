@@ -10,9 +10,31 @@ REM y el mensaje de error no dice como arreglarlo. El -ExecutionPolicy Bypass
 REM afecta solo a esta ejecucion: no cambia la configuracion del equipo.
 
 title Stocks Tracker
-cd /d "%~dp0..\.."
+setlocal
 
-set PS=powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\stocks.ps1"
+REM Igual que en "Descargar universo completo.bat": este fichero puede acabar
+REM suelto en Descargas, y entonces la ruta relativa no apunta a ningun sitio.
+set "APP=%~dp0..\.."
+if exist "%APP%\scripts\windows\stocks.ps1" goto :found
+
+set "APP=%LOCALAPPDATA%\StocksTracker"
+if exist "%APP%\scripts\windows\stocks.ps1" goto :found
+
+echo.
+echo   No encuentro Stocks Tracker instalado.
+echo.
+echo   Se ha buscado en:
+echo     %~dp0..\..
+echo     %LOCALAPPDATA%\StocksTracker
+echo.
+echo   Instala primero el programa con "Instalar Stocks Tracker.bat".
+echo.
+pause
+exit /b 1
+
+:found
+cd /d "%APP%"
+set "PS=powershell -NoProfile -ExecutionPolicy Bypass -File "%APP%\scripts\windows\stocks.ps1""
 
 if not exist ".venv\Scripts\python.exe" (
     echo.
@@ -28,9 +50,10 @@ echo.
 %PS% update
 
 %PS% run
-goto :eof
+exit /b 0
 
 :error
 echo.
 echo Algo ha fallado. Lee el mensaje de arriba.
 pause
+exit /b 1

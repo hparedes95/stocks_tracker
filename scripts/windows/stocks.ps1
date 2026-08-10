@@ -52,7 +52,45 @@ $script:MaxPy = 14
 
 # La raiz del proyecto son dos niveles por encima de este script, de modo que
 # funcione desde cualquier carpeta.
-$Root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+#
+# $PSScriptRoot no siempre esta relleno: sale vacio si el contenido del script
+# se pega en la consola o se invoca de formas que no son `-File`. Cuando eso
+# pasaba, `Join-Path` fallaba con "no se puede enlazar el argumento con el
+# parametro 'Path' porque es una cadena vacia", que no dice nada util. Por eso
+# hay tres candidatos y una comprobacion final.
+$script:Candidates = @()
+if ($PSScriptRoot) { $script:Candidates += (Join-Path $PSScriptRoot '..\..') }
+if ($MyInvocation.MyCommand.Path) {
+    $script:Candidates += (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..\..')
+}
+$script:Candidates += $PWD.Path
+$script:Candidates += (Join-Path $env:LOCALAPPDATA 'StocksTracker')
+
+$Root = $null
+foreach ($candidate in $script:Candidates) {
+    if (-not $candidate) { continue }
+    # pyproject.toml es la marca de que esto es de verdad la raiz y no una
+    # carpeta cualquiera dos niveles por encima de donde se lanzo el script.
+    if (Test-Path (Join-Path $candidate 'pyproject.toml')) {
+        $Root = (Resolve-Path $candidate).Path
+        break
+    }
+}
+
+if (-not $Root) {
+    Write-Host ""
+    Write-Host "  No encuentro la carpeta de Stocks Tracker." -ForegroundColor Red
+    Write-Host "  Se ha buscado en:" -ForegroundColor DarkGray
+    foreach ($candidate in $script:Candidates) {
+        if ($candidate) { Write-Host "    $candidate" -ForegroundColor DarkGray }
+    }
+    Write-Host ""
+    Write-Host "  Ejecutalo desde la carpeta del programa, o instalalo con" -ForegroundColor Yellow
+    Write-Host "  'Instalar Stocks Tracker.bat'." -ForegroundColor Yellow
+    Write-Host ""
+    exit 1
+}
+
 Set-Location $Root
 
 # En Windows el ejecutable del entorno vive en Scripts\, no en bin/.

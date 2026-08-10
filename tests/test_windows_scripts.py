@@ -155,6 +155,51 @@ def test_scripts_reference_the_right_repository(script):
         assert "hparedes95/stocks_tracker" in content
 
 
+# ---------------------------------------------------------------------------
+# Encontrar la instalacion
+# ---------------------------------------------------------------------------
+# Los .bat acaban sueltos en Descargas: se bajan de GitHub de uno en uno. La
+# primera version daba por hecho que estaban dentro de la carpeta del programa
+# y fallaba con "el argumento ... no existe", sin decir que faltaba instalar.
+@pytest.mark.parametrize("script", ["scripts/windows/Ver dashboard.bat",
+                                    "scripts/windows/Descargar universo completo.bat"])
+def test_bat_finds_the_installation_when_run_from_elsewhere(script):
+    content = text(script)
+    assert "LOCALAPPDATA%\\StocksTracker" in content, (
+        "el .bat no busca la instalacion por defecto si no esta dentro de ella"
+    )
+    assert "Instalar Stocks Tracker.bat" in content, (
+        "cuando no encuentra nada, no dice que hay que instalar primero"
+    )
+    # La ruta al .ps1 tiene que ser absoluta: con una relativa, `cd` a un sitio
+    # equivocado convierte el fallo en un mensaje incomprensible.
+    assert '-File "%APP%\\scripts\\windows\\stocks.ps1"' in content
+
+
+@pytest.mark.parametrize("script", ["scripts/windows/Ver dashboard.bat",
+                                    "scripts/windows/Descargar universo completo.bat"])
+def test_bat_does_not_announce_success_after_failing(script):
+    """Lo que mas confunde no es el fallo, es que despues diga 'Listo'."""
+    content = text(script)
+    body = content[content.index(":found"):]
+    assert ":error" in body, "no hay salida de error"
+    # Toda ejecucion del .ps1 que pueda fallar tiene que comprobarse.
+    assert body.count("if errorlevel 1 goto :error") >= 1
+
+
+def test_powershell_script_survives_an_empty_psscriptroot():
+    """$PSScriptRoot sale vacio segun como se invoque, y `Join-Path` fallaba
+    entonces con un mensaje sobre 'una cadena vacia' que no ayuda a nadie."""
+    src = text("scripts/windows/stocks.ps1")
+    assert "$MyInvocation.MyCommand.Path" in src, "no hay alternativa a PSScriptRoot"
+    assert "pyproject.toml" in src, (
+        "no se comprueba que la carpeta encontrada sea de verdad la raiz"
+    )
+    assert "No encuentro la carpeta de Stocks Tracker" in src, (
+        "si no encuentra la raiz, no lo explica"
+    )
+
+
 def test_installer_never_writes_outside_the_user_folder():
     """Se instala en %LOCALAPPDATA% justamente para no pedir administrador."""
     content = text("installer/install.ps1")
