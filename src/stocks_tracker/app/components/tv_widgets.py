@@ -130,35 +130,41 @@ def market_overview(height: int = 400, groups: list[dict] | None = None) -> None
     if not enabled():
         return
 
+    # OJO con los nombres de las claves. Este widget espera `title` /
+    # `originalTitle` en cada pestana y `s` / `d` en cada simbolo. Las claves
+    # `name` / `displayName`, que parecen las obvias, son las de otro widget
+    # (market-quotes) y aqui no dan ningun error: TradingView monta el marco,
+    # no encuentra simbolos y lo deja vacio. Eso es justo lo que se vio en
+    # pantalla la primera vez, y por eso hay un test que vigila las claves.
     groups = groups or [
         {
-            "name": "Indices",
-            "originalName": "Indices",
+            "title": "Indices",
+            "originalTitle": "Indices",
             "symbols": [
-                {"name": "SP:SPX", "displayName": "S&P 500"},
-                {"name": "NASDAQ:NDX", "displayName": "Nasdaq 100"},
-                {"name": "BME:IBC", "displayName": "IBEX 35"},
-                {"name": "INDEX:SX5E", "displayName": "Euro Stoxx 50"},
-                {"name": "TVC:DAX", "displayName": "DAX"},
+                {"s": "SP:SPX", "d": "S&P 500"},
+                {"s": "NASDAQ:NDX", "d": "Nasdaq 100"},
+                {"s": "BME:IBC", "d": "IBEX 35"},
+                {"s": "INDEX:SX5E", "d": "Euro Stoxx 50"},
+                {"s": "XETR:DAX", "d": "DAX"},
             ],
         },
         {
-            "name": "Riesgo y materias primas",
-            "originalName": "Riesgo",
+            "title": "Riesgo y materias primas",
+            "originalTitle": "Riesgo",
             "symbols": [
-                {"name": "TVC:VIX", "displayName": "VIX"},
-                {"name": "TVC:GOLD", "displayName": "Oro"},
-                {"name": "TVC:USOIL", "displayName": "Petroleo"},
-                {"name": "FX:EURUSD", "displayName": "EUR/USD"},
-                {"name": "TVC:DXY", "displayName": "Dolar"},
+                {"s": "TVC:VIX", "d": "VIX"},
+                {"s": "TVC:GOLD", "d": "Oro"},
+                {"s": "TVC:USOIL", "d": "Petroleo"},
+                {"s": "FX:EURUSD", "d": "EUR/USD"},
+                {"s": "TVC:DXY", "d": "Dolar"},
             ],
         },
         {
-            "name": "Cripto",
-            "originalName": "Cripto",
+            "title": "Cripto",
+            "originalTitle": "Cripto",
             "symbols": [
-                {"name": "CRYPTO:BTCUSD", "displayName": "Bitcoin"},
-                {"name": "CRYPTO:ETHUSD", "displayName": "Ethereum"},
+                {"s": "CRYPTO:BTCUSD", "d": "Bitcoin"},
+                {"s": "CRYPTO:ETHUSD", "d": "Ethereum"},
             ],
         },
     ]
@@ -166,14 +172,24 @@ def market_overview(height: int = 400, groups: list[dict] | None = None) -> None
     config = {
         **_locale_defaults(),
         "tabs": groups,
+        "dateRange": "1D",
         "showChart": True,
         "isTransparent": True,
         "showSymbolLogo": True,
         "showFloatingTooltip": True,
+        "largeChartUrl": "",
         "width": "100%",
-        "height": height,
+        # La misma altura que el div interior que crea `_render`. Si aqui se
+        # pone la altura total, la ultima fila queda cortada por el pie de
+        # atribucion.
+        "height": height - 32,
         "plotLineColorGrowing": "rgba(41, 98, 255, 1)",
         "plotLineColorFalling": "rgba(41, 98, 255, 1)",
+        "belowLineFillColorGrowing": "rgba(41, 98, 255, 0.12)",
+        "belowLineFillColorFalling": "rgba(41, 98, 255, 0.12)",
+        "belowLineFillColorGrowingBottom": "rgba(41, 98, 255, 0)",
+        "belowLineFillColorFallingBottom": "rgba(41, 98, 255, 0)",
+        "symbolActiveColor": "rgba(41, 98, 255, 0.12)",
         "gridLineColor": "rgba(240, 243, 250, 0)",
         "scaleFontColor": "rgba(120, 123, 134, 1)",
     }

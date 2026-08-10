@@ -111,11 +111,18 @@ if live_tab is not None:
         # 380 px sin decir nada, y esta es la primera pestana que ve cualquiera
         # al abrir el programa. Un aviso que siempre se pinta convierte ese
         # vacio en algo comprensible.
+        # El aviso NO dice "tu red lo bloquea". Lo dijo en su primera version y
+        # mando a diagnosticar la red cuando el hueco en blanco lo causaba una
+        # clave mal puesta en nuestra configuracion. Un widget vacio tiene dos
+        # causas posibles y desde fuera son identicas, asi que el texto propone
+        # la comprobacion que las separa en lugar de dar por buena una.
         st.caption(
             ":grey[Precios **en directo** de TradingView. No alimentan el "
             "analisis: el ranking, las senales y las alertas se calculan sobre "
-            "el cierre del dia, que es la pestana de al lado. Si aqui debajo no "
-            "aparece nada, tu red esta bloqueando TradingView.]"
+            "el cierre del dia, que es la pestana de al lado. Si aqui debajo "
+            "sale un hueco vacio, mira el grafico de velas de la ficha de "
+            "cualquier valor: si ese si se ve, el fallo es de esta pantalla; si "
+            "tampoco, tu red esta bloqueando TradingView.]"
         )
         tv_widgets.market_overview(height=380)
 
