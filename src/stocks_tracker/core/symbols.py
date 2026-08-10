@@ -48,6 +48,20 @@ EXCHANGE_TO_TV: dict[str, str] = {
 _UNDERSCORE_EXCHANGES = {"OMXCOP", "OMXSTO", "OMXHEX", "OSL"}
 
 
+def _text(value) -> str:
+    """Texto limpio a partir de lo que venga: None, NaN, numeros o cadenas.
+
+    Existe por un fallo concreto: un instrumento sin bolsa declarada llegaba
+    como `float('nan')` desde pandas, `bool(nan)` es True y el codigo lo
+    trataba como una cadena. La ingesta entera moria por un valor.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, float) and value != value:  # NaN
+        return ""
+    return str(value).strip()
+
+
 def _normalize_base(base: str, exchange: str) -> str:
     if exchange in _UNDERSCORE_EXCHANGES:
         return base.replace("-", "_")
@@ -61,10 +75,17 @@ def to_tv_symbol(
     overrides: dict[str, str] | None = None,
 ) -> str | None:
     """Devuelve el simbolo de TradingView, o None si no hay equivalencia."""
+    # Los datos llegan de un DataFrame, y pandas convierte los huecos en
+    # `float('nan')`, no en None. Y `bool(nan)` es True, asi que un `if
+    # exchange:` daba por bueno el hueco y luego reventaba con
+    # "'float' object has no attribute 'upper'", tumbando la ingesta entera
+    # por un solo valor sin bolsa declarada.
+    ticker = _text(ticker)
+    exchange = _text(exchange)
+    asset_class = _text(asset_class)
+
     if not ticker:
         return None
-
-    ticker = ticker.strip()
     overrides = get_symbol_overrides() if overrides is None else overrides
 
     if ticker in get_symbol_blacklist():

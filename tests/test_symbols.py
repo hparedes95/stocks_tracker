@@ -117,3 +117,34 @@ def test_universe_is_fully_mapped():
         f"{len(unresolved)} tickers sin equivalencia en TradingView ni entrada "
         f"en symbol_overrides.yaml: {unresolved[:15]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Huecos que llegan desde pandas
+# ---------------------------------------------------------------------------
+def test_missing_exchange_does_not_crash_the_whole_ingest():
+    """Fallo real en la instalacion del usuario: un instrumento sin bolsa
+    declarada llegaba como float('nan'), `bool(nan)` es True, y la ingesta
+    entera moria con "'float' object has no attribute 'upper'" tras haber
+    resuelto ya doscientos simbolos."""
+    from stocks_tracker.core.symbols import resolve_all, to_tv_symbol
+
+    assert to_tv_symbol("AAPL", float("nan"), float("nan")) is None
+    assert to_tv_symbol("CRIT.MC", float("nan"), float("nan")) == "BME:CRIT"
+    # El sufijo europeo no depende de la bolsa declarada, y el ETF sin bolsa
+    # sigue cayendo en su caso por defecto.
+    assert to_tv_symbol("SPY", float("nan"), "etf") == "AMEX:SPY"
+
+    resolved = resolve_all([
+        {"ticker": "AAPL", "exchange": float("nan"), "asset_class": float("nan")},
+        {"ticker": "MSFT", "exchange": "NMS", "asset_class": "equity"},
+    ])
+    assert len(resolved) == 2, "un hueco no puede tumbar la lista entera"
+    assert resolved[1]["tv_symbol"] == "NASDAQ:MSFT"
+
+
+def test_numeric_exchange_is_treated_as_text():
+    """Algun proveedor devuelve codigos numericos. No deben reventar."""
+    from stocks_tracker.core.symbols import to_tv_symbol
+
+    assert to_tv_symbol("AAPL", 123, "equity") is None

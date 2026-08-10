@@ -70,7 +70,13 @@ def t_statistic(returns) -> float:
     if len(values) < 3:
         return float("nan")
     std = values.std(ddof=1)
-    if std == 0:
+    # Comparar con cero exacto no basta. Cuando todos los eventos dan el mismo
+    # retorno —un solo valor en el universo, o el coste fijo dominandolo todo—
+    # la desviacion no es 0 sino ruido de coma flotante del orden de 1e-18, y
+    # la division producia t de 10^16. Un numero asi impreso en una tabla no es
+    # un dato: es una forma de perder la confianza en toda la tabla.
+    scale = float(np.abs(values).mean())
+    if not np.isfinite(std) or std <= max(1e-12, scale * 1e-9):
         return float("nan")
     return float(values.mean() / (std / np.sqrt(len(values))))
 

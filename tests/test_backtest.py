@@ -8,6 +8,8 @@ salen preciosos mientras el dinero real se pierde.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -322,3 +324,17 @@ def test_walk_forward_splits_into_windows():
 
 def test_walk_forward_handles_empty_input():
     assert eng.walk_forward(pd.DataFrame()) == []
+
+
+def test_t_statistic_does_not_explode_when_every_return_is_the_same():
+    """Con un solo valor en el universo todos los eventos dan el mismo exceso,
+    la desviacion tipica es ruido de coma flotante y el t salia del orden de
+    10^16. Impreso en una tabla, ese numero desacredita toda la tabla."""
+    from stocks_tracker.backtest.metrics import t_statistic
+
+    assert math.isnan(t_statistic([-0.002] * 47))
+    assert math.isnan(t_statistic([-0.002 + i * 1e-19 for i in range(47)]))
+
+    # Y sigue midiendo cuando hay dispersion de verdad.
+    rng = np.random.default_rng(0)
+    assert t_statistic(rng.normal(0.01, 0.02, 200)) > 2
