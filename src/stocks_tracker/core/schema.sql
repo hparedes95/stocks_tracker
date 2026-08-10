@@ -328,3 +328,198 @@ CREATE TABLE IF NOT EXISTS data_quality (
   passed     BOOLEAN,
   detail     VARCHAR
 );
+
+-- ============ BOT DE TRADING (fase 6) ============
+-- Herramienta personal de experimentacion. El usuario opera su propio dinero
+-- bajo su exclusiva responsabilidad. Ninguna metrica pasada garantiza
+-- resultados futuros. Esto no es asesoramiento financiero ni fiscal.
+
+CREATE TABLE IF NOT EXISTS strategies (
+  strategy_id    VARCHAR PRIMARY KEY,   -- 'momentum_multifactor_v1'
+  name           VARCHAR,
+  version        VARCHAR,
+  enabled        BOOLEAN DEFAULT FALSE,
+  mode           VARCHAR,               -- simulated|paper|live
+  params         VARCHAR,               -- JSON: copia congelada del YAML al activar
+  params_hash    VARCHAR,               -- detecta cambios de parametros a posteriori
+  activated_at   TIMESTAMP,
+  deactivated_at TIMESTAMP,
+  note           VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS bot_runs (
+  run_id      VARCHAR PRIMARY KEY,      -- ULID
+  strategy_id VARCHAR,
+  mode        VARCHAR,
+  phase       VARCHAR,                  -- propose|execute|monitor|reconcile|eod
+  started_at  TIMESTAMP,
+  finished_at TIMESTAMP,
+  status      VARCHAR,                  -- OK|PARTIAL|FAILED|HALTED
+  market_open BOOLEAN,
+  equity_start DOUBLE,
+  equity_end   DOUBLE,
+  n_intents   INTEGER,
+  n_approved  INTEGER,
+  n_submitted INTEGER,
+  n_filled    INTEGER,
+  error       VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS intents (
+  intent_id          VARCHAR PRIMARY KEY,   -- ULID
+  run_id             VARCHAR,
+  strategy_id        VARCHAR,
+  created_at         TIMESTAMP,
+  ticker             VARCHAR,
+  tv_symbol          VARCHAR,
+  side               VARCHAR,               -- buy|sell
+  intent_type        VARCHAR,               -- open|add|trim|close|stop_exit|rebalance
+  qty_requested      DOUBLE,
+  notional_requested DOUBLE,
+  qty_approved       DOUBLE,                -- tras RESIZE del riesgo
+  notional_approved  DOUBLE,
+  ref_price          DOUBLE,
+  stop_price         DOUBLE,
+  stop_atr_mult      DOUBLE,
+  risk_amount        DOUBLE,                -- dinero en riesgo hasta el stop
+  rationale          VARCHAR,               -- JSON
+  score_pctile       DOUBLE,
+  regime             VARCHAR,
+  risk_verdict       VARCHAR,               -- APPROVE|RESIZE|VETO
+  risk_notes         VARCHAR,               -- JSON: reglas evaluadas y su holgura
+  status             VARCHAR,               -- PENDING|APPROVED|...|FILLED|FAILED
+  expires_at         TIMESTAMP,
+  decided_by         VARCHAR,
+  decided_at         TIMESTAMP,
+  decision_note      VARCHAR
+);
+CREATE INDEX IF NOT EXISTS idx_intents_status ON intents(status, expires_at);
+
+CREATE TABLE IF NOT EXISTS orders (
+  client_order_id  VARCHAR PRIMARY KEY,  -- DETERMINISTA: 'st-{intent_id}' -> idempotencia
+  broker_order_id  VARCHAR,
+  intent_id        VARCHAR,
+  run_id           VARCHAR,
+  mode             VARCHAR,
+  broker           VARCHAR,
+  ticker           VARCHAR,
+  side             VARCHAR,
+  order_type       VARCHAR,
+  tif              VARCHAR,
+  qty              DOUBLE,
+  notional         DOUBLE,
+  limit_price      DOUBLE,
+  stop_price       DOUBLE,
+  status           VARCHAR,
+  filled_qty       DOUBLE DEFAULT 0,
+  filled_avg_price DOUBLE,
+  submitted_at     TIMESTAMP,
+  updated_at       TIMESTAMP,
+  filled_at        TIMESTAMP,
+  reject_reason    VARCHAR,
+  raw              VARCHAR                -- JSON
+);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(mode, status);
+
+CREATE TABLE IF NOT EXISTS fills (
+  fill_id         VARCHAR PRIMARY KEY,
+  client_order_id VARCHAR,
+  broker_order_id VARCHAR,
+  ticker          VARCHAR,
+  side            VARCHAR,
+  qty             DOUBLE,
+  price           DOUBLE,
+  filled_at       TIMESTAMP,
+  commission      DOUBLE DEFAULT 0,
+  slippage_bps    DOUBLE,                -- frente al ref_price del intent
+  mode            VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+  snapshot_at        TIMESTAMP,
+  mode               VARCHAR,
+  strategy_id        VARCHAR,
+  cash               DOUBLE,
+  equity             DOUBLE,
+  long_market_value  DOUBLE,
+  buying_power       DOUBLE,
+  n_positions        INTEGER,
+  gross_exposure_pct DOUBLE,
+  daytrade_count     INTEGER,
+  peak_equity        DOUBLE,
+  drawdown_pct       DOUBLE,
+  pnl_day            DOUBLE,
+  pnl_total          DOUBLE,
+  benchmark_equity   DOUBLE,
+  positions          VARCHAR,            -- JSON: foto completa para auditoria
+  PRIMARY KEY (snapshot_at, mode)
+);
+
+-- Estado gestionado por NOSOTROS, no por el broker: Alpaca rechaza bracket y
+-- OCO en ordenes fraccionadas, asi que los stops son sinteticos y viven aqui.
+CREATE TABLE IF NOT EXISTS bot_positions (
+  ticker                    VARCHAR,
+  mode                      VARCHAR,
+  strategy_id               VARCHAR,
+  qty                       DOUBLE,
+  avg_entry_price           DOUBLE,
+  opened_at                 TIMESTAMP,
+  stop_price                DOUBLE,
+  stop_type                 VARCHAR,     -- atr_fixed|atr_trailing
+  highest_close_since_entry DOUBLE,
+  target_weight             DOUBLE,
+  entry_intent_id           VARCHAR,
+  max_hold_until            DATE,
+  last_reviewed_at          TIMESTAMP,
+  PRIMARY KEY (ticker, mode)
+);
+
+-- Invariante de auditoria: cualquier ticker candidato de cualquier ciclo deja
+-- AL MENOS una fila aqui, incluidos los descartados. Sin eso, la pregunta
+-- "por que no compro X el dia Y" no tiene respuesta.
+CREATE TABLE IF NOT EXISTS decision_log (
+  decision_id VARCHAR PRIMARY KEY,
+  run_id      VARCHAR,
+  -- 'at' a secas es palabra reservada en DuckDB: obligaria a entrecomillarla
+  -- en cada consulta, incluidas las que se escriben a mano para investigar.
+  logged_at   TIMESTAMP,
+  mode        VARCHAR,
+  strategy_id VARCHAR,
+  ticker      VARCHAR,
+  decision    VARCHAR,
+  reason_code VARCHAR,                   -- enum estable, apto para filtrar en SQL
+  reason_text VARCHAR,                   -- frase legible
+  context     VARCHAR                    -- JSON
+);
+CREATE INDEX IF NOT EXISTS idx_decision_ticker_date ON decision_log(ticker, logged_at);
+
+CREATE TABLE IF NOT EXISTS risk_violations (
+  id           VARCHAR PRIMARY KEY,
+  logged_at    TIMESTAMP,
+  run_id       VARCHAR,
+  mode         VARCHAR,
+  rule_id      VARCHAR,
+  severity     VARCHAR,                  -- info|warn|block|kill
+  ticker       VARCHAR,
+  observed     DOUBLE,
+  limit_value  DOUBLE,
+  headroom     DOUBLE,
+  action_taken VARCHAR,                  -- resize|veto|halt_new|flatten
+  detail       VARCHAR                   -- JSON
+);
+
+CREATE TABLE IF NOT EXISTS bot_state (
+  mode             VARCHAR PRIMARY KEY,
+  state            VARCHAR,              -- RUNNING|HALT_NEW|FLATTEN_PENDING|HALTED
+  autonomy         VARCHAR,              -- semi|auto
+  halted_at        TIMESTAMP,
+  halt_rule        VARCHAR,
+  halt_detail      VARCHAR,
+  rearmed_at       TIMESTAMP,
+  rearmed_by       VARCHAR,
+  rearm_note       VARCHAR,
+  peak_equity      DOUBLE,
+  day_start_equity DOUBLE,
+  day_start_date   DATE,
+  updated_at       TIMESTAMP
+);

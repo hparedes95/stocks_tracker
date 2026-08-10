@@ -1,0 +1,98 @@
+# Mandato del bot de trading, expresado como configuracion auditable.
+#
+# Herramienta PERSONAL DE EXPERIMENTACION. El usuario opera su propio dinero
+# bajo su exclusiva responsabilidad. Ninguna metrica pasada garantiza
+# resultados futuros. Esto no es asesoramiento financiero ni fiscal.
+#
+# Este fichero es la unica fuente de los limites. `trading/risk.py` los lee de
+# aqui y no tiene ningun numero escrito en el codigo: cambiar un limite se hace
+# aqui, queda en el historial de git y se ve en un diff.
+
+mode: simulated                 # simulated | paper | live
+autonomy: semi                  # semi | auto  (fase 6: siempre semi)
+base_currency: USD
+capital_cap: 55.0               # tope duro de capital desplegable (~50 EUR)
+initial_equity: 55.0            # solo para el simulador: con que dinero arranca
+
+universe:
+  source: universe_membership
+  allowed: [SP500, NASDAQ100]   # SOLO EE. UU.
+  require_fractionable: true
+  min_price: 5.0                # evita chicharros
+  min_dollar_volume_20d: 20000000
+  exclude_asset_classes: [crypto, commodity, fx]
+
+risk:
+  # --- dimensionamiento ---
+  risk_per_trade_pct: 1.5       # % de la equity arriesgado hasta el stop
+  atr_stop_mult: 2.5            # stop = entrada - 2.5 x ATR14
+  atr_trailing: true
+  min_notional: 1.0
+  max_position_pct: 22.0
+  target_position_pct: 15.0
+  # --- concentracion ---
+  max_positions: 7
+  min_positions_for_diversification: 4
+  max_sector_pct: 35.0
+  max_gross_exposure_pct: 90.0
+  min_cash_pct: 10.0
+  # --- perdidas ---
+  max_daily_loss_pct: 3.0       # sobre la equity de apertura del dia -> HALT_NEW
+  max_drawdown_pct: 15.0        # sobre el maximo historico -> KILL SWITCH
+  drawdown_warn_pct: 10.0
+  # --- actividad ---
+  max_orders_per_day: 6
+  max_orders_per_ticker_per_day: 1
+  max_new_positions_per_day: 3
+  max_day_trades_5d: 2          # margen sobre el limite PDT de 3
+  min_holding_days: 2           # evita day trades por construccion
+  # --- prohibiciones absolutas ---
+  # No son configurables a true: `risk.py` las comprueba y lanza ConfigError si
+  # alguien las cambia. Estan aqui para que el mandato se lea completo en un
+  # solo sitio, no para poder relajarlas.
+  allow_shorting: false
+  allow_leverage: false
+  allow_options: false
+  allow_extended_hours: false
+  # --- eventos y calidad del dato ---
+  block_days_before_earnings: 3
+  block_days_after_earnings: 1
+  block_if_evidence_not_validated: true
+  min_data_coverage: 0.5
+  max_data_staleness_hours: 30
+
+execution:
+  order_type: market
+  time_in_force: day
+  use_notional_for_buys: true
+  no_trade_window_open_min: 20
+  no_trade_window_close_min: 15
+  max_price_drift_pct: 2.0
+  slippage_bps_assumed: 15
+  commission_bps: 0
+  fill_at: next_open            # el simulador ejecuta a la apertura siguiente
+
+approval:
+  intent_ttl_hours: 18
+  require_pin: true
+  channels: [ui, telegram]
+
+kill_switch:
+  on_daily_loss: halt_new
+  on_max_drawdown: flatten
+  on_reconcile_mismatch: halt_new
+  on_repeated_rejects: halt_new
+  on_stale_data: halt_new
+  rearm: manual_only            # NUNCA automatico
+  cooldown_hours: 12
+
+strategies:
+  momentum_multifactor_v1:
+    enabled: true
+    preset: bot_core            # preset de pesos de factors.yaml
+    rebalance_weekday: 0        # 0 = lunes; primer dia habil de la semana
+    entry_max_rsi14: 75.0
+    exit_pctile: 0.60           # histeresis: se entra en el top N, se sale bajo p60
+    rebalance_band_pp: 5.0      # banda muerta de desviacion del peso objetivo
+    stop_atr_mult: 2.5
+    trailing: true

@@ -295,7 +295,7 @@ CREATE TABLE IF NOT EXISTS bot_positions (   -- estado gestionado por NOSOTROS (
 
 -- ============ AUDITORÍA DE DECISIONES ============
 CREATE TABLE IF NOT EXISTS decision_log (
-  decision_id VARCHAR PRIMARY KEY, run_id VARCHAR, at TIMESTAMP,
+  decision_id VARCHAR PRIMARY KEY, run_id VARCHAR, logged_at TIMESTAMP,
   mode VARCHAR, strategy_id VARCHAR, ticker VARCHAR,
   decision VARCHAR,     -- PROPOSED|VETOED|RESIZED|APPROVED|REJECTED|EXPIRED|SUBMITTED|FILLED
                         -- |SKIPPED_NO_SIGNAL|SKIPPED_ALREADY_HELD|SKIPPED_PDT|HALTED
@@ -303,10 +303,10 @@ CREATE TABLE IF NOT EXISTS decision_log (
   reason_text VARCHAR,  -- frase legible generada por core/narrative.py
   context JSON          -- todo lo necesario para reconstruir la decisión
 );
-CREATE INDEX IF NOT EXISTS idx_decision_ticker_date ON decision_log(ticker, at);
+CREATE INDEX IF NOT EXISTS idx_decision_ticker_date ON decision_log(ticker, logged_at);
 
 CREATE TABLE IF NOT EXISTS risk_violations (
-  id VARCHAR PRIMARY KEY, at TIMESTAMP, run_id VARCHAR, mode VARCHAR,
+  id VARCHAR PRIMARY KEY, logged_at TIMESTAMP, run_id VARCHAR, mode VARCHAR,
   rule_id VARCHAR,      -- 'max_position_pct','daily_loss','max_drawdown','pdt_limit'…
   severity VARCHAR,     -- info|warn|block|kill
   ticker VARCHAR, observed DOUBLE, limit_value DOUBLE, headroom DOUBLE,
@@ -330,11 +330,15 @@ CREATE TABLE IF NOT EXISTS bot_state (       -- una fila por modo; estado del ki
 canónica que debe funcionar siempre:
 
 ```sql
-SELECT at, decision, reason_code, reason_text
+SELECT logged_at, decision, reason_code, reason_text
 FROM decision_log
-WHERE ticker = ? AND at::DATE = ? AND mode = ?
-ORDER BY at;
+WHERE ticker = ? AND logged_at::DATE = ? AND mode = ?
+ORDER BY logged_at;
 ```
+
+> La columna se llama `logged_at` y no `at` como decia la primera version de
+> esta adenda: `at` es palabra reservada en DuckDB y habria obligado a
+> entrecomillarla en cada consulta escrita a mano.
 
 ---
 

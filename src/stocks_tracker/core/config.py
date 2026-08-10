@@ -241,6 +241,97 @@ def get_fred_series() -> dict[str, dict]:
     return dict(get_macro_config().get("fred_series") or {})
 
 
+class ConfigError(ValueError):
+    """Configuracion invalida. Aborta el arranque en lugar de seguir a medias."""
+
+
+# Limites que no son configurables. No estan en el YAML para poder cambiarlos,
+# sino para que el mandato se lea completo en un solo sitio; si alguien los
+# pone a `true`, el bot no arranca. Sin esto, relajar el mandato seria editar
+# una linea de YAML, que es exactamente lo que no debe poder hacerse en
+# caliente y sin pensarlo dos veces.
+FORBIDDEN_ALWAYS = ("allow_shorting", "allow_leverage", "allow_options",
+                    "allow_extended_hours")
+
+
+@dataclass(frozen=True)
+class TradingConfig:
+    """Mandato del bot. Unica fuente de los limites de riesgo."""
+
+    raw: dict[str, Any]
+
+    def __post_init__(self) -> None:
+        risk = self.raw.get("risk") or {}
+        for key in FORBIDDEN_ALWAYS:
+            if risk.get(key):
+                raise ConfigError(
+                    f"'{key}' no se puede activar: es una prohibicion absoluta "
+                    "del mandato, no una opcion."
+                )
+        if self.mode not in ("simulated", "paper", "live"):
+            raise ConfigError(f"Modo de trading desconocido: {self.mode}")
+        if self.autonomy not in ("semi", "auto"):
+            raise ConfigError(f"Nivel de autonomia desconocido: {self.autonomy}")
+        if self.capital_cap <= 0:
+            raise ConfigError("capital_cap tiene que ser positivo")
+
+    @property
+    def mode(self) -> str:
+        return str(self.raw.get("mode", "simulated"))
+
+    @property
+    def autonomy(self) -> str:
+        return str(self.raw.get("autonomy", "semi"))
+
+    @property
+    def capital_cap(self) -> float:
+        return float(self.raw.get("capital_cap", 55.0))
+
+    @property
+    def initial_equity(self) -> float:
+        return float(self.raw.get("initial_equity", self.capital_cap))
+
+    @property
+    def universe(self) -> dict[str, Any]:
+        return dict(self.raw.get("universe") or {})
+
+    @property
+    def risk(self) -> dict[str, Any]:
+        return dict(self.raw.get("risk") or {})
+
+    @property
+    def execution(self) -> dict[str, Any]:
+        return dict(self.raw.get("execution") or {})
+
+    @property
+    def approval(self) -> dict[str, Any]:
+        return dict(self.raw.get("approval") or {})
+
+    @property
+    def kill_switch(self) -> dict[str, Any]:
+        return dict(self.raw.get("kill_switch") or {})
+
+    def strategy(self, strategy_id: str) -> dict[str, Any]:
+        return dict((self.raw.get("strategies") or {}).get(strategy_id) or {})
+
+    def limit(self, name: str) -> float:
+        """Limite numerico de riesgo, con error claro si falta.
+
+        Devolver un valor por defecto silencioso seria peligroso: un limite
+        ausente pasaria a ser un limite inventado por el codigo, y el usuario
+        creeria estar operando bajo el mandato que leyo en el YAML.
+        """
+        risk = self.risk
+        if name not in risk:
+            raise ConfigError(f"Falta el limite de riesgo '{name}' en trading.yaml")
+        return float(risk[name])
+
+
+@lru_cache(maxsize=1)
+def get_trading_config() -> TradingConfig:
+    return TradingConfig(raw=_load_yaml("trading.yaml"))
+
+
 def all_active_tickers() -> list[str]:
     """Todos los tickers de los universos activos, sin duplicados."""
     universes = get_universes()

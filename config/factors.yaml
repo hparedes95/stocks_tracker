@@ -40,6 +40,16 @@ presets:
     technical: 0.25
     quality: 0.20
     lowvol: 0.15
+  # Preset que usa la estrategia del bot. Es mas templado que `momentum`:
+  # cambia el peso tecnico por valor y dividendo, para no comprar solo lo que
+  # mas ha subido. Aparece tambien en el selector de Oportunidades a proposito,
+  # asi el ranking que mira el bot se puede consultar a mano.
+  bot_core:
+    momentum: 0.35
+    quality: 0.25
+    value: 0.15
+    lowvol: 0.15
+    dividend: 0.10
 
 # Multiplicadores segun el semaforo de riesgo. En risk-off se prima la
 # estabilidad y la calidad; en risk-on, el momentum.
