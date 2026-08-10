@@ -14,6 +14,7 @@
       update    Actualiza solo si los datos estan viejos
       autostart Programa la actualizacion diaria automatica
       ingest    Descarga el universo completo de Yahoo Finance
+      universo  TODO de una vez: descarga, calcula, puntua y valida
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
       validate  Valida las senales contra su historico
@@ -28,7 +29,7 @@
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('setup', 'demo', 'ingest', 'compute', 'presets', 'validate',
+    [ValidateSet('setup', 'demo', 'ingest', 'universo', 'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
@@ -257,6 +258,44 @@ switch ($Task) {
         Assert-Venv
         Write-Step "Descargando datos reales (la primera vez tarda varios minutos)"
         & $Py -m stocks_tracker.ingest.run_ingest --what all
+    }
+
+    'universo' {
+        # Los cuatro pasos que hacen falta para pasar de "solo indices" a tener
+        # el universo entero listo, en el orden correcto y sin que haya que
+        # acordarse de ninguno.
+        #
+        # Aqui SI se para al primer fallo, al reves que en 'daily': calcular
+        # sobre una descarga incompleta produce un ranking que parece correcto
+        # y no lo es, y eso es peor que no tener ranking.
+        Assert-Venv
+        $steps = @(
+            @{ Name = 'Descargando el universo completo (10-25 min)'
+               Args = @('-m', 'stocks_tracker.ingest.run_ingest', '--what', 'all') },
+            @{ Name = 'Calculando indicadores, factores y senales (3-8 min)'
+               Args = @('-m', 'stocks_tracker.compute.run_compute') },
+            @{ Name = 'Puntuando con los estilos de inversion (2-5 min)'
+               Args = @('-m', 'stocks_tracker.compute.run_compute', '--only', 'scores',
+                        '--all-presets') },
+            @{ Name = 'Validando las senales contra su historico (2-5 min)'
+               Args = @('-m', 'stocks_tracker.backtest.run_backtest', '--tag-signals') }
+        )
+        $n = 0
+        foreach ($step in $steps) {
+            $n++
+            Write-Step "[$n/$($steps.Count)] $($step.Name)"
+            & $Py @($step.Args)
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host ""
+                Write-Host "  Ha fallado: $($step.Name)" -ForegroundColor Red
+                Write-Host "  No se continua. Los pasos siguientes darian un" -ForegroundColor Yellow
+                Write-Host "  ranking calculado sobre datos incompletos." -ForegroundColor Yellow
+                exit 1
+            }
+        }
+        Write-Host ""
+        Write-Host "Universo completo listo." -ForegroundColor Green
+        Write-Host "Ya puedes abrir el dashboard: el ranking cubre todo el universo."
     }
 
     'compute' {

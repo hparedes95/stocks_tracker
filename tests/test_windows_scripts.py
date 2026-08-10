@@ -17,7 +17,8 @@ from stocks_tracker.core.config import project_root
 
 PS_SCRIPTS = ["installer/install.ps1", "scripts/windows/stocks.ps1"]
 BAT_SCRIPTS = ["installer/Instalar Stocks Tracker.bat",
-               "scripts/windows/Ver dashboard.bat"]
+               "scripts/windows/Ver dashboard.bat",
+               "scripts/windows/Descargar universo completo.bat"]
 
 
 def read(path: str) -> bytes:
