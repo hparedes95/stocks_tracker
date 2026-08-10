@@ -119,10 +119,14 @@ if live_tab is not None:
         st.caption(
             ":grey[Precios **en directo** de TradingView. No alimentan el "
             "analisis: el ranking, las senales y las alertas se calculan sobre "
-            "el cierre del dia, que es la pestana de al lado. Si aqui debajo "
-            "sale un hueco vacio, mira el grafico de velas de la ficha de "
-            "cualquier valor: si ese si se ve, el fallo es de esta pantalla; si "
-            "tampoco, tu red esta bloqueando TradingView.]"
+            "el cierre del dia, que es la pestana de al lado. El S&P 500, el "
+            "Nasdaq y el VIX se muestran a traves de contratos que los "
+            "replican, porque los indices oficiales no estan disponibles en la "
+            "version gratuita; fuera del horario de Wall Street pueden marcar "
+            "unas decimas distintas del valor oficial. Si sale un hueco vacio, "
+            "mira el grafico de velas de la ficha de cualquier valor: si ese si "
+            "se ve, el fallo es de esta pantalla; si tampoco, tu red esta "
+            "bloqueando TradingView.]"
         )
         tv_widgets.market_overview(height=380)
 

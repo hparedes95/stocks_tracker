@@ -401,6 +401,26 @@ def test_the_live_caption_renders_before_the_iframe():
     )
 
 
+def test_the_live_tab_explains_why_us_indices_may_differ():
+    """El S&P y el Nasdaq en vivo salen de contratos que replican al indice, no
+    del indice al contado, porque el oficial esta bajo licencia. Fuera del
+    horario de Wall Street marcan algo distinto del cierre, y este usuario ya
+    perdio la confianza una vez por ver un numero que no cuadraba sin
+    explicacion.
+    """
+    page = (project_root() / "src/stocks_tracker/app/pages/1_que_se_mueve_hoy.py"
+            ).read_text("utf-8")
+    block = page[page.index("with live_tab:"):page.index("with close_tab:")]
+    caption = block[block.index("st.caption"):]
+
+    assert "replican" in caption, (
+        "no se avisa de que los indices de EE. UU. van por contrato replicante"
+    )
+    assert "decimas distintas" in caption, (
+        "no se avisa de que el numero puede no coincidir con el oficial"
+    )
+
+
 def test_closing_prices_say_which_day_they_are_from():
     page = (project_root() / "src/stocks_tracker/app/pages/1_que_se_mueve_hoy.py"
             ).read_text("utf-8")

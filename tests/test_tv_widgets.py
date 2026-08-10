@@ -68,6 +68,48 @@ def test_market_overview_does_not_carry_the_other_widgets_keys(captured):
         )
 
 
+# Simbolos que el widget gratuito NO sirve: son datos bajo licencia de bolsa.
+# No dan error — la fila desaparece y el resto del panel se pinta como si nada,
+# asi que el fallo solo se ve si sabes que esos valores tenian que estar.
+_LICENSED = ("SP:SPX", "NASDAQ:NDX", "TVC:VIX", "CBOE:VIX", "INDEX:NDX")
+
+
+def test_market_overview_avoids_licensed_symbols(captured):
+    tv_widgets.market_overview()
+    payload = json.dumps(captured[0]["config"])
+
+    for symbol in _LICENSED:
+        assert symbol not in payload, (
+            f"{symbol} necesita licencia de bolsa: el widget gratuito lo omite "
+            "sin avisar y esa fila no aparece"
+        )
+
+
+def test_ticker_tape_avoids_licensed_symbols(captured):
+    """La cinta va en la cabecera de las nueve paginas, asi que un simbolo que
+    no carga se nota mas aqui que en ningun otro sitio."""
+    tv_widgets.ticker_tape()
+    payload = json.dumps(captured[0]["config"])
+
+    for symbol in _LICENSED:
+        assert symbol not in payload, f"{symbol} no carga en el widget gratuito"
+
+
+def test_the_two_headers_show_the_same_indices(captured):
+    """La cinta de arriba y el panel en vivo miran los mismos mercados. Si se
+    corrige un simbolo en uno y no en el otro, el usuario ve dos precios
+    distintos para el mismo indice en la misma pantalla."""
+    tv_widgets.ticker_tape()
+    tv_widgets.market_overview()
+
+    tape = {s["proName"] for s in captured[0]["config"]["symbols"]}
+    panel = {s["s"] for tab in captured[1]["config"]["tabs"] for s in tab["symbols"]}
+
+    assert {"FOREXCOM:SPXUSD", "FOREXCOM:NSXUSD", "BME:IBC"} <= tape & panel, (
+        "la cinta y el panel usan simbolos distintos para el mismo indice"
+    )
+
+
 def test_market_overview_fits_inside_its_container(captured):
     """`_render` reserva 32 px para el pie de atribucion. Si el widget se cree
     mas alto que el hueco que tiene, se come la ultima fila."""

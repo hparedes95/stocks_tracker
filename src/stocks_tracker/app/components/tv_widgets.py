@@ -93,12 +93,15 @@ def ticker_tape(symbols: list[dict] | None = None, compact: bool = True) -> None
     """Cinta de cotizaciones. Va en la cabecera global, fuera de la navegacion."""
     if not enabled():
         return
+    # Mismo criterio de simbolos que `market_overview`: los indices de EE. UU.
+    # y el VIX van por contrato replicante porque los oficiales estan bajo
+    # licencia de bolsa y el widget gratuito los omite en silencio.
     symbols = symbols or [
-        {"proName": "SP:SPX", "title": "S&P 500"},
-        {"proName": "NASDAQ:NDX", "title": "Nasdaq 100"},
+        {"proName": "FOREXCOM:SPXUSD", "title": "S&P 500"},
+        {"proName": "FOREXCOM:NSXUSD", "title": "Nasdaq 100"},
         {"proName": "BME:IBC", "title": "IBEX 35"},
         {"proName": "INDEX:SX5E", "title": "Euro Stoxx 50"},
-        {"proName": "TVC:VIX", "title": "VIX"},
+        {"proName": "CAPITALCOM:VIX", "title": "VIX"},
         {"proName": "FX:EURUSD", "title": "EUR/USD"},
         {"proName": "TVC:GOLD", "title": "Oro"},
         {"proName": "TVC:USOIL", "title": "Petroleo"},
@@ -141,8 +144,16 @@ def market_overview(height: int = 400, groups: list[dict] | None = None) -> None
             "title": "Indices",
             "originalTitle": "Indices",
             "symbols": [
-                {"s": "SP:SPX", "d": "S&P 500"},
-                {"s": "NASDAQ:NDX", "d": "Nasdaq 100"},
+                # Los indices de EE. UU. van por su contrato replicante, no por
+                # el indice al contado. `SP:SPX` y `NASDAQ:NDX` son datos bajo
+                # licencia de bolsa: el widget gratuito no los sirve y omite la
+                # fila sin decir nada, que es como desaparecieron de la pantalla.
+                # Los CFD cotizan casi 24 h, asi que fuera del horario de Wall
+                # Street marcan algo distinto del cierre oficial. La diferencia
+                # se explica en el pie de la pestana.
+                {"s": "FOREXCOM:SPXUSD", "d": "S&P 500"},
+                {"s": "FOREXCOM:NSXUSD", "d": "Nasdaq 100"},
+                # Los europeos si son libres en el widget.
                 {"s": "BME:IBC", "d": "IBEX 35"},
                 {"s": "INDEX:SX5E", "d": "Euro Stoxx 50"},
                 {"s": "XETR:DAX", "d": "DAX"},
@@ -152,7 +163,9 @@ def market_overview(height: int = 400, groups: list[dict] | None = None) -> None
             "title": "Riesgo y materias primas",
             "originalTitle": "Riesgo",
             "symbols": [
-                {"s": "TVC:VIX", "d": "VIX"},
+                # Mismo motivo que arriba: el VIX del CBOE tampoco entra en el
+                # widget gratuito.
+                {"s": "CAPITALCOM:VIX", "d": "VIX"},
                 {"s": "TVC:GOLD", "d": "Oro"},
                 {"s": "TVC:USOIL", "d": "Petroleo"},
                 {"s": "FX:EURUSD", "d": "EUR/USD"},
