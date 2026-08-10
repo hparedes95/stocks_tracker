@@ -35,6 +35,11 @@ from ..providers.universe_provider import resolve_universe
 
 console = Console()
 
+# Codigo de salida cuando otro proceso tenia el bloqueo y no se ha descargado
+# nada. Es distinto de 0 (se hizo) y de 1 (fallo la descarga), porque quien
+# llama necesita distinguir los tres casos.
+EXIT_ALREADY_RUNNING = 75
+
 _FUNDAMENTAL_FIELDS = [
     "trailing_pe", "price_to_book", "price_to_sales", "ev_to_ebitda", "fcf_yield",
     "profit_margin", "operating_margin", "roe", "revenue_growth_yoy",
@@ -581,9 +586,20 @@ def main() -> None:
                 drop_synthetic()
             _run(args)
     except AlreadyRunning as exc:
-        # No es un error: otro proceso llego antes. Codigo 0 para que el
-        # lanzador no lo confunda con un fallo de descarga.
+        # Ni exito ni fallo: no se ha descargado nada porque otro proceso tenia
+        # el bloqueo. Necesita codigo propio porque los dos llamantes quieren
+        # cosas distintas:
+        #
+        #   - el lanzador del dashboard lo trata como "no pasa nada, sigue":
+        #     los datos que hay son los que hay y arrancar es lo importante;
+        #   - la descarga del universo tiene que PARAR, porque calcular sobre
+        #     una descarga que no ocurrio produce un ranking incompleto que
+        #     parece completo.
+        #
+        # Con codigo 0 los dos veian exito, y la cadena del universo seguia
+        # hasta anunciar "Universo completo listo" sin haber bajado un precio.
         console.print(f"[yellow]{exc} Se omite esta ejecucion.[/]")
+        raise SystemExit(EXIT_ALREADY_RUNNING) from None
 
 
 def _run(args) -> None:

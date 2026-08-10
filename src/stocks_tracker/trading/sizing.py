@@ -88,15 +88,20 @@ def size_by_atr(
         # del broker (1 $). Se sube al minimo SOLO si eso no rompe el tope por
         # activo. Si lo rompe, se veta: nunca se relaja un limite para que
         # quepa una orden.
-        if min_notional <= caps["tope_por_activo"] and min_notional <= caps[
-            "efectivo_disponible"
-        ]:
-            notional = min_notional
-            capped_by = "minimo_del_broker"
-        else:
+        if min_notional > caps["tope_por_activo"]:
             return SizingResult(
                 0.0, 0.0, stop_price, 0.0, "POSITION_TOO_SMALL_FOR_RISK", capped_by
             )
+        if min_notional > caps["efectivo_disponible"]:
+            # Motivo distinto y codigo distinto: "no cabe el minimo del broker
+            # con el efectivo que queda" no es lo mismo que "la posicion es
+            # demasiado pequena para el riesgo". Confundirlos en el registro
+            # manda a investigar la volatilidad cuando el problema es la caja.
+            return SizingResult(
+                0.0, 0.0, stop_price, 0.0, "MIN_NOTIONAL_ABOVE_CASH", capped_by
+            )
+        notional = min_notional
+        capped_by = "minimo_del_broker"
 
     qty = notional / price
     return SizingResult(

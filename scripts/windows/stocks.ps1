@@ -250,6 +250,10 @@ switch ($Task) {
         # hasta hoy, asi que sin borrarlas la descarga incremental las ve
         # al dia y no trae nada. Es inocuo si no hay datos de prueba.
         & $Py -m stocks_tracker.ingest.run_ingest --drop-synthetic --what all
+        if ($LASTEXITCODE -eq 75) {
+            Write-Host "Ya hay otra actualizacion en marcha; se abre con lo que hay." -ForegroundColor Yellow
+            return
+        }
         if ($LASTEXITCODE -ne 0) {
             Write-Host "La descarga ha fallado. Se conservan los datos anteriores." -ForegroundColor Yellow
             return
@@ -323,6 +327,17 @@ switch ($Task) {
             $n++
             Write-Step "[$n/$($steps.Count)] $($step.Name)"
             & $Py @($step.Args)
+            # 75 = habia otro proceso descargando y esta ejecucion no hizo
+            # nada. No es un fallo, pero tampoco se puede seguir: los pasos
+            # siguientes calcularian sobre una descarga que no ocurrio.
+            if ($LASTEXITCODE -eq 75) {
+                Write-Host ""
+                Write-Host "  Ya hay otra descarga en marcha." -ForegroundColor Yellow
+                Write-Host "  Espera a que termine (mira si hay otra ventana abierta" -ForegroundColor Yellow
+                Write-Host "  o la tarea programada de las 23:15) y vuelve a intentarlo." -ForegroundColor Yellow
+                Write-Host ""
+                exit 75
+            }
             if ($LASTEXITCODE -ne 0) {
                 Write-Host ""
                 Write-Host "  Ha fallado: $($step.Name)" -ForegroundColor Red

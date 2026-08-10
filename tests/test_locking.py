@@ -105,3 +105,39 @@ def test_ingest_takes_the_lock_before_writing():
         assert main.index(destructive) > lock_at, (
             f"{destructive} se ejecuta antes de tomar el bloqueo"
         )
+
+
+# ---------------------------------------------------------------------------
+# Que se hace cuando el bloqueo esta tomado
+# ---------------------------------------------------------------------------
+def test_a_skipped_ingest_has_its_own_exit_code():
+    """Ni exito ni fallo: no se descargo nada.
+
+    Con codigo 0 la cadena del universo seguia calculando y terminaba
+    anunciando "Universo completo listo" sin haber bajado un solo precio. Es el
+    mismo fallo que anunciar exito tras un error, y engana igual.
+    """
+    from stocks_tracker.core.config import project_root
+
+    src = Path(project_root() / "src/stocks_tracker/ingest/run_ingest.py").read_text("utf-8")
+    assert "EXIT_ALREADY_RUNNING = 75" in src
+    handler = src[src.index("except AlreadyRunning"):]
+    handler = handler[:handler.index("def _run(")]
+    assert "SystemExit(EXIT_ALREADY_RUNNING)" in handler, (
+        "saltarse la ingesta sigue saliendo con codigo de exito"
+    )
+
+
+def test_both_callers_distinguish_the_three_outcomes():
+    """El lanzador puede seguir con los datos que haya; la descarga del
+    universo tiene que parar. Con un solo codigo eso no se puede expresar."""
+    from stocks_tracker.core.config import project_root
+
+    ps1 = Path(project_root() / "scripts/windows/stocks.ps1").read_text("utf-8")
+
+    universe = ps1[ps1.index("'universo' {"):ps1.index("'compute' {")]
+    assert "$LASTEXITCODE -eq 75" in universe, "el universo no detecta el salto"
+    assert "exit 75" in universe, "el universo no propaga el salto"
+
+    update = ps1[ps1.index("'update' {"):ps1.index("'autostart' {")]
+    assert "$LASTEXITCODE -eq 75" in update, "el lanzador no distingue el salto"

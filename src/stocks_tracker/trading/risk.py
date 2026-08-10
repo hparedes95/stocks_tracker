@@ -330,6 +330,62 @@ class RiskManager:
                 f"hoy y el limite diario es {max_new:.0f}.",
             )
 
+        # 8/9/11/12. Los topes se comprueban ANTES de dimensionar cuando ya no
+        # queda ni un euro de margen. Si se hiciera despues, el veto quedaria
+        # registrado como 'position_sizing_atr' —"la posicion es demasiado
+        # pequena para el riesgo"— cuando el motivo real es que no hay
+        # efectivo, y el registro de auditoria contaria una historia falsa.
+        # Los recortes (RESIZE) si van despues: para recortar hay que saber
+        # antes cuanto se queria.
+        max_pos_pct = self.cfg.limit("max_position_pct")
+        current = planned.positions.get(ticker, 0.0)
+        position_room = ctx.equity * max_pos_pct / 100.0 - current
+        if position_room <= 0:
+            self._record("max_position_pct", "block", ticker, current,
+                         ctx.equity * max_pos_pct / 100.0, "veto")
+            return self._veto(
+                intent, "max_position_pct", "MAX_POSITION_PCT",
+                f"{ticker} ya ocupa el tope del {max_pos_pct:.0f} % de la cartera.",
+                current, ctx.equity * max_pos_pct / 100.0,
+            )
+
+        max_sector = self.cfg.limit("max_sector_pct")
+        sector = ctx.sector(ticker)
+        sector_now = planned.sectors.get(sector, 0.0)
+        sector_room = ctx.equity * max_sector / 100.0 - sector_now
+        if sector_room <= 0:
+            self._record("max_sector_pct", "block", ticker, sector_now,
+                         ctx.equity * max_sector / 100.0, "veto")
+            return self._veto(
+                intent, "max_sector_pct", "MAX_SECTOR_PCT",
+                f"El sector {sector} ya esta en el tope del {max_sector:.0f} %.",
+                sector_now, ctx.equity * max_sector / 100.0,
+            )
+
+        max_gross = self.cfg.limit("max_gross_exposure_pct")
+        gross_room = ctx.equity * max_gross / 100.0 - planned.gross_exposure
+        if gross_room <= 0:
+            self._record("max_gross_exposure", "block", ticker,
+                         planned.gross_exposure, ctx.equity * max_gross / 100.0,
+                         "veto")
+            return self._veto(
+                intent, "max_gross_exposure", "MAX_GROSS_EXPOSURE",
+                f"La exposicion ya esta en el tope del {max_gross:.0f} %.",
+                planned.gross_exposure, ctx.equity * max_gross / 100.0,
+            )
+
+        min_cash = self.cfg.limit("min_cash_pct")
+        reserve = ctx.equity * min_cash / 100.0
+        cash_room = planned.cash - reserve
+        if cash_room <= 0:
+            self._record("min_cash", "block", ticker, planned.cash, reserve, "veto")
+            return self._veto(
+                intent, "min_cash", "MIN_CASH",
+                f"Quedan {planned.cash:.2f} y la reserva minima es "
+                f"{reserve:.2f}: no hay efectivo disponible sin tocarla.",
+                planned.cash, reserve,
+            )
+
         # 13. position_sizing_atr
         atr14 = ctx.indicator(ticker, "atr14")
         if atr14 is None:
@@ -358,63 +414,10 @@ class RiskManager:
                 self._sizing_message(sized.reason_code, ticker),
             )
 
-        notional = sized.notional
-
-        # 12. max_position_pct — contando lo que ya se tiene del valor.
-        max_pos_pct = self.cfg.limit("max_position_pct")
-        current = planned.positions.get(ticker, 0.0)
-        room = ctx.equity * max_pos_pct / 100.0 - current
-        if room <= 0:
-            self._record("max_position_pct", "block", ticker, current,
-                         ctx.equity * max_pos_pct / 100.0, "veto")
-            return self._veto(
-                intent, "max_position_pct", "MAX_POSITION_PCT",
-                f"{ticker} ya ocupa el tope del {max_pos_pct:.0f} % de la cartera.",
-                current, ctx.equity * max_pos_pct / 100.0,
-            )
-        notional = min(notional, room)
-
-        # 11. max_sector_pct
-        max_sector = self.cfg.limit("max_sector_pct")
-        sector = ctx.sector(ticker)
-        sector_now = planned.sectors.get(sector, 0.0)
-        sector_room = ctx.equity * max_sector / 100.0 - sector_now
-        if sector_room <= 0:
-            self._record("max_sector_pct", "block", ticker, sector_now,
-                         ctx.equity * max_sector / 100.0, "veto")
-            return self._veto(
-                intent, "max_sector_pct", "MAX_SECTOR_PCT",
-                f"El sector {sector} ya esta en el tope del {max_sector:.0f} %.",
-                sector_now, ctx.equity * max_sector / 100.0,
-            )
-        notional = min(notional, sector_room)
-
-        # 9. max_gross_exposure
-        max_gross = self.cfg.limit("max_gross_exposure_pct")
-        gross_room = ctx.equity * max_gross / 100.0 - planned.gross_exposure
-        if gross_room <= 0:
-            self._record("max_gross_exposure", "block", ticker,
-                         planned.gross_exposure, ctx.equity * max_gross / 100.0,
-                         "veto")
-            return self._veto(
-                intent, "max_gross_exposure", "MAX_GROSS_EXPOSURE",
-                f"La exposicion ya esta en el tope del {max_gross:.0f} %.",
-                planned.gross_exposure, ctx.equity * max_gross / 100.0,
-            )
-        notional = min(notional, gross_room)
-
-        # 8. min_cash
-        min_cash = self.cfg.limit("min_cash_pct")
-        reserve = ctx.equity * min_cash / 100.0
-        cash_room = planned.cash - reserve
-        if cash_room <= 0:
-            self._record("min_cash", "block", ticker, planned.cash, reserve, "veto")
-            return self._veto(
-                intent, "min_cash", "MIN_CASH",
-                f"Queda {planned.cash:.2f} y la reserva minima es {reserve:.2f}.",
-                planned.cash, reserve,
-            )
-        notional = min(notional, cash_room)
+        # Recorte a la holgura de cada tope. Se hace ahora y no antes porque
+        # para recortar hay que saber primero cuanto se queria comprar.
+        notional = min(sized.notional, position_room, sector_room, gross_room,
+                       cash_room)
 
         # 19. no_short_no_leverage
         if notional <= 0:
@@ -567,6 +570,10 @@ class RiskManager:
             "POSITION_TOO_SMALL_FOR_RISK": (
                 f"El tamano que sale para {ticker} esta por debajo del minimo "
                 "del broker y subirlo romperia el tope por activo."
+            ),
+            "MIN_NOTIONAL_ABOVE_CASH": (
+                f"El minimo que acepta el broker para {ticker} es mayor que el "
+                "efectivo disponible sin tocar la reserva."
             ),
         }.get(reason_code, f"No se puede dimensionar {ticker}.")
 
