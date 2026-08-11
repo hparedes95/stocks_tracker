@@ -16,7 +16,14 @@
 param(
     [string]$Branch = 'claude/stock-market-monitoring-dashboard-7yf0nb',
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'StocksTracker'),
-    [switch]$SkipDemo
+    # NO se generan datos de prueba salvo que se pidan expresamente. Existieron
+    # para poder ver la aplicacion sin esperar la descarga, y costaron dos
+    # perdidas de confianza: precios inventados con el mismo aspecto que los
+    # reales, y luego restos que sobrevivian a las descargas posteriores y
+    # mantenian el aviso rojo encendido. Un dashboard para decidir inversiones
+    # no puede arrancar con numeros falsos.
+    [switch]$ConDatosDePrueba,
+    [switch]$UniversoCompleto
 )
 
 $ErrorActionPreference = 'Stop'
@@ -287,18 +294,18 @@ Write-Host "  Entorno listo"
 # 5. Datos de prueba
 # ---------------------------------------------------------------------------
 if ($script:PreservedData) {
-    Write-Step 5 8 "Datos ya existentes: no se generan los de prueba"
+    Write-Step 5 8 "Datos ya existentes: se conservan"
     Write-Host "  Se conserva el almacen de la instalacion anterior."
-} elseif (-not $SkipDemo) {
-    Write-Step 5 8 "Generando datos de prueba"
-    Write-Host "  Son inventados: sirven para ver la aplicacion funcionando"
-    Write-Host "  sin esperar los diez minutos de la primera descarga real."
+} elseif ($ConDatosDePrueba) {
+    Write-Step 5 8 "Generando datos de prueba (los has pedido con -ConDatosDePrueba)"
+    Write-Host "  Son INVENTADOS. El dashboard lo avisara en rojo mientras esten."
     & $Py -m stocks_tracker.ingest.run_ingest --what all --provider synthetic
     & $Py -m stocks_tracker.compute.run_compute
     & $Py -m stocks_tracker.compute.run_compute --only scores --all-presets
-    & $Py -m stocks_tracker.backtest.run_backtest --tag-signals
 } else {
-    Write-Step 5 8 "Datos de prueba omitidos"
+    Write-Step 5 8 "Sin datos de prueba"
+    Write-Host "  Se instala vacio y se descargan precios REALES en el paso 7."
+    Write-Host "  Nada de lo que veas en el dashboard sera inventado."
 }
 
 # ---------------------------------------------------------------------------
@@ -346,6 +353,14 @@ Write-Host "  Sustituyen a los datos de prueba. Un minuto."
     --universes INDICES,MACRO --years 3
 if ($LASTEXITCODE -eq 0) {
     & $Py -m stocks_tracker.compute.run_compute
+}
+
+if ($UniversoCompleto -and $LASTEXITCODE -eq 0) {
+    Write-Host ""
+    Write-Host "  Descargando el universo completo. Entre 20 y 45 minutos." -ForegroundColor Cyan
+    Write-Host "  Puedes minimizar la ventana; no la cierres."
+    & powershell -NoProfile -ExecutionPolicy Bypass `
+        -File (Join-Path $InstallDir 'scripts\windows\stocks.ps1') universo
 }
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  Listo: la portada ya muestra el mercado de verdad." -ForegroundColor Green

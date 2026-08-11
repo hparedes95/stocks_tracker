@@ -16,7 +16,8 @@ import pytest
 from stocks_tracker.core.config import project_root
 
 PS_SCRIPTS = ["installer/install.ps1", "scripts/windows/stocks.ps1"]
-BAT_SCRIPTS = ["installer/Instalar Stocks Tracker.bat",
+BAT_SCRIPTS = ["installer/Stocks Tracker.bat",
+               "installer/Instalar Stocks Tracker.bat",
                "scripts/windows/Ver dashboard.bat",
                "scripts/windows/Descargar universo completo.bat"]
 
@@ -472,3 +473,61 @@ def test_closing_prices_say_which_day_they_are_from():
             ).read_text("utf-8")
     block = page[page.index("with close_tab:"):]
     assert "Cierre del" in block, "las tarjetas de cierre no dicen de que dia son"
+
+
+# ---------------------------------------------------------------------------
+# Un solo fichero para todo
+# ---------------------------------------------------------------------------
+# Tres .bat obligaban al usuario a saber cual tocaba y en que orden, es decir a
+# llevar la cuenta del estado interno del programa. Ahora hay uno que lo
+# averigua solo.
+def test_the_single_entry_point_covers_every_state():
+    content = text("installer/Stocks Tracker.bat")
+
+    assert "install.ps1" in content, "no sabe instalar"
+    assert "tiene-universo" in content, "no comprueba si falta el universo"
+    assert "stocks.ps1\" universo" in content, "no sabe descargar el universo"
+    assert "stocks.ps1\" update" in content, "no sabe ponerse al dia"
+    assert "stocks.ps1\" run" in content, "no sabe abrir el dashboard"
+
+
+def test_the_single_entry_point_never_creates_fake_data():
+    """El motivo por el que existe la mitad de este trabajo."""
+    content = text("installer/Stocks Tracker.bat")
+    assert "synthetic" not in content.lower()
+    assert "-ConDatosDePrueba" not in content
+    assert "-UniversoCompleto" in content, (
+        "instalar sin descargar el universo deja el dashboard sin ranking"
+    )
+
+
+def test_the_state_probe_uses_the_ranking_not_the_price_count():
+    """Se puede tener medio millon de precios de indices y ningun candidato."""
+    src = text("scripts/windows/stocks.ps1")
+    block = src[src.index("'tiene-universo' {"):src.index("'puerta' {")]
+    assert "factor_scores" in block
+    assert "prices_daily" not in block
+
+
+# ---------------------------------------------------------------------------
+# Datos de prueba: solo si se piden
+# ---------------------------------------------------------------------------
+def test_the_installer_does_not_generate_fake_data_by_default():
+    """Costaron dos perdidas de confianza: primero por parecer reales, y luego
+    porque los restos sobrevivian a las descargas y mantenian el aviso rojo."""
+    src = text("installer/install.ps1")
+    assert "$ConDatosDePrueba" in src, "no hay forma de pedirlos expresamente"
+
+    step = src[src.index("# 5. Datos de prueba"):src.index("# 6. Acceso directo")]
+    generar = step.index("--provider synthetic")
+    guardia = step.index("elseif ($ConDatosDePrueba)")
+    assert guardia < generar, "se generan datos de prueba sin haberlos pedido"
+
+
+def test_the_universe_download_purges_leftover_fake_data():
+    """La ingesta es incremental: sin borrarlos, ve las series inventadas al
+    dia y no descarga nada para esos tickers. El aviso rojo se quedaba
+    encendido para siempre."""
+    src = text("scripts/windows/stocks.ps1")
+    block = src[src.index("'universo' {"):src.index("'compute' {")]
+    assert "'--drop-synthetic'" in block

@@ -16,6 +16,7 @@
       ingest    Descarga el universo completo de Yahoo Finance
       universo  TODO de una vez: descarga, calcula, puntua y valida
       puerta    Valida la estrategia del bot contra el historico
+      tiene-universo  Codigo 0 si el universo completo esta descargado
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
       validate  Valida las senales contra su historico
@@ -30,7 +31,8 @@
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'compute', 'presets', 'validate',
+    [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'tiene-universo',
+                 'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
@@ -313,8 +315,14 @@ switch ($Task) {
         # y no lo es, y eso es peor que no tener ranking.
         Assert-Venv
         $steps = @(
+            # --drop-synthetic aqui es obligatorio. Sin el, los datos de
+            # prueba de una instalacion antigua sobreviven a todas las
+            # descargas posteriores: la ingesta es incremental, ve las series
+            # inventadas al dia y no trae nada para esos tickers. El aviso rojo
+            # se quedaba encendido para siempre sin que nada lo explicase.
             @{ Name = 'Descargando el universo completo (10-25 min)'
-               Args = @('-m', 'stocks_tracker.ingest.run_ingest', '--what', 'all') },
+               Args = @('-m', 'stocks_tracker.ingest.run_ingest',
+                        '--drop-synthetic', '--what', 'all') },
             @{ Name = 'Calculando indicadores, factores y senales (3-8 min)'
                Args = @('-m', 'stocks_tracker.compute.run_compute') },
             @{ Name = 'Puntuando con los estilos de inversion (2-5 min)'
@@ -361,6 +369,18 @@ switch ($Task) {
         Write-Host ""
         Write-Host "Universo completo listo." -ForegroundColor Green
         Write-Host "Ya puedes abrir el dashboard: el ranking cubre todo el universo."
+    }
+
+    'tiene-universo' {
+        # Lo usa "Stocks Tracker.bat" para saber que hacer sin preguntar nada.
+        # El criterio es el ranking y no el numero de precios: se puede tener
+        # medio millon de filas de los indices y seguir sin un solo candidato
+        # que mirar, que es lo que le importa a quien abre el programa.
+        Assert-Venv
+        $n = & $Py -c "from stocks_tracker.core.db import query; import sys; sys.stdout.write(str(int(query('SELECT COUNT(*) AS n FROM factor_scores')['n'][0])))" 2>$null
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+        if ([int]$n -ge 200) { exit 0 }
+        exit 1
     }
 
     'puerta' {
