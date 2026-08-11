@@ -18,6 +18,7 @@
       puerta    Valida la estrategia del bot contra el historico
       claves    Muestra que credenciales faltan y como conseguirlas
       mercados  Estado de Kraken y Polymarket: que falta para operar
+      polymarket Comprueba la lectura de Polymarket (no necesita wallet)
       tiene-universo  Codigo 0 si el universo completo esta descargado
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
@@ -33,7 +34,8 @@
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'claves', 'mercados', 'tiene-universo',
+    [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'claves', 'mercados',
+                 'polymarket', 'tiene-universo',
                  'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
@@ -388,6 +390,18 @@ switch ($Task) {
         # Que falta en cada mercado para poder operar, en una frase por venue.
         Assert-Venv
         & $Py -m stocks_tracker.trading.venues
+    }
+
+    'polymarket' {
+        # Comprueba que la API publica de Polymarket devuelve lo que el codigo
+        # espera. No necesita wallet ni clave: solo lee.
+        #
+        # Existe porque el lector se escribio sin poder llamar a Polymarket
+        # —la red del entorno de desarrollo lo bloquea—, asi que la primera
+        # vez que se ejecuta de verdad es aqui. Mejor que lo diga esto, con
+        # nombre y apellidos del campo que no cuadra, a que reviente luego.
+        Assert-Venv
+        & $Py -m stocks_tracker.trading.brokers.polymarket_public
     }
 
     'tiene-universo' {
