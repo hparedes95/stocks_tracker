@@ -523,3 +523,29 @@ CREATE TABLE IF NOT EXISTS bot_state (
   day_start_date   DATE,
   updated_at       TIMESTAMP
 );
+
+-- ============ SESION VIGENTE ============
+-- La fecha sobre la que se muestra y se calcula TODO. Es una vista y no una
+-- consulta repetida en cada sitio porque el dia que dejaron de coincidir el
+-- dashboard se vacio: unas consultas miraban el ultimo dia de indicadores
+-- (donde habia un solo valor, el que acabo de descargarse antes que los demas)
+-- y otras el ultimo dia de scores, y los JOIN entre ambas no devolvian nada.
+--
+-- "Vigente" no es "la mas reciente": es la mas reciente que reune al menos al
+-- 60 % de los valores del dia mas poblado. Asi ni el bitcoin cotizando un
+-- domingo ni un ticker que va por delante arrastran a los seiscientos.
+CREATE OR REPLACE VIEW current_session AS
+WITH counts AS (
+  SELECT i.date AS date, COUNT(*) AS n
+  FROM indicators_daily i
+  JOIN instruments inst USING (ticker)
+  WHERE inst.asset_class IN ('equity', 'etf')
+  GROUP BY i.date
+  ORDER BY i.date DESC
+  LIMIT 30
+)
+SELECT date, n
+FROM counts
+WHERE n >= (SELECT MAX(n) FROM counts) * 0.6
+ORDER BY date DESC
+LIMIT 1;

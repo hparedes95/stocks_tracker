@@ -168,44 +168,21 @@ def compute_factor_scores(preset: str | None = None, all_presets: bool = False) 
         presets = [preset or get_settings().compute.get("weights_preset", "balanced")]
 
     with connect(read_only=True) as conn:
-        # La fecha del ranking es la ultima con ACCIONES, no la ultima del
-        # almacen. No es lo mismo: el bitcoin cotiza los domingos y los indices
-        # tienen barra intradia antes de que cierre Wall Street, asi que el
-        # maximo global cae con frecuencia en un dia sin una sola accion. Con
-        # `MAX(date)` a secas el ranking se quedaba vacio cada fin de semana y
-        # cada tarde antes del cierre, sin decir por que.
-        # No basta con "la ultima fecha que tenga alguna accion": un solo valor
-        # con un dia de mas —y siempre lo hay, porque las descargas no terminan
-        # todas a la vez— definiria la fecha para los seiscientos, y el ranking
-        # saldria con un unico elemento. Paso previo y real.
-        #
-        # La sesion buena es la mas reciente en la que estan la mayoria: se toma
-        # como referencia el dia mas poblado de las ultimas semanas y se exige
-        # al menos el 60 % de esa poblacion.
-        counts = conn.execute(
-            """
-            SELECT i.date, COUNT(*) AS n
-            FROM indicators_daily i
-            JOIN instruments inst USING (ticker)
-            WHERE inst.asset_class IN ('equity', 'etf')
-            GROUP BY i.date ORDER BY i.date DESC LIMIT 30
-            """
-        ).fetchdf()
-        if counts.empty:
+        # La sesion vigente sale de la vista `current_session`, compartida con
+        # el dashboard. Tenerla duplicada aqui fue justo el fallo anterior: el
+        # calculo puntuaba un dia y las pantallas leian otro.
+        session = conn.execute("SELECT date, n FROM current_session").fetchdf()
+        if session.empty:
             console.print("[yellow]No hay indicadores. Ejecuta `make compute` tras la ingesta.[/]")
             return 0
-
-        reference = int(counts["n"].max())
-        usable = counts[counts["n"] >= reference * 0.6]
-        last_date = usable["date"].max() if not usable.empty else counts["date"].max()
+        last_date = session["date"].iloc[0]
 
         newest = conn.execute("SELECT MAX(date) FROM indicators_daily").fetchone()[0]
         if newest is not None and pd.Timestamp(newest) != pd.Timestamp(last_date):
-            chosen = int(counts.loc[counts["date"] == last_date, "n"].iloc[0])
             console.print(
                 f"[dim]El almacen llega al {pd.Timestamp(newest):%d/%m/%Y}, pero "
                 f"la ultima sesion completa es el {pd.Timestamp(last_date):%d/%m/%Y} "
-                f"({chosen} valores). Se puntua esa.[/]"
+                f"({int(session['n'].iloc[0])} valores). Se puntua esa.[/]"
             )
 
         snapshot = conn.execute(

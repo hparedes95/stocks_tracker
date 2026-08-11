@@ -63,9 +63,20 @@ def _preset_hash(preset: str | None) -> str:
 
 @st.cache_data(ttl=TTL, show_spinner=False)
 def last_price_date() -> date | None:
-    df = _fetch("SELECT MAX(date) AS d FROM prices_daily")
+    """Fecha de la sesion que muestra el dashboard.
+
+    No es el ultimo dia con precios, sino la sesion vigente (ver la vista
+    `current_session`). La distincion importa: si la etiqueta dijera "cierre
+    del 11" mientras las tablas muestran el 10, el usuario tendria otra vez
+    numeros que no cuadran sin explicacion.
+    """
+    df = _fetch("SELECT date AS d FROM current_session")
     if df.empty or pd.isna(df.iloc[0]["d"]):
-        return None
+        # Sin indicadores todavia (instalacion recien hecha), el ultimo precio
+        # es lo unico que hay.
+        df = _fetch("SELECT MAX(date) AS d FROM prices_daily")
+        if df.empty or pd.isna(df.iloc[0]["d"]):
+            return None
     return pd.Timestamp(df.iloc[0]["d"]).date()
 
 
@@ -168,7 +179,7 @@ def get_movers(universe: str = "TODOS", n: int = 10, ascending: bool = False,
         JOIN instruments inst ON inst.ticker = i.ticker
         LEFT JOIN factor_scores f ON f.ticker = i.ticker AND f.date = i.date
              AND f.weights_hash = ?
-        WHERE i.date = (SELECT MAX(date) FROM indicators_daily)
+        WHERE i.date = (SELECT date FROM current_session)
           AND inst.asset_class IN ('equity', 'etf')
           AND i.ret_1d IS NOT NULL
           AND i.close * (SELECT volume FROM prices_daily p
@@ -206,7 +217,7 @@ def get_breakouts_52w(universe: str = "TODOS", high: bool = True) -> pd.DataFram
         JOIN ranked r ON r.ticker = i.ticker AND r.date = i.date
         JOIN indicators_daily prev ON prev.ticker = i.ticker AND prev.date = r.prev_date
         JOIN instruments inst ON inst.ticker = i.ticker
-        WHERE i.date = (SELECT MAX(date) FROM indicators_daily)
+        WHERE i.date = (SELECT date FROM current_session)
           AND inst.asset_class IN ('equity', 'etf')
           AND {cond}
           {where}
@@ -226,7 +237,7 @@ def get_volume_spikes(universe: str = "TODOS", threshold: float = 2.0,
                i.rel_volume_20, i.rsi14
         FROM indicators_daily i
         JOIN instruments inst ON inst.ticker = i.ticker
-        WHERE i.date = (SELECT MAX(date) FROM indicators_daily)
+        WHERE i.date = (SELECT date FROM current_session)
           AND i.rel_volume_20 > ?
           AND inst.asset_class IN ('equity', 'etf')
           {where}
@@ -277,7 +288,7 @@ def get_sector_performance() -> pd.DataFrame:
                AVG(CASE WHEN i.above_sma200 THEN 100.0 ELSE 0.0 END) AS pct_sobre_mm200
         FROM indicators_daily i
         JOIN instruments inst ON inst.ticker = i.ticker
-        WHERE i.date = (SELECT MAX(date) FROM indicators_daily)
+        WHERE i.date = (SELECT date FROM current_session)
           AND inst.gics_sector IS NOT NULL AND inst.asset_class = 'equity'
         GROUP BY 1
         HAVING COUNT(*) >= 3
@@ -327,7 +338,7 @@ def get_treemap_data(universe: str = "TODOS", group_col: str = "gics_sector") ->
         SELECT i.ticker, inst.{column} AS gics_sector, inst.market_cap, i.ret_1d
         FROM indicators_daily i
         JOIN instruments inst ON inst.ticker = i.ticker
-        WHERE i.date = (SELECT MAX(date) FROM indicators_daily)
+        WHERE i.date = (SELECT date FROM current_session)
           AND inst.asset_class = 'equity'
           AND inst.market_cap IS NOT NULL AND inst.market_cap > 0
           AND inst.{column} IS NOT NULL
@@ -453,7 +464,7 @@ def coverage_by_universe() -> pd.DataFrame:
               USING (ticker, as_of)
         ) fu ON fu.ticker = m.ticker
         LEFT JOIN indicators_daily i ON i.ticker = m.ticker
-             AND i.date = (SELECT MAX(date) FROM indicators_daily)
+             AND i.date = (SELECT date FROM current_session)
         WHERE m.valid_to IS NULL
         GROUP BY m.universe
         ORDER BY cobertura_media
@@ -562,7 +573,7 @@ def get_market_kpis() -> pd.DataFrame:
                i.dist_52w_high, inst.asset_class
         FROM indicators_daily i
         JOIN instruments inst ON inst.ticker = i.ticker
-        WHERE i.date = (SELECT MAX(date) FROM indicators_daily)
+        WHERE i.date = (SELECT date FROM current_session)
           AND inst.asset_class IN ('index', 'crypto', 'commodity', 'fx')
         ORDER BY inst.asset_class, i.ticker
         """
@@ -606,7 +617,7 @@ def get_candidates(universe: str = "TODOS", sectors: tuple[str, ...] = (),
              AND fu.as_of = (SELECT MAX(as_of) FROM fundamentals_snapshot
                              WHERE ticker = f.ticker)
         WHERE f.weights_hash = ?
-          AND f.date = (SELECT MAX(date) FROM factor_scores)
+          AND f.date = (SELECT date FROM current_session)
           {where} {sector_clause}
         ORDER BY f.composite DESC
         LIMIT ?
@@ -803,9 +814,9 @@ def get_positions() -> pd.DataFrame:
         FROM positions p
         LEFT JOIN instruments inst ON inst.ticker = p.ticker
         LEFT JOIN indicators_daily i ON i.ticker = p.ticker
-             AND i.date = (SELECT MAX(date) FROM indicators_daily)
+             AND i.date = (SELECT date FROM current_session)
         LEFT JOIN factor_scores f ON f.ticker = p.ticker
-             AND f.date = (SELECT MAX(date) FROM factor_scores)
+             AND f.date = (SELECT date FROM current_session)
              AND f.weights_hash = ?
         WHERE p.closed_at IS NULL AND p.qty > 0
         ORDER BY p.ticker
@@ -890,7 +901,7 @@ def get_returns_matrix(tickers: tuple[str, ...], days: int = 250) -> pd.DataFram
         f"""
         SELECT ticker, date, ret_1d FROM indicators_daily
         WHERE ticker IN ({placeholders})
-          AND date >= (SELECT MAX(date) FROM indicators_daily) - INTERVAL (?) DAY
+          AND date >= (SELECT date FROM current_session) - INTERVAL (?) DAY
         """,
         [*tickers, days],
     )
@@ -908,9 +919,9 @@ def get_watchlist() -> pd.DataFrame:
         FROM watchlist w
         LEFT JOIN instruments inst ON inst.ticker = w.ticker
         LEFT JOIN indicators_daily i ON i.ticker = w.ticker
-             AND i.date = (SELECT MAX(date) FROM indicators_daily)
+             AND i.date = (SELECT date FROM current_session)
         LEFT JOIN factor_scores f ON f.ticker = w.ticker
-             AND f.date = (SELECT MAX(date) FROM factor_scores)
+             AND f.date = (SELECT date FROM current_session)
              AND f.weights_hash = ?
         WHERE w.list_name = 'default'
         ORDER BY w.added_at DESC

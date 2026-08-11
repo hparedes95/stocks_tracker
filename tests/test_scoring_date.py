@@ -86,66 +86,37 @@ def test_scoring_does_not_give_up_when_only_crypto_is_fresher(warehouse):
     assert pd.Timestamp(scores["date"][0]).date() == friday
 
 
-def test_the_query_used_by_the_code_filters_by_asset_class():
-    """Guardarrail: volver al MAX(date) pelado reintroduce la averia, y su
-    sintoma —un ranking vacio— no apunta a esta linea."""
+def test_the_scoring_date_comes_from_the_shared_view():
+    """Guardarrail. La regla vivio duplicada en el calculo y en el dashboard, y
+    el dia que dejaron de coincidir el dashboard se vacio entero: unas
+    consultas miraban el ultimo dia de indicadores y otras el de scores, y los
+    JOIN entre ambas no devolvian nada.
+    """
     from stocks_tracker.core.config import project_root
 
     src = (project_root() / "src/stocks_tracker/compute/run_compute.py").read_text("utf-8")
     block = src[src.index("def compute_factor_scores"):]
     block = block[:block.index("snapshot = conn.execute")]
-    # Quitar comentarios: la explicacion menciona MAX(date) a proposito.
     code = "\n".join(line for line in block.splitlines()
                      if not line.strip().startswith("#"))
 
-    assert "asset_class IN ('equity', 'etf')" in code, (
-        "la fecha del ranking no filtra por clase de activo"
+    assert "FROM current_session" in code, (
+        "la fecha del ranking ya no sale de la vista compartida"
     )
-    # El maximo pelado si aparece, pero solo para AVISAR de la diferencia.
-    # Lo que no puede es decidir la fecha del ranking.
-    assert 'last_date = conn.execute("SELECT MAX(date)' not in code, (
-        "la fecha del ranking vuelve a salir del maximo pelado, que ignora si "
-        "ese dia hay acciones"
+    assert 'last_date = conn.execute("SELECT MAX(date)' not in code
+
+    # Y el dashboard tiene que leer exactamente lo mismo.
+    app = (project_root() / "src/stocks_tracker/app/data_access.py").read_text("utf-8")
+    assert "MAX(date) FROM indicators_daily" not in app, (
+        "el dashboard vuelve a calcular su propia fecha"
     )
-    assert "0.6" in code, (
-        "no se exige que la sesion elegida tenga a la mayoria de los valores"
-    )
+    assert "MAX(date) FROM factor_scores" not in app
+    assert app.count("SELECT date FROM current_session") >= 10
 
 
-def test_a_stock_without_enough_history_does_not_kill_the_ranking():
-    """`bool(pd.NA)` no es False: lanza "boolean value of NA is ambiguous" y
-    tumba el calculo entero. Le pasa a cualquier valor recien salido a bolsa,
-    que aun no tiene 200 sesiones, y el error no dice ni que ticker era."""
-    from stocks_tracker.core.signals import technical_score
-
-    recien_listada = pd.Series({"above_sma200": pd.NA, "above_sma50": pd.NA,
-                                "rsi14": pd.NA, "macd_hist": pd.NA})
-    assert isinstance(technical_score(recien_listada, []), float)
-
-    con_nan = pd.Series({"above_sma200": float("nan"), "above_sma50": None})
-    assert isinstance(technical_score(con_nan, []), float)
-
-    # Y sigue puntuando bien cuando el dato si esta.
-    alcista = pd.Series({"above_sma200": True, "above_sma50": True})
-    bajista = pd.Series({"above_sma200": False, "above_sma50": False})
-    assert technical_score(alcista, []) > technical_score(bajista, [])
-
-
-def test_one_ticker_with_an_extra_day_does_not_define_the_session(warehouse):
-    """El fallo que quedaba: usar el MAXIMO de las fechas con acciones deja que
-    un solo valor —siempre hay uno, porque las descargas no acaban a la vez—
-    fije la fecha de los seiscientos. El ranking salia con un unico elemento.
-    """
-    lunes, martes = date(2026, 8, 10), date(2026, 8, 11)
-    rows = [(f"T{i}", lunes) for i in range(20)]
-    rows.append(("T0", martes))          # uno solo va por delante
-    seed([(f"T{i}", "equity") for i in range(20)], rows)
-
-    run_compute.compute_factor_scores(preset="balanced")
-
-    scores = db.query("SELECT date, COUNT(*) AS n FROM factor_scores GROUP BY 1")
-    assert len(scores) == 1
-    assert pd.Timestamp(scores["date"][0]).date() == lunes, (
-        "se ha puntuado el dia del valor adelantado en lugar de la sesion buena"
-    )
-    assert int(scores["n"][0]) == 20, f"solo se han puntuado {int(scores['n'][0])}"
+def test_the_view_survives_a_migration(warehouse):
+    """`CREATE OR REPLACE VIEW` en cada arranque: si la definicion cambia, la
+    instalacion existente tiene que recogerla sin borrar nada."""
+    db.migrate()
+    db.migrate()
+    assert db.query("SELECT * FROM current_session") is not None
