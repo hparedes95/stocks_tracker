@@ -16,6 +16,7 @@
       ingest    Descarga el universo completo de Yahoo Finance
       universo  TODO de una vez: descarga, calcula, puntua y valida
       puerta    Valida la estrategia del bot contra el historico
+      claves    Muestra que credenciales faltan y como conseguirlas
       tiene-universo  Codigo 0 si el universo completo esta descargado
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
@@ -31,7 +32,7 @@
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'tiene-universo',
+    [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'claves', 'tiene-universo',
                  'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
@@ -369,6 +370,13 @@ switch ($Task) {
         Write-Host ""
         Write-Host "Universo completo listo." -ForegroundColor Green
         Write-Host "Ya puedes abrir el dashboard: el ranking cubre todo el universo."
+    }
+
+    'claves' {
+        # Que credenciales hay, cuales faltan y como conseguirlas. Nunca
+        # imprime un valor: es para mirar en pantalla sin miedo.
+        Assert-Venv
+        & $Py -m stocks_tracker.core.secrets
     }
 
     'tiene-universo' {

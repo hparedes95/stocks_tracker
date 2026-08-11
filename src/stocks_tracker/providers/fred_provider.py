@@ -11,12 +11,12 @@ evita una dependencia mas en la cadena de datos.
 
 from __future__ import annotations
 
-import os
 from datetime import date
 
 import pandas as pd
 import requests
 
+from ..core import secrets as secrets_mod
 from .base import ProviderError, RateLimitError
 
 _BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
@@ -27,7 +27,7 @@ class FredProvider:
     name = "fred"
 
     def __init__(self, api_key: str | None = None) -> None:
-        self.api_key = api_key or os.environ.get("FRED_API_KEY", "").strip()
+        self.api_key = api_key or secrets_mod.get("FRED_API_KEY", required=False)
 
     @property
     def available(self) -> bool:

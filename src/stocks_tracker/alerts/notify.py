@@ -21,6 +21,7 @@ from email.message import EmailMessage
 
 import requests
 
+from ..core import secrets as secrets_mod
 from ..core.config import project_root
 from .evaluate import Alert
 from .rules import ChannelConfig, get_channels
@@ -41,9 +42,17 @@ class DeliveryResult:
 
 
 def _redact(text: str) -> str:
-    """Elimina posibles secretos de un mensaje de error antes de mostrarlo."""
-    out = text
-    for name in ("TELEGRAM_BOT_TOKEN", "SMTP_PASSWORD", "SMTP_USER"):
+    """Elimina posibles secretos de un mensaje de error antes de mostrarlo.
+
+    Delega en `core.secrets`, que conoce TODAS las credenciales declaradas.
+    Aqui habia tres nombres escritos a mano, y una lista escrita a mano siempre
+    se queda atras: con una clave privada de wallet en juego, un secreto que se
+    cuela en una traza no se arregla rotandolo.
+    """
+    out = secrets_mod.redact(text)
+    # Las de SMTP no estan en el registro de credenciales del bot, pero se
+    # siguen tapando: el correo es un canal de alertas mas.
+    for name in ("SMTP_PASSWORD", "SMTP_USER"):
         value = os.environ.get(name, "")
         if value and len(value) > 4:
             out = out.replace(value, f"<{name}>")
@@ -103,6 +112,9 @@ def deliver_file(alerts: list[Alert], settings: dict) -> DeliveryResult:
 
 def deliver_telegram(alerts: list[Alert], settings: dict) -> DeliveryResult:
     """Un unico mensaje con el resumen, no uno por alerta."""
+    # Cargar el .env antes de mirar el entorno: sin esto, el token puesto en
+    # el fichero no existe para el proceso y las alertas no salen nunca.
+    secrets_mod.load_env()
     token = os.environ.get(settings.get("bot_token_env", "TELEGRAM_BOT_TOKEN"), "").strip()
     chat_id = os.environ.get(settings.get("chat_id_env", "TELEGRAM_CHAT_ID"), "").strip()
 
@@ -135,6 +147,7 @@ def deliver_telegram(alerts: list[Alert], settings: dict) -> DeliveryResult:
 
 
 def deliver_email(alerts: list[Alert], settings: dict) -> DeliveryResult:
+    secrets_mod.load_env()
     host = os.environ.get(settings.get("smtp_host_env", "SMTP_HOST"), "").strip()
     user = os.environ.get(settings.get("user_env", "SMTP_USER"), "").strip()
     password = os.environ.get(settings.get("password_env", "SMTP_PASSWORD"), "")
@@ -220,11 +233,13 @@ def channel_status() -> list[dict]:
         if channel.name == "telegram":
             for key in ("bot_token_env", "chat_id_env"):
                 env_name = channel.settings.get(key, "")
+                secrets_mod.load_env()
                 if env_name and not os.environ.get(env_name):
                     missing.append(env_name)
         elif channel.name == "email":
             for key in ("smtp_host_env", "user_env", "password_env", "to_env"):
                 env_name = channel.settings.get(key, "")
+                secrets_mod.load_env()
                 if env_name and not os.environ.get(env_name):
                     missing.append(env_name)
         # El canal de fichero no necesita nada: escribe en el propio proyecto.
