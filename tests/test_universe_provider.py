@@ -179,3 +179,72 @@ def test_the_error_says_which_columns_there_were(monkeypatch):
     )
     with pytest.raises(ProviderError, match="Empresa"):
         up.UniverseProvider().fetch_constituents("NASDAQ100")
+
+
+# ---------------------------------------------------------------------------
+# Reconocer la tabla por su contenido
+# ---------------------------------------------------------------------------
+def _page_with_odd_headers(n: int = 60) -> str:
+    """Una pagina como la que devolvio Wikipedia: tablas de adorno primero y la
+    de constituyentes con una cabecera que no reconocemos."""
+    ruido = (
+        "<table><tr><th>Year</th><th>Closing level</th></tr>"
+        "<tr><td>2024</td><td>21012</td></tr></table>"
+        "<table><tr><th>Category</th><th>All-Time Highs[8]</th></tr>"
+        "<tr><td>x</td><td>y</td></tr></table>"
+    )
+    # Tickers de verdad: solo letras. Los de EE. UU. no llevan digitos, y el
+    # reconocimiento por contenido cuenta con ello.
+    filas = "".join(
+        f"<tr><td>Empresa {i}</td>"
+        f"<td>{chr(65 + i // 26)}{chr(65 + i % 26)}CO</td></tr>"
+        for i in range(n)
+    )
+    buena = f"<table><tr><th>Nombre</th><th>Codigo</th></tr>{filas}</table>"
+    return f"<html><body>{ruido}{buena}</body></html>"
+
+
+def test_the_constituents_table_is_found_by_its_content(monkeypatch):
+    """Wikipedia ya ha cambiado dos veces la cabecera y una vez la estructura.
+    Perseguir nombres de columna es perseguir algo que no controlamos."""
+    monkeypatch.setattr(up.requests, "get",
+                        lambda *a, **k: FakeResponse(_page_with_odd_headers()))
+
+    out = up.UniverseProvider().fetch_constituents("NASDAQ100")
+    assert len(out) >= 50
+    assert all(t.isupper() for t in out["ticker"])
+
+
+def test_a_column_of_years_is_not_mistaken_for_tickers():
+    """El reconocimiento por contenido no puede tragarse cualquier columna."""
+    anios = pd.Series([str(y) for y in range(1950, 2030)])
+    assert not up._looks_like_tickers(anios)
+
+    frases = pd.Series(["Apple Inc."] * 80)
+    assert not up._looks_like_tickers(frases)
+
+
+def test_a_short_table_is_not_mistaken_for_the_index():
+    """Cinco tickers no son un indice: mejor el respaldo que una tabla de
+    adorno que casualmente tenga codigos."""
+    pocos = pd.Series(["AAPL", "MSFT", "NVDA", "AMZN", "META"])
+    assert not up._looks_like_tickers(pocos)
+
+
+def test_multi_class_tickers_are_recognised():
+    """BRK.B y BF.B tienen punto y siguen siendo tickers."""
+    otros = [f"{chr(65 + i // 26)}{chr(65 + i % 26)}X" for i in range(60)]
+    valores = pd.Series(["BRK.B", "BF.B"] + otros)
+    assert up._looks_like_tickers(valores)
+
+
+def test_the_error_lists_every_table_it_saw(monkeypatch):
+    """Con solo las cinco primeras, la tabla buena podia quedar fuera del
+    diagnostico justo cuando hacia falta verla."""
+    muchas = "".join(
+        f"<table><tr><th>Col{i}</th></tr><tr><td>x</td></tr></table>"
+        for i in range(9)
+    )
+    monkeypatch.setattr(up.requests, "get", lambda *a, **k: FakeResponse(muchas))
+    with pytest.raises(ProviderError, match="Col8"):
+        up.UniverseProvider().fetch_constituents("NASDAQ100")

@@ -15,6 +15,7 @@ tiempo, el sesgo desaparezca hacia adelante.
 from __future__ import annotations
 
 import io
+import re
 
 import pandas as pd
 import requests
@@ -76,6 +77,10 @@ def _pick_table(tables: list[pd.DataFrame], spec: dict) -> pd.DataFrame | None:
     for table in tables:
         if _symbol_column(table, spec):
             return table
+    # Ultimo recurso: reconocer la tabla por su contenido.
+    for table in tables:
+        if _guess_symbol_column(table):
+            return table
     return None
 
 
@@ -85,6 +90,35 @@ def _symbol_column(table: pd.DataFrame, spec: dict) -> str | None:
     candidates = [wanted] if isinstance(wanted, str) else list(wanted or [])
     columns = [str(c) for c in table.columns]
     return next((c for c in candidates if c in columns), None)
+
+
+# Un ticker de bolsa estadounidense: de una a cinco letras, con la variante
+# BRK.B / BF.B de las acciones con varias clases.
+_TICKER_RE = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
+
+
+def _looks_like_tickers(series: pd.Series) -> bool:
+    values = series.dropna().astype(str).str.strip()
+    if len(values) < 50:
+        return False
+    return (values.map(lambda v: bool(_TICKER_RE.match(v))).mean()) >= 0.8
+
+
+def _guess_symbol_column(table: pd.DataFrame) -> str | None:
+    """Busca la columna de tickers por su CONTENIDO, no por su nombre.
+
+    Wikipedia ya ha cambiado dos veces la cabecera de la misma tabla, y la
+    ultima vez reestructuro la pagina entera. Perseguir nombres es perseguir
+    algo que no controlamos; una columna con cincuenta y pico valores que
+    parecen tickers es reconocible aunque la cabecera se llame como quiera.
+
+    Se exige el 80 % y un minimo de 50 filas para no confundirla con una
+    columna de siglas o de anos.
+    """
+    for column in table.columns:
+        if _looks_like_tickers(table[column]):
+            return str(column)
+    return None
 
 
 class UniverseProvider:
@@ -116,14 +150,14 @@ class UniverseProvider:
         if table is None or table.empty:
             # Se listan las cabeceras encontradas: sin eso, "no se encontro la
             # tabla" obliga a abrir la pagina a mano para ver que ha cambiado.
-            seen = [[str(c) for c in t.columns][:6] for t in tables[:5]]
+            seen = [[str(c) for c in t.columns][:8] for t in tables]
             raise ProviderError(
                 f"No se encontro la tabla de constituyentes de {universe}. "
                 f"Se buscaba una columna de {spec['symbol_column']} y las "
                 f"cabeceras encontradas son {seen}"
             )
 
-        symbol_col = _symbol_column(table, spec)
+        symbol_col = _symbol_column(table, spec) or _guess_symbol_column(table)
         if symbol_col is None:
             raise ProviderError(
                 f"La tabla de {universe} no tiene ninguna columna de "
