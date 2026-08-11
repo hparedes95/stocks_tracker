@@ -40,16 +40,22 @@ presets:
     technical: 0.25
     quality: 0.20
     lowvol: 0.15
-  # Preset que usa la estrategia del bot. Es mas templado que `momentum`:
-  # cambia el peso tecnico por valor y dividendo, para no comprar solo lo que
-  # mas ha subido. Aparece tambien en el selector de Oportunidades a proposito,
-  # asi el ranking que mira el bot se puede consultar a mano.
+  # Preset que usa la estrategia del bot.
+  #
+  # SOLO factores derivables del precio. La primera version incluia calidad,
+  # valor y dividendo, y era inservible para lo unico que importa: validar la
+  # estrategia contra el historico. Esos tres salen de `fundamentals_snapshot`,
+  # que guarda la foto de HOY y no una serie por fecha. Puntuar 2019 con los
+  # balances de 2026 es mirar el futuro, y un backtest asi sale bien por
+  # construccion.
+  #
+  # La consecuencia se acepta a proposito: el bot renuncia a la informacion
+  # fundamental hasta que el almacen acumule historico propio. Prefiero una
+  # estrategia mas pobre y comprobable que una mas rica e incomprobable.
   bot_core:
-    momentum: 0.35
-    quality: 0.25
-    value: 0.15
-    lowvol: 0.15
-    dividend: 0.10
+    momentum: 0.50
+    lowvol: 0.25
+    technical: 0.25
 
 # Multiplicadores segun el semaforo de riesgo. En risk-off se prima la
 # estabilidad y la calidad; en risk-on, el momentum.

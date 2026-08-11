@@ -52,8 +52,9 @@ PRESET_DESCRIPTIONS = {
                 "calidad y baja volatilidad. Payout desbocado penaliza.",
     "momentum": "Prima lo que ya lo esta haciendo bien. Funciona en tendencia "
                 "y sufre en los giros de mercado.",
-    "bot_core": "El ranking que usa el bot de trading para elegir candidatos. "
-                "Momentum atemperado con calidad, valor y dividendo.",
+    "bot_core": "El ranking que usa el bot de trading. Solo factores que se "
+                "pueden calcular con precios, para que su historico sea "
+                "comprobable: los fundamentales solo existen a dia de hoy.",
 }
 
 

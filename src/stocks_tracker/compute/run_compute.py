@@ -270,6 +270,128 @@ def compute_factor_scores(preset: str | None = None, all_presets: bool = False) 
     return total
 
 
+# Factores que se pueden calcular con solo los precios. Los demas
+# —calidad, valor, crecimiento, dividendo— salen de `fundamentals_snapshot`,
+# que guarda la foto de HOY y no una serie por fecha.
+PRICE_ONLY_FACTORS = {"momentum", "lowvol", "technical"}
+
+
+def compute_score_history(preset: str = "bot_core", years: int = 6,
+                          weekday: int = 0) -> int:
+    """Ranking historico, para poder validar una estrategia contra el pasado.
+
+    Solo admite presets construidos con factores derivados del precio. Con
+    fundamentales seria puntuar 2019 con los balances de 2026, y el backtest
+    saldria bien por construccion: la estrategia "sabria" que empresas iban a
+    tener buenos numeros siete anos despues.
+
+    Se puntua un dia por semana (el de rebalanceo) y no todos: la estrategia
+    solo mira el ranking ese dia, y calcular los otros cuatro multiplicaria por
+    cinco el tiempo para nada.
+    """
+    cfg = get_factor_config()
+    weights = cfg.weights(preset)
+    usados = {f for f, w in weights.items() if w}
+    fuera = usados - PRICE_ONLY_FACTORS
+    if fuera:
+        raise ValueError(
+            f"El preset '{preset}' usa {sorted(fuera)}, que salen de los "
+            "fundamentales. No hay serie historica de fundamentales, asi que "
+            "su ranking pasado seria mirar el futuro. Usa un preset construido "
+            f"solo con {sorted(PRICE_ONLY_FACTORS)}."
+        )
+    whash = weights_hash(weights)
+
+    with connect(read_only=True) as conn:
+        sessions = conn.execute(
+            """
+            SELECT DISTINCT i.date AS date
+            FROM indicators_daily i JOIN instruments inst USING (ticker)
+            WHERE inst.asset_class IN ('equity', 'etf')
+              AND i.date >= (SELECT MAX(date) FROM indicators_daily) - INTERVAL (?) DAY
+            ORDER BY i.date
+            """,
+            [int(years * 366)],
+        ).fetchdf()
+
+        if sessions.empty:
+            console.print("[yellow]Sin historico de indicadores que puntuar.[/]")
+            return 0
+
+        days = [d for d in pd.to_datetime(sessions["date"]) if d.weekday() == weekday]
+        if not days:
+            days = list(pd.to_datetime(sessions["date"]))
+        wanted = [d.date() for d in days]
+
+        # Una sola lectura para todas las fechas: 500 consultas sueltas
+        # tardarian mas en ir y volver que en calcular.
+        placeholders = ",".join(["?"] * len(wanted))
+        snapshot = conn.execute(
+            f"""
+            SELECT i.*, inst.gics_sector, inst.asset_class, inst.market_cap, inst.name
+            FROM indicators_daily i
+            JOIN instruments inst USING (ticker)
+            WHERE i.date IN ({placeholders})
+              AND inst.asset_class IN ('equity', 'etf')
+            """,
+            wanted,
+        ).fetchdf()
+        signals = conn.execute(
+            f"SELECT ticker, date, signal_id FROM signals WHERE date IN ({placeholders})",
+            wanted,
+        ).fetchdf()
+
+    if snapshot.empty:
+        console.print("[yellow]Sin instrumentos que puntuar en el historico.[/]")
+        return 0
+
+    by_date_signals: dict = {}
+    if not signals.empty:
+        for (day, ticker), group in signals.groupby(["date", "ticker"]):
+            by_date_signals.setdefault(day, {})[ticker] = group["signal_id"].tolist()
+
+    all_scores, all_contributions = [], []
+    console.print(f"[cyan]Ranking historico:[/] {len(wanted)} sesiones, perfil '{preset}'")
+
+    for day, frame in snapshot.groupby("date"):
+        day_signals = by_date_signals.get(day, {})
+        frame = frame.copy()
+        frame["technical_raw"] = frame.apply(
+            lambda r, sigs=day_signals: sig_mod.technical_score(
+                r, sigs.get(r["ticker"], [])
+            ),
+            axis=1,
+        )
+        scores, contributions = compute_scores(
+            frame, weights, cfg, group_col="gics_sector"
+        )
+        if scores.empty:
+            continue
+        scores["date"] = day
+        scores["weights_hash"] = whash
+        all_scores.append(scores)
+        if not contributions.empty:
+            contributions["date"] = day
+            contributions["weights_hash"] = whash
+            all_contributions.append(contributions)
+
+    if not all_scores:
+        return 0
+
+    scores_df = pd.concat(all_scores, ignore_index=True)
+    with connect() as conn:
+        n = upsert_df(conn, "factor_scores", scores_df,
+                      keys=["ticker", "date", "weights_hash"])
+        if all_contributions:
+            upsert_df(conn, "factor_contributions",
+                      pd.concat(all_contributions, ignore_index=True),
+                      keys=["ticker", "date", "weights_hash", "factor"])
+
+    console.print(f"[green]Ranking historico: {n} filas[/] en "
+                  f"{scores_df['date'].nunique()} sesiones (hash {whash})")
+    return n
+
+
 def compute_rotation() -> int:
     """Rotacion sectorial: fuerza relativa de cada sector frente al indice.
 
@@ -521,9 +643,20 @@ def main() -> None:
         help="puntua el universo con todos los perfiles de factors.yaml",
     )
     parser.add_argument("--lookback", type=int, default=None)
+    parser.add_argument(
+        "--history", type=int, default=None, metavar="ANOS",
+        help="Calcula el ranking historico del preset del bot, necesario para "
+             "validar la estrategia. Solo factores de precio.",
+    )
     args = parser.parse_args()
 
     migrate()
+
+    if args.history:
+        compute_score_history(preset=args.preset or "bot_core", years=args.history)
+        console.print("[bold green]Calculo terminado.[/]")
+        return
+
     steps = {
         "indicators": lambda: compute_indicators(args.lookback),
         "breadth": compute_breadth,

@@ -18,7 +18,7 @@ from datetime import date
 
 import pandas as pd
 
-from ..core.config import get_trading_config
+from ..core.config import TradingConfig, get_trading_config
 from ..core.db import connect
 from ..core.ids import ulid
 from ..core.locking import AlreadyRunning, single_writer
@@ -108,9 +108,17 @@ def run_cycle(ctx: StrategyContext, strategy, risk: RiskManager,
 
 
 # ---------------------------------------------------------------------------
-def run_backtest(start: date | None, mode: str = "simulated") -> dict:
-    """Recorre el historico sesion a sesion. Sin red y sin mirar el futuro."""
+def run_backtest(start: date | None, mode: str = "simulated",
+                 overrides: dict | None = None) -> dict:
+    """Recorre el historico sesion a sesion. Sin red y sin mirar el futuro.
+
+    `overrides` cambia limites de riesgo solo para esta ejecucion. Lo usa la
+    prueba de robustez de la puerta 1, que necesita repetir el backtest con el
+    stop y el numero de posiciones movidos un 25 %.
+    """
     cfg = get_trading_config()
+    if overrides:
+        cfg = TradingConfig(raw={**cfg.raw, "risk": {**cfg.risk, **overrides}})
     prices = load_prices(start)
     if prices.empty:
         raise SystemExit(
@@ -162,6 +170,12 @@ def main(argv: list[str] | None = None) -> int:
                         choices=["simulated", "paper", "live"])
     parser.add_argument("--phase", default="propose",
                         choices=["propose", "eod"])
+    parser.add_argument("--gate", action="store_true",
+                        help="Ejecuta la puerta 1: el backtest con costes "
+                             "frente a los umbrales que dan paso a la fase 7")
+    parser.add_argument("--robustez", action="store_true",
+                        help="Repite el backtest variando los parametros. "
+                             "Tarda cinco veces mas.")
     parser.add_argument("--backtest", action="store_true",
                         help="Recorre el historico en lugar de un solo dia")
     parser.add_argument("--from", dest="start", default=None,
@@ -181,6 +195,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         with single_writer("bot"):
+            if args.gate:
+                return _run_gate(start, robustez=args.robustez)
+
             if args.backtest:
                 summary = run_backtest(start, mode=args.mode)
                 print(f"Sesiones simuladas: {summary['sessions']}")
@@ -197,6 +214,35 @@ def main(argv: list[str] | None = None) -> int:
     except AlreadyRunning as exc:
         print(f"No se ha ejecutado: {exc}", file=sys.stderr)
         return 1
+
+
+def _run_gate(start: date | None, robustez: bool = False) -> int:
+    """Puerta 1. Devuelve 0 solo si la estrategia queda certificada."""
+    from . import gate
+
+    blockers = gate.find_blockers()
+    if blockers:
+        # Se comprueba ANTES de gastar minutos en un backtest cuyo resultado no
+        # se podria interpretar de todas formas.
+        print(gate.render(gate.GateReport(blockers=blockers)))
+        return 1
+
+    summary = run_backtest(start)
+    print(f"Sesiones simuladas: {summary['sessions']}")
+    print(f"Operaciones:        {summary['operaciones']}")
+    print()
+
+    sharpes = None
+    if robustez:
+        print("Repitiendo el backtest con los parametros movidos un 25 %...")
+        sharpes = gate.robustness_sharpes(run_backtest, start, {})
+        for nombre, valor in sharpes.items():
+            print(f"  {nombre:16s} Sharpe {valor:.2f}")
+        print()
+
+    report = gate.evaluate(summary, robustness=sharpes)
+    print(gate.render(report))
+    return 0 if report.passed else 1
 
 
 def _propose_once(mode: str) -> int:
