@@ -168,14 +168,60 @@ def test_a_missing_limit_is_an_error_not_a_default():
 # ---------------------------------------------------------------------------
 # Autonomia
 # ---------------------------------------------------------------------------
-def test_real_money_always_starts_semi_automatic():
-    """No configurable. La friccion tiene valor donde hay consecuencias, y el
-    primer dia en real es cuando aparecen los fallos que el papel no revela."""
+def test_the_autonomy_level_comes_from_the_mandate():
+    """En dinero real esto estaba fijo en 'semi' y ya no lo esta: el usuario lo
+    decidio explicitamente. Queda en el YAML, o sea en el historial de git y en
+    un diff, y no escondido en el codigo."""
     from stocks_tracker.core.config import TradingConfig
 
     cfg = TradingConfig(raw={"autonomy_policy": {"live": "auto"}})
-    assert cfg.autonomy_for("live") == "semi", (
-        "se ha podido poner el dinero real en automatico desde el YAML"
+    assert cfg.autonomy_for("live") == "auto"
+
+
+def test_an_unknown_autonomy_level_is_refused():
+    """Un valor mal escrito —'automatico', 'full'— no puede caer en el lado
+    permisivo por defecto: seria un bot operando solo por una errata."""
+    from stocks_tracker.core.config import ConfigError, TradingConfig
+
+    cfg = TradingConfig(raw={"autonomy_policy": {"live": "automatico"}})
+    with pytest.raises(ConfigError, match="automatico"):
+        cfg.autonomy_for("live")
+
+
+def test_a_mode_without_a_policy_defaults_to_asking():
+    """Lo que no se ha decidido no se decide solo, y desde luego no hacia el
+    lado que gasta dinero sin preguntar."""
+    from stocks_tracker.core.config import TradingConfig
+
+    assert TradingConfig(raw={}).autonomy_for("live") == "semi"
+
+
+def test_full_autonomy_does_not_relax_a_single_limit():
+    """Esto es lo que separa 'automatico' de 'sin frenos'.
+
+    'auto' quita el paso en el que una persona pulsa aprobar, y nada mas. Si de
+    paso aflojara un tope, el usuario habria pedido una cosa y recibido otra
+    mucho peor, justo en el modo donde ya no hay nadie mirando.
+    """
+    from stocks_tracker.core.config import FORBIDDEN_ALWAYS, TradingConfig
+
+    limites = {"max_positions": 4, "max_daily_loss_pct": 8.0,
+               "max_drawdown_pct": 20.0, "min_holding_days": 21}
+    base = {"risk": dict(limites), "kill_switch": {"rearm": "manual_only"}}
+
+    semi = TradingConfig(raw={**base, "autonomy_policy": {"live": "semi"}})
+    auto = TradingConfig(raw={**base, "autonomy_policy": {"live": "auto"}})
+
+    for nombre in limites:
+        assert semi.limit(nombre) == auto.limit(nombre), (
+            f"'{nombre}' cambia al pasar a automatico"
+        )
+    for prohibido in FORBIDDEN_ALWAYS:
+        assert not auto.risk.get(prohibido), (
+            f"'{prohibido}' queda activado en automatico"
+        )
+    assert auto.raw["kill_switch"]["rearm"] == "manual_only", (
+        "el kill switch se rearmaria solo justo cuando nadie mira"
     )
 
 

@@ -331,17 +331,34 @@ class TradingConfig:
         return sorted(k for k, v in self.venues.items() if (v or {}).get("enabled"))
 
     def autonomy_for(self, mode: str) -> str:
-        """Autonomia por modo. En real es 'semi' y no se negocia.
+        """Autonomia por modo, leida del mandato.
 
-        Aprobar cuarenta propuestas de papel no ensena nada y produce fatiga de
-        alertas: a la decima se pulsa "aprobar" sin leer, y una aprobacion que
-        se sella sin mirar no es un control, es teatro. La friccion vuelve
-        donde hay consecuencias.
+        Esto era 'semi' fijo en dinero real y ya no lo es: el usuario lo
+        decidio explicitamente y es su dinero. Queda aqui lo que ese cambio
+        significa y lo que NO significa, porque es la diferencia entre
+        automatico y sin frenos.
+
+        Lo que quita 'auto': el paso en el que una persona lee la propuesta y
+        pulsa aprobar. Nada mas.
+
+        Lo que sigue en pie, y es casi todo: los topes de capital y de posicion,
+        el maximo de ordenes al dia, la permanencia minima, el stop por ATR, el
+        halt por perdida diaria y el kill switch por drawdown —que no se rearma
+        solo NUNCA—. Una idea de la estrategia sigue sin poder llegar al broker
+        sin que la capa de riesgo la acune.
+
+        Lo que se pierde de verdad: el ultimo filtro contra un fallo mio. Si mi
+        codigo calcula mal o entra un dato corrupto, en 'semi' alguien lo ve
+        antes de que se ejecute; en 'auto' se ejecuta y se descubre despues, en
+        el registro. Por eso el kill switch importa mas aqui, no menos.
         """
         politica = dict(self.raw.get("autonomy_policy") or {})
-        if mode == "live":
-            return "semi"
-        return str(politica.get(mode, "semi"))
+        valor = str(politica.get(mode, "semi"))
+        if valor not in ("semi", "auto"):
+            raise ConfigError(
+                f"autonomy_policy.{mode} = '{valor}'. Solo 'semi' o 'auto'."
+            )
+        return valor
 
     def limit(self, name: str) -> float:
         """Limite numerico de riesgo, con error claro si falta.

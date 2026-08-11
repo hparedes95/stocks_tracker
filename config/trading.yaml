@@ -202,11 +202,23 @@ venues:
       commission_bps: 0               # Polymarket no cobra comision de trading
       max_spread_pct: 5.0             # si la horquilla es mayor, no se opera
 
-# Politica de autonomia por modo, no global. Ver docs/03 §8.
-# Aprobar cuarenta propuestas de papel no ensena nada y produce fatiga: a la
-# decima se pulsa "aprobar" sin leer. La friccion vuelve donde hay
-# consecuencias, que es al entrar en dinero real.
+# Politica de autonomia por modo, no global.
+#
+# `live: auto` es una decision explicita del usuario: el bot abre y cierra
+# posiciones sin preguntar nada. Conviene tener claro que quita y que no.
+#
+# QUITA: el paso en el que una persona lee la propuesta y pulsa aprobar.
+#
+# NO QUITA: los topes de capital y de posicion, el maximo de ordenes al dia, la
+# permanencia minima, el stop por ATR, el halt por perdida diaria ni el kill
+# switch por drawdown —que sigue sin rearmarse solo NUNCA—. La estrategia sigue
+# sin poder mandar nada al broker sin que la capa de riesgo lo acune.
+#
+# LO QUE SE PIERDE: el ultimo filtro contra un fallo del propio programa. Con
+# aprobacion humana, un calculo mal o un dato corrupto se ven antes de
+# ejecutarse; en automatico se ejecutan y se descubren en el registro. Por eso
+# el kill switch y los limites de este fichero importan mas, no menos.
 autonomy_policy:
   simulated: auto
   paper: auto
-  live: semi                          # obligatorio al entrar; no configurable
+  live: auto
