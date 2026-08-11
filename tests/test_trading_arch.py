@@ -55,12 +55,25 @@ def test_alpaca_is_only_imported_in_its_adapter():
     assert not offenders, f"alpaca importado fuera de su adaptador: {offenders}"
 
 
-def test_the_bot_does_not_import_yfinance():
-    """El bot decide sobre lo que ya calculo la capa 5. Si descargase datos por
-    su cuenta podria operar con numeros distintos de los que muestra la
-    pantalla, y el dashboard dejaria de explicar lo que hace el bot."""
+def test_only_the_broker_adapters_touch_the_network():
+    """La red vive en los adaptadores y en ningun sitio mas.
+
+    La primera version de esta regla prohibia la red en TODO `trading/`, y era
+    correcta mientras el bot solo leia del almacen. Un adaptador de broker
+    tiene que hablar con el broker, asi que la regla se afina en vez de
+    borrarse: lo que sigue prohibido —y es lo que importa— es que la
+    estrategia, el riesgo, el contexto o el registro salgan a buscar datos.
+
+    Si la estrategia descargase precios por su cuenta podria decidir sobre
+    numeros distintos de los que muestra la pantalla, y el dashboard dejaria de
+    explicar lo que hace el bot.
+    """
+    permitido = SRC / "trading" / "brokers"
     offenders = []
+
     for path in (SRC / "trading").rglob("*.py"):
+        if permitido in path.parents:
+            continue
         for node in ast.walk(tree_of(path)):
             if isinstance(node, ast.Import):
                 names = [a.name for a in node.names]
@@ -68,9 +81,21 @@ def test_the_bot_does_not_import_yfinance():
                 names = [node.module or ""]
             else:
                 continue
-            if any(n.split(".")[0] in {"yfinance", "requests", "urllib"} for n in names):
+            if any(n.split(".")[0] in {"yfinance", "requests", "urllib", "httpx"}
+                   for n in names):
                 offenders.append(str(path.relative_to(SRC)))
-    assert not offenders, f"el bot accede a la red desde: {offenders}"
+
+    assert not offenders, f"acceso a la red fuera de los adaptadores: {offenders}"
+
+
+def test_the_strategy_and_the_risk_are_network_free():
+    """Los dos modulos donde un acceso a red seria mas danino, comprobados por
+    nombre para que la regla no se afloje por accidente."""
+    for relativo in ("trading/risk.py", "trading/context.py",
+                     "trading/strategies/momentum_multifactor.py"):
+        source = (SRC / relativo).read_text("utf-8")
+        for modulo in ("import requests", "import urllib", "import yfinance"):
+            assert modulo not in source, f"{relativo} usa {modulo}"
 
 
 # ---------------------------------------------------------------------------
