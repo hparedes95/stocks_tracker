@@ -68,9 +68,28 @@ class FakeProvider:
 
 @pytest.fixture
 def proveedor(monkeypatch):
+    """Sustituye la fuente por defecto (Yahoo).
+
+    Se parchea `_yahoo_history` y no el proveedor de dentro: si el parcheo
+    fallara, la prueba saldria a internet de verdad —ya paso— y el conftest
+    promete que ningun test toca la red.
+    """
     fake = FakeProvider()
-    monkeypatch.setattr(ingest_crypto, "KrakenPriceProvider", lambda: fake)
+    monkeypatch.setattr(
+        ingest_crypto, "_yahoo_history",
+        lambda pairs, inicio, hoy: fake.fetch_ohlcv(pairs, inicio, hoy),
+    )
     return fake
+
+
+@pytest.fixture
+def sin_red(monkeypatch):
+    """Cualquier intento de salir a la red en estos tests es un fallo."""
+    def prohibido(*a, **k):
+        raise AssertionError("un test ha intentado salir a internet")
+
+    monkeypatch.setattr(ingest_crypto, "KrakenPriceProvider", prohibido)
+    monkeypatch.setattr(ingest_crypto, "_yahoo_history", prohibido)
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +132,7 @@ def test_the_candles_are_stored_with_their_source(warehouse, universo, proveedor
         fuentes = conn.execute(
             "SELECT DISTINCT source FROM prices_daily"
         ).fetchall()
-    assert fuentes == [("kraken",)]
+    assert fuentes == [("yfinance",)]
 
 
 def test_the_ingest_registers_the_instruments_itself(warehouse, universo, proveedor):
@@ -147,7 +166,10 @@ def test_a_failed_pair_marks_the_run_as_partial(warehouse, universo, monkeypatch
     """"OK" con un par sin datos diria que la descarga fue completa cuando el
     bot va a operar con un universo mas pequeno del que cree."""
     fake = FakeProvider(fallan=("SOL/EUR",))
-    monkeypatch.setattr(ingest_crypto, "KrakenPriceProvider", lambda: fake)
+    monkeypatch.setattr(
+        ingest_crypto, "_yahoo_history",
+        lambda pairs, inicio, hoy: fake.fetch_ohlcv(pairs, inicio, hoy),
+    )
     ingest_crypto.ingest_crypto_prices()
     with db.connect(read_only=True) as conn:
         estado, error = conn.execute(
@@ -167,12 +189,17 @@ def test_an_incremental_run_does_not_start_from_scratch(warehouse, universo, pro
     assert segunda > primera, "vuelve a descargar todo el historico"
 
 
-def test_a_full_run_goes_back_to_the_api_limit(warehouse, universo, proveedor):
-    from stocks_tracker.providers.kraken_provider import earliest_available
+def test_a_full_run_goes_back_as_far_as_the_source_allows(warehouse, universo, proveedor):
+    """Yahoo da anos; Kraken solo dos. `--full` tiene que llegar al tope de la
+    fuente que se este usando, no a uno fijo."""
+    from datetime import date
 
     ingest_crypto.ingest_crypto_prices()
-    ingest_crypto.ingest_crypto_prices(full=True)
-    assert proveedor.pedidos[-1][1] == earliest_available()
+    ingest_crypto.ingest_crypto_prices(full=True, years=8)
+    inicio = proveedor.pedidos[-1][1]
+    assert (date.today() - inicio).days >= 365 * 7, (
+        "no retrocede lo que Yahoo puede dar"
+    )
 
 
 def test_reingesting_does_not_duplicate_candles(warehouse, universo, proveedor):
@@ -207,3 +234,130 @@ def test_the_whitelist_comes_from_the_mandate():
     pares = ingest_crypto.whitelist()
     assert "BTC/EUR" in pares
     assert all("/" in p for p in pares)
+
+
+# ---------------------------------------------------------------------------
+# Una sola fuente por serie
+# ---------------------------------------------------------------------------
+def test_mixing_two_sources_in_one_series_is_refused(warehouse, universo, proveedor):
+    """Yahoo y Kraken no coinciden al centimo. Empalmarlas deja un salto
+    artificial en la fecha de union, y un salto es exactamente lo que una
+    estrategia de momentum lee como senal: saldria una operacion que nunca
+    existio, siempre en la misma fecha, contada como ganancia real.
+
+    Falla en vez de avisar porque un backtest empalmado tiene el mismo aspecto
+    que uno bueno.
+    """
+    ingest_crypto.ingest_crypto_prices()  # Yahoo
+    with pytest.raises(ingest_crypto.MixedSourceError, match="salto"):
+        ingest_crypto.ingest_crypto_prices(source="kraken")
+
+
+def test_reingesting_from_the_same_source_is_fine(warehouse, universo, proveedor):
+    """El rechazo es a mezclar, no a repetir."""
+    ingest_crypto.ingest_crypto_prices()
+    ingest_crypto.ingest_crypto_prices(full=True)
+
+
+def test_the_error_says_how_to_get_out_of_it(warehouse, universo, proveedor):
+    """Un error que dice que algo esta mal y no que hacer deja al usuario
+    igual de atascado que sin el mensaje."""
+    ingest_crypto.ingest_crypto_prices()
+    with pytest.raises(ingest_crypto.MixedSourceError, match="DELETE FROM prices_daily"):
+        ingest_crypto.ingest_crypto_prices(source="kraken")
+
+
+def test_the_yahoo_symbol_is_translated_both_ways(warehouse, universo, monkeypatch):
+    """En Yahoo es 'BTC-EUR' y en Kraken 'BTC/EUR'. Si el ticker guardado
+    quedara con el nombre de Yahoo, la estrategia elegiria 'BTC-EUR' y el bot
+    intentaria comprar en Kraken algo que Kraken no conoce."""
+    assert ingest_crypto.yahoo_symbol("BTC/EUR") == "BTC-EUR"
+
+    vistos = {}
+
+    class FakeYf:
+        def fetch_ohlcv(self, tickers, start, end, interval="1d"):
+            import pandas as pd
+
+            from stocks_tracker.providers.base import OHLCV_COLUMNS
+
+            vistos["pedidos"] = list(tickers)
+            filas = [{
+                "ticker": t, "date": end - timedelta(days=1), "open": 1.0,
+                "high": 1.0, "low": 1.0, "close": 1.0, "adj_close": 1.0,
+                "volume": 1,
+            } for t in tickers]
+            df = pd.DataFrame(filas, columns=OHLCV_COLUMNS)
+            df.attrs["failed_tickers"] = []
+            return df
+
+    monkeypatch.setattr("stocks_tracker.providers.registry.build_provider",
+                        lambda name: FakeYf())
+    ingest_crypto.ingest_crypto_prices()
+
+    assert vistos["pedidos"] == ["BTC-EUR", "ETH-EUR", "SOL-EUR"], (
+        "se ha pedido a Yahoo con el nombre de Kraken"
+    )
+    with db.connect(read_only=True) as conn:
+        guardados = [r[0] for r in conn.execute(
+            "SELECT DISTINCT ticker FROM prices_daily ORDER BY ticker"
+        ).fetchall()]
+    assert guardados == ["BTC/EUR", "ETH/EUR", "SOL/EUR"], (
+        "se ha guardado con el nombre de Yahoo: el broker no lo reconoceria"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cuanto se separan las dos fuentes
+# ---------------------------------------------------------------------------
+def test_the_divergence_is_measured_relative_not_absolute(warehouse, universo, proveedor):
+    """50 EUR de diferencia son ruido en bitcoin y un disparate en cardano."""
+    ingest_crypto.ingest_crypto_prices()
+
+    class KrakenCaro:
+        """Devuelve lo mismo un 2 % mas caro."""
+
+        def fetch_ohlcv(self, tickers, start, end, interval="1d"):
+            df = proveedor.fetch_ohlcv(tickers, start, end)
+            df = df.copy()
+            df["adj_close"] = df["adj_close"] * 1.02
+            return df
+
+    informe = ingest_crypto.compare_sources(provider=KrakenCaro())
+    assert informe, "no ha comparado nada"
+    for datos in informe.values():
+        assert datos["media_pct"] == pytest.approx(2.0, abs=0.1)
+
+
+def test_comparing_does_not_store_the_second_source(warehouse, universo, proveedor):
+    """Guardar Kraken al comparar seria empalmar las series por la puerta de
+    atras, justo lo que el rechazo de mezcla impide por la de delante."""
+    ingest_crypto.ingest_crypto_prices()
+    ingest_crypto.compare_sources(provider=proveedor)
+    with db.connect(read_only=True) as conn:
+        fuentes = conn.execute("SELECT DISTINCT source FROM prices_daily").fetchall()
+    assert fuentes == [("yfinance",)]
+
+
+def test_a_large_divergence_is_called_out(warehouse):
+    """Por encima del umbral, la serie con la que se valida ya no representa
+    los precios a los que se opera."""
+    texto = ingest_crypto.render_comparison({
+        "BTC/EUR": {"dias": 90, "media_pct": 3.5, "peor_pct": 8.0},
+        "ETH/EUR": {"dias": 90, "media_pct": 0.2, "peor_pct": 0.5},
+    })
+    # Se mira la FILA del par, no el texto entero: el pie tambien lleva un
+    # asterisco, asi que buscarlo en todo el informe daba por bueno un
+    # renderizado que ya no marcaba ninguna fila.
+    filas = {linea.split()[0]: linea for linea in texto.splitlines()
+             if linea.strip().startswith(("BTC/", "ETH/"))}
+    assert filas["BTC/EUR"].rstrip().endswith("*"), "no marca el par que se desvia"
+    assert not filas["ETH/EUR"].rstrip().endswith("*"), "marca uno que no se desvia"
+    assert "no representa" in texto
+
+
+def test_a_small_divergence_says_it_is_fine(warehouse):
+    texto = ingest_crypto.render_comparison(
+        {"BTC/EUR": {"dias": 90, "media_pct": 0.2, "peor_pct": 0.9}}
+    )
+    assert "se puede validar" in texto

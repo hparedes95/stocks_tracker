@@ -20,7 +20,7 @@
       mercados  Estado de Kraken y Polymarket: que falta para operar
       polymarket Comprueba la lectura de Polymarket (no necesita wallet)
       calibracion ¿Se equivoca Polymarket lo bastante como para apostar?
-      cripto    Descarga el historico de cripto de Kraken (sin claves)
+      cripto    Historico de cripto (Yahoo) y comparacion con Kraken
       tiene-universo  Codigo 0 si el universo completo esta descargado
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
@@ -415,9 +415,14 @@ switch ($Task) {
         # anos de cripto caben dentro de una sola subida y un backtest ahi
         # puede salir estupendo sin que la estrategia valga nada.
         Assert-Venv
-        # Incremental. Para rehacer los dos anos enteros:
+        # Incremental, y al terminar compara con Kraken. El historico sale de
+        # Yahoo porque Kraken solo da dos anos; se opera en Kraken. Las dos
+        # series NO se empalman: el salto en la fecha de union lo leeria el
+        # momentum como senal. La comparacion dice cuanto se separan.
+        #
+        # Para rehacer los ocho anos enteros:
         #     .venv\Scripts\python.exe -m stocks_tracker.ingest.ingest_crypto --full
-        & $Py -m stocks_tracker.ingest.ingest_crypto
+        & $Py -m stocks_tracker.ingest.ingest_crypto --comparar
     }
 
     'calibracion' {
