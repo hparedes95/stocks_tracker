@@ -19,6 +19,7 @@
       claves    Muestra que credenciales faltan y como conseguirlas
       mercados  Estado de Kraken y Polymarket: que falta para operar
       polymarket Comprueba la lectura de Polymarket (no necesita wallet)
+      calibracion ¿Se equivoca Polymarket lo bastante como para apostar?
       tiene-universo  Codigo 0 si el universo completo esta descargado
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
@@ -35,7 +36,7 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'claves', 'mercados',
-                 'polymarket', 'tiene-universo',
+                 'polymarket', 'calibracion', 'tiene-universo',
                  'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
@@ -402,6 +403,21 @@ switch ($Task) {
         # nombre y apellidos del campo que no cuadra, a que reviente luego.
         Assert-Venv
         & $Py -m stocks_tracker.trading.brokers.polymarket_public
+    }
+
+    'calibracion' {
+        # El examen de Polymarket, y su logica va al reves que la de acciones.
+        # Alli se mide si una estrategia gano dinero. Aqui el precio ES la
+        # probabilidad, asi que un mercado que acierta es un mercado en el que
+        # NO se debe operar: se gana 0,70 el 30 % de las veces y se pierde
+        # 0,30 el 70 %, que es cero antes de la horquilla.
+        #
+        # Aprobar significa haber encontrado una desviacion repetida y mayor
+        # que los costes. Suspender es la respuesta normal.
+        #
+        # No necesita wallet ni clave: solo lee mercados ya resueltos.
+        Assert-Venv
+        & $Py -m stocks_tracker.trading.polymarket_calibration
     }
 
     'tiene-universo' {
