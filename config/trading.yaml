@@ -154,6 +154,18 @@ venues:
       allow_options: false
       allow_extended_hours: true     # 24/7: no existe "fuera de horario"
       allow_margin: false            # Kraken lo ofrece en spot; hay que apagarlo
+    # Estrategia del venue. Los numeros de aqui NO estan optimizados sobre los
+    # datos: son los de manual, elegidos antes de mirar ningun resultado. Esa
+    # es la defensa principal contra el sobreajuste, porque con seis monedas y
+    # un historico corto cualquier busqueda de parametros encuentra oro que no
+    # existe. Si algun dia se toca uno para que el backtest mejore, lo que
+    # mejora es el backtest.
+    strategies:
+      crypto_momentum_v1:
+        enabled: true
+        regime_ticker: BTC/EUR       # bitcoin marca el regimen de todo
+        momentum_fields: [roc_3m, roc_6m]
+        exit_rank_buffer: 1          # histeresis: se entra en el top N, se sale bajo N+1
     execution:
       order_type: market
       time_in_force: gtc
