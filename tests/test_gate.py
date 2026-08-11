@@ -235,10 +235,48 @@ def test_the_windows_task_runs_the_three_steps():
     assert block.index("--full-history") < block.index("--history 10") < block.index("--gate")
 
 
-def test_the_gate_is_never_run_by_the_scheduler():
-    """Validar una estrategia es una decision, no mantenimiento nocturno."""
+def test_the_scheduler_validates_but_never_activates():
+    """Matiz que corregi despues de escribir la primera version de este test.
+
+    Yo habia prohibido que el planificador ejecutara la puerta, con el
+    argumento de que validar es una decision y no mantenimiento. Es verdad a
+    medias: lo que no puede ser automatico es ACTIVAR la estrategia o mandar
+    ordenes. Comprobarla no toca nada —solo produce un informe— y automatizarlo
+    es justo lo que hace que el veredicto exista aunque nadie abra una consola.
+
+    Lo que este test protege es la linea real: el planificador puede examinar,
+    nunca operar ni rearmar.
+    """
     from stocks_tracker.core.config import project_root
 
     ps1 = (project_root() / "scripts/windows/stocks.ps1").read_text("utf-8")
     daily = ps1[ps1.index("'daily' {"):ps1.index("'test' {")]
-    assert "--gate" not in daily and "puerta" not in daily
+
+    assert "--gate" in daily, "la validacion no se ejecuta sola"
+    assert "--mode paper" not in daily and "--mode live" not in daily, (
+        "el planificador manda ordenes"
+    )
+    assert "rearm" not in daily, "el planificador rearma el kill switch"
+    assert "--phase execute" not in daily
+
+
+def test_the_gate_runs_only_once_a_week():
+    """Tarda entre diez y veinte minutos: diario haria que abrir el programa
+    fuese insoportable."""
+    from stocks_tracker.core.config import project_root
+
+    ps1 = (project_root() / "scripts/windows/stocks.ps1").read_text("utf-8")
+    daily = ps1[ps1.index("'daily' {"):ps1.index("'test' {")]
+    assert "DayOfWeek -eq 'Sunday'" in daily
+
+
+def test_the_verdict_is_saved_whether_it_passes_or_not():
+    """Un suspenso es informacion tan util como un aprobado, y a los dos meses
+    nadie recuerda que umbral fallo."""
+    from stocks_tracker.core.config import project_root
+
+    src = (project_root() / "src/stocks_tracker/trading/run_bot.py").read_text("utf-8")
+    block = src[src.index("def _run_gate"):src.index("def _propose_once")]
+    assert block.count("save_report") == 2, (
+        "el informe solo se guarda en uno de los dos caminos"
+    )

@@ -549,3 +549,22 @@ FROM counts
 WHERE n >= (SELECT MAX(n) FROM counts) * 0.6
 ORDER BY date DESC
 LIMIT 1;
+
+-- Informes de la puerta 1. Se guardan para que el veredicto no dependa de que
+-- alguien mire una consola: la validacion se ejecuta sola y el resultado se lee
+-- en el dashboard.
+CREATE TABLE IF NOT EXISTS gate_reports (
+  report_id   VARCHAR PRIMARY KEY,
+  logged_at   TIMESTAMP,
+  strategy_id VARCHAR,
+  preset      VARCHAR,
+  passed      BOOLEAN,
+  blockers    VARCHAR,               -- JSON
+  checks      VARCHAR,               -- JSON
+  sessions    INTEGER,
+  trades      INTEGER,
+  equity_start DOUBLE,
+  equity_end   DOUBLE,
+  data_from   DATE,
+  data_to     DATE
+);

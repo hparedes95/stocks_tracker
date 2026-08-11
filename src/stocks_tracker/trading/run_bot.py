@@ -224,7 +224,9 @@ def _run_gate(start: date | None, robustez: bool = False) -> int:
     if blockers:
         # Se comprueba ANTES de gastar minutos en un backtest cuyo resultado no
         # se podria interpretar de todas formas.
-        print(gate.render(gate.GateReport(blockers=blockers)))
+        report = gate.GateReport(blockers=blockers)
+        print(gate.render(report))
+        gate.save_report(report, {})
         return 1
 
     summary = run_backtest(start)
@@ -242,6 +244,9 @@ def _run_gate(start: date | None, robustez: bool = False) -> int:
 
     report = gate.evaluate(summary, robustness=sharpes)
     print(gate.render(report))
+    # Se guarda pase o no pase. Un suspenso es informacion tan util como un
+    # aprobado, y a los dos meses nadie recuerda que umbral fallo.
+    gate.save_report(report, summary)
     return 0 if report.passed else 1
 
 

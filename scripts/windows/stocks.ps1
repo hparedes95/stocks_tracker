@@ -459,6 +459,22 @@ switch ($Task) {
             try { & $Py @($step.Args) }
             catch { Write-Host "  $($step.Name) ha fallado, se continua." -ForegroundColor Yellow }
         }
+
+        # La validacion de la estrategia se ejecuta SOLA, una vez por semana.
+        # No es mantenimiento: es el examen que decide si el bot puede operar.
+        # Se automatiza porque el resultado tiene que existir aunque nadie
+        # abra una consola nunca, y se guarda para leerlo en el dashboard.
+        #
+        # Solo los domingos: tarda entre diez y veinte minutos y el mercado
+        # esta cerrado, asi que no compite con nada.
+        if ((Get-Date).DayOfWeek -eq 'Sunday') {
+            & $Py -m stocks_tracker.compute.run_compute --only indicators --full-history
+            if ($LASTEXITCODE -eq 0) { & $Py -m stocks_tracker.compute.run_compute --history 10 }
+            if ($LASTEXITCODE -eq 0) {
+                Write-Step 'Validando la estrategia del bot (puerta 1)'
+                & $Py -m stocks_tracker.trading.run_bot --gate --robustez
+            }
+        }
     }
 
     'test' {

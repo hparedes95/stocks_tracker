@@ -33,6 +33,73 @@ st.error(
     icon=":material/warning:",
 )
 
+# ---------------------------------------------------------------------------
+# Puerta 1 — el examen del bot de trading
+# ---------------------------------------------------------------------------
+# Va arriba del todo y no al final: debajo hay un `st.stop()` para cuando
+# aun no se han validado las senales, y el veredicto sobre si una
+# estrategia puede llegar a mover dinero es lo mas consecuente de esta
+# pagina. Quedaba escondido justo cuando mas falta hacia.
+#
+# Va aqui y no en una consola a proposito: el veredicto sobre si una estrategia
+# puede llegar a mover dinero tiene que leerlo quien pone el dinero, sin
+# escribir un comando. Se ejecuta solo los domingos.
+st.subheader("Validacion de la estrategia del bot")
+
+from stocks_tracker.trading import gate as _gate  # noqa: E402
+
+_report = _gate.latest_report()
+
+if _report is None:
+    st.info(
+        "Todavia no se ha ejecutado. Se valida sola los domingos, despues de "
+        "la actualizacion nocturna. Tarda entre diez y veinte minutos.",
+        icon=":material/schedule:",
+    )
+else:
+    _cuando = pd.Timestamp(_report["logged_at"])
+    if _report["blockers"]:
+        st.error(
+            "**No se puede certificar la estrategia.** El resultado del "
+            "backtest no seria interpretable:\n\n"
+            + "\n\n".join(f"- {b}" for b in _report["blockers"]),
+            icon=":material/block:",
+        )
+    elif _report["passed"]:
+        st.success(
+            f"**Puerta 1 superada** ({_cuando:%d/%m/%Y}). Esto NO dice que la "
+            "estrategia vaya a ganar dinero: dice que no ha fallado ninguna "
+            "comprobacion que sepamos hacer. Es condicion necesaria, nunca "
+            "suficiente.",
+            icon=":material/verified:",
+        )
+    else:
+        _fallan = [c["name"] for c in _report["checks"] if not c["passed"]]
+        st.warning(
+            f"**Puerta 1 no superada** ({_cuando:%d/%m/%Y}). Falla: "
+            f"{', '.join(_fallan)}. La estrategia no opera: se ajusta o se "
+            "descarta.",
+            icon=":material/gpp_maybe:",
+        )
+
+    if _report["checks"]:
+        st.dataframe(
+            pd.DataFrame([
+                {"": "OK" if c["passed"] else "FALLA", "Comprobacion": c["name"],
+                 "Observado": c["observed"], "Umbral": c["required"]}
+                for c in _report["checks"]
+            ]),
+            hide_index=True, width="stretch",
+        )
+        st.caption(
+            f":grey[Backtest sobre {int(_report['sessions'])} sesiones y "
+            f"{int(_report['trades'])} operaciones, con comisiones y "
+            "deslizamiento aplicados. Se ejecuta cada domingo.]"
+        )
+
+
+st.divider()
+
 labels = get_explanations().get("signal_labels", {})
 EVIDENCE_LABEL = {
     eng.VALIDATED: "Validada", eng.WEAK: "Debil",

@@ -142,15 +142,38 @@ def test_the_verdict_cannot_mint_its_own_order():
 # ---------------------------------------------------------------------------
 # Alcance de la fase 6
 # ---------------------------------------------------------------------------
-def test_the_dashboard_does_not_use_the_bot_yet():
-    """La fase 6 es explicitamente 'sin UI'. Si una pagina empieza a leer del
-    bot antes de que el backtest supere la puerta 1, el usuario veria
-    propuestas de una estrategia que nadie ha validado."""
+def test_the_dashboard_shows_the_verdict_but_not_the_bot():
+    """La fase 6 es "sin UI", y el motivo era concreto: si una pagina mostrase
+    propuestas de una estrategia que nadie ha validado, el usuario las leeria
+    como recomendaciones.
+
+    Mostrar el INFORME de la validacion es lo contrario de ese riesgo: dice
+    precisamente si esta validada o no, y tiene que verlo quien pone el dinero
+    sin escribir un comando. Lo que sigue prohibido es la estrategia, el
+    riesgo, las intenciones y las ordenes.
+    """
+    prohibido = ("trading.risk", "trading.strategies", "trading.run_bot",
+                 "trading.execution", "trading.intents", "trading.journal")
+
     offenders = []
     for path in (SRC / "app").rglob("*.py"):
-        if "stocks_tracker.trading" in path.read_text("utf-8"):
-            offenders.append(path.relative_to(SRC).as_posix())
-    assert not offenders, f"el dashboard ya usa el bot: {offenders}"
+        source = path.read_text("utf-8")
+        for modulo in prohibido:
+            if modulo in source:
+                offenders.append(f"{path.relative_to(SRC).as_posix()} -> {modulo}")
+
+    assert not offenders, f"el dashboard usa el bot: {offenders}"
+
+
+def test_the_dashboard_never_shows_orders_or_intents():
+    """Ninguna pagina puede leer las tablas de operativa del bot todavia."""
+    offenders = []
+    for path in (SRC / "app").rglob("*.py"):
+        source = path.read_text("utf-8")
+        for tabla in ("FROM intents", "FROM orders", "FROM bot_positions"):
+            if tabla in source:
+                offenders.append(f"{path.relative_to(SRC).as_posix()} -> {tabla}")
+    assert not offenders, f"el dashboard muestra operativa sin validar: {offenders}"
 
 
 def test_paper_and_live_are_refused_in_phase_six():

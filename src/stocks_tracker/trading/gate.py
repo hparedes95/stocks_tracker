@@ -19,7 +19,9 @@ ningun caso suficiente.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -314,3 +316,52 @@ def robustness_sharpes(run_backtest, start, base_params: dict) -> dict[str, floa
         equity = curva.set_index("date")["equity"]
         out[nombre] = mx.sharpe(equity.pct_change().dropna())
     return {k: (0.0 if np.isnan(v) else v) for k, v in out.items()}
+
+
+# ---------------------------------------------------------------------------
+# Persistencia
+# ---------------------------------------------------------------------------
+def save_report(report: GateReport, summary: dict,
+                strategy_id: str = "momentum_multifactor_v1",
+                preset: str = "bot_core") -> str:
+    """Guarda el informe para que el veredicto no dependa de mirar una consola.
+
+    La validacion se ejecuta sola, y quien decide sobre su dinero lee el
+    resultado en el dashboard. Un examen cuyo resultado solo existe en el
+    scrollback de una terminal es un examen que nadie mira.
+    """
+    from ..core.ids import ulid
+
+    curva = summary.get("curva") or []
+    report_id = ulid()
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO gate_reports (report_id, logged_at, strategy_id, preset, "
+            "passed, blockers, checks, sessions, trades, equity_start, equity_end, "
+            "data_from, data_to) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [
+                report_id, datetime.now(), strategy_id, preset, report.passed,
+                json.dumps(report.blockers, ensure_ascii=False),
+                json.dumps([asdict(c) for c in report.checks], ensure_ascii=False),
+                int(summary.get("sessions", 0)), int(summary.get("operaciones", 0)),
+                float(summary.get("equity_inicial", 0.0)),
+                float(summary.get("equity_final", 0.0)),
+                curva[0][0] if curva else None,
+                curva[-1][0] if curva else None,
+            ],
+        )
+    return report_id
+
+
+def latest_report() -> dict | None:
+    """Ultimo informe guardado, para el dashboard."""
+    with connect(read_only=True) as conn:
+        rows = conn.execute(
+            "SELECT * FROM gate_reports ORDER BY logged_at DESC LIMIT 1"
+        ).fetchdf()
+    if rows.empty:
+        return None
+    row = rows.iloc[0].to_dict()
+    row["blockers"] = json.loads(row["blockers"] or "[]")
+    row["checks"] = json.loads(row["checks"] or "[]")
+    return row
