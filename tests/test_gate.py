@@ -260,14 +260,22 @@ def test_the_scheduler_validates_but_never_activates():
     assert "--phase execute" not in daily
 
 
-def test_the_gate_runs_only_once_a_week():
-    """Tarda entre diez y veinte minutos: diario haria que abrir el programa
-    fuese insoportable."""
+def test_the_gate_runs_weekly_but_the_first_verdict_does_not_wait():
+    """Semanal porque el backtest recorre diez anos y una sesion mas mueve el
+    Sharpe en el tercer decimal: a diario serian siete informes identicos. Y
+    porque repetir un examen hasta que salga bien es hacer trampa por cadencia.
+
+    Pero el PRIMER veredicto no espera al domingo: hacerlo esperar no protege
+    de nada, solo retrasa la unica informacion que todavia no existe.
+    """
     from stocks_tracker.core.config import project_root
 
     ps1 = (project_root() / "scripts/windows/stocks.ps1").read_text("utf-8")
     daily = ps1[ps1.index("'daily' {"):ps1.index("'test' {")]
-    assert "DayOfWeek -eq 'Sunday'" in daily
+
+    assert "DayOfWeek -eq 'Sunday'" in daily, "se ejecutaria a diario"
+    assert "gate_reports" in daily, "el primer informe esperaria al domingo"
+    assert "-or $sinInforme" in daily
 
 
 def test_the_verdict_is_saved_whether_it_passes_or_not():

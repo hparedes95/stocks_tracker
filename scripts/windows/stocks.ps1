@@ -465,9 +465,23 @@ switch ($Task) {
         # Se automatiza porque el resultado tiene que existir aunque nadie
         # abra una consola nunca, y se guarda para leerlo en el dashboard.
         #
-        # Solo los domingos: tarda entre diez y veinte minutos y el mercado
-        # esta cerrado, asi que no compite con nada.
-        if ((Get-Date).DayOfWeek -eq 'Sunday') {
+        # Los domingos, y ademas la PRIMERA vez que hay datos suficientes.
+        #
+        # Semanal y no diario porque el backtest recorre diez anos: una sesion
+        # mas mueve el Sharpe en el tercer decimal, asi que a diario serian
+        # siete informes casi identicos. Y porque repetir un examen cada dia
+        # hasta que salga bien es hacer trampa por cadencia, aunque no sea la
+        # intencion.
+        #
+        # Pero hacer esperar al domingo el PRIMER veredicto no protege de nada:
+        # solo retrasa la unica informacion que todavia no existe.
+        $sinInforme = $false
+        try {
+            $n = & $Py -c "from stocks_tracker.core.db import query; import sys; sys.stdout.write(str(int(query('SELECT COUNT(*) AS n FROM gate_reports')['n'][0])))" 2>$null
+            $sinInforme = ([int]$n -eq 0)
+        } catch { $sinInforme = $false }
+
+        if ((Get-Date).DayOfWeek -eq 'Sunday' -or $sinInforme) {
             & $Py -m stocks_tracker.compute.run_compute --only indicators --full-history
             if ($LASTEXITCODE -eq 0) { & $Py -m stocks_tracker.compute.run_compute --history 10 }
             if ($LASTEXITCODE -eq 0) {
