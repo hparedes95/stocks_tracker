@@ -27,6 +27,7 @@ help:
 setup:
 	$(UV) venv
 	$(UV) pip install -e ".[data,dev]"
+	git config core.hooksPath scripts/git-hooks || true
 
 # Sin extras de datos: util en entornos sin acceso a Yahoo.
 setup-min:

@@ -1,0 +1,50 @@
+#!/bin/sh
+# Impide subir credenciales. Se activa con:
+#     git config core.hooksPath scripts/git-hooks
+#
+# Existe porque el repositorio es PUBLICO y porque la parte del bot maneja una
+# clave privada de wallet. Una clave de API se revoca; una clave privada no: si
+# llega a GitHub, los bots que rastrean el sitio la encuentran en minutos y lo
+# unico que se puede hacer es mover los fondos.
+#
+# .gitignore ya cubre .env, pero `git add -f` se lo salta y un fichero con otro
+# nombre no esta cubierto en absoluto.
+
+fallo=0
+
+# 1. Ficheros que no deben estar nunca.
+prohibidos=$(git diff --cached --name-only --diff-filter=A |
+    grep -iE '(^|/)\.env$|(^|/)\.env\.[^e]|\.duckdb$|\.pem$|\.key$|secrets\.toml$' || true)
+if [ -n "$prohibidos" ]; then
+    echo "BLOQUEADO: estos ficheros no pueden subirse:"
+    echo "$prohibidos" | sed 's/^/  /'
+    fallo=1
+fi
+
+# 2. Contenido que parece una credencial de verdad.
+#    Se excluyen los ficheros de ejemplo y los tests, que llevan valores falsos
+#    a proposito.
+sospechoso=$(git diff --cached -U0 -- . ':!*.example' ':!tests/*' |
+    grep -E '^\+' |
+    grep -iE '(api[_-]?key|api[_-]?secret|private[_-]?key|passphrase|mnemonic)[[:space:]]*[=:][[:space:]]*["'"'"']?[A-Za-z0-9/+_-]{16,}' || true)
+if [ -n "$sospechoso" ]; then
+    echo "BLOQUEADO: esto parece una credencial:"
+    echo "$sospechoso" | sed 's/^/  /' | cut -c1-100
+    fallo=1
+fi
+
+# 3. Claves privadas de Ethereum: 64 hexadecimales, con o sin 0x.
+wallet=$(git diff --cached -U0 -- . ':!*.example' ':!tests/*' |
+    grep -E '^\+' | grep -oE '(0x)?[0-9a-fA-F]{64}' || true)
+if [ -n "$wallet" ]; then
+    echo "BLOQUEADO: hay una cadena de 64 hexadecimales, que es el formato de"
+    echo "una clave privada de wallet. Si es otra cosa (un hash), usa --no-verify."
+    fallo=1
+fi
+
+if [ "$fallo" -ne 0 ]; then
+    echo ""
+    echo "El repositorio es PUBLICO. Nada de esto se puede deshacer borrandolo"
+    echo "despues: queda en el historial y ya ha sido indexado."
+    exit 1
+fi

@@ -207,6 +207,10 @@ switch ($Task) {
         Write-Host "Listo. Ahora, para verlo funcionando sin esperar descargas:" -ForegroundColor Green
         Write-Host "    .\scripts\windows\stocks.ps1 demo"
         Write-Host "    .\scripts\windows\stocks.ps1 run"
+        # Barrera contra subir credenciales. El repositorio es publico y la
+        # parte del bot maneja una clave privada de wallet: una clave de API se
+        # revoca, una privada no. Activarla a mano es no activarla.
+        git config core.hooksPath scripts/git-hooks 2>$null
     }
 
     'demo' {
