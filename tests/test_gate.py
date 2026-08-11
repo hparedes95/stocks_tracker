@@ -203,3 +203,42 @@ def test_a_blocker_overrides_every_passing_check():
 def test_an_empty_report_does_not_pass():
     """No haber comprobado nada no es aprobar."""
     assert gate.GateReport().passed is False
+
+
+# ---------------------------------------------------------------------------
+# El camino completo tiene que ser ejecutable
+# ---------------------------------------------------------------------------
+def test_indicators_can_cover_the_whole_history():
+    """Sin esto la puerta nunca podria comprobar su minimo de cinco anos, y no
+    por falta de precios: los indicadores solo cubrian 400 sesiones."""
+    from stocks_tracker.core.config import project_root
+
+    src = (project_root() / "src/stocks_tracker/compute/run_compute.py").read_text("utf-8")
+    assert "full: bool = False" in src, "no se puede pedir el historico completo"
+    assert "--full-history" in src, "la opcion no esta en la linea de comandos"
+    # Y la ventana tiene que poder desactivarse de verdad, no solo agrandarse.
+    assert "if lookback is None:" in src
+
+
+def test_the_windows_task_runs_the_three_steps():
+    """La puerta necesita indicadores completos, ranking historico y backtest,
+    en ese orden. Ejecutar solo el tercero da "no hay historico" y parece un
+    fallo del bot."""
+    from stocks_tracker.core.config import project_root
+
+    ps1 = (project_root() / "scripts/windows/stocks.ps1").read_text("utf-8")
+    block = ps1[ps1.index("'puerta' {"):ps1.index("'compute' {")]
+
+    assert "--full-history" in block
+    assert "--history 10" in block
+    assert "--gate" in block
+    assert block.index("--full-history") < block.index("--history 10") < block.index("--gate")
+
+
+def test_the_gate_is_never_run_by_the_scheduler():
+    """Validar una estrategia es una decision, no mantenimiento nocturno."""
+    from stocks_tracker.core.config import project_root
+
+    ps1 = (project_root() / "scripts/windows/stocks.ps1").read_text("utf-8")
+    daily = ps1[ps1.index("'daily' {"):ps1.index("'test' {")]
+    assert "--gate" not in daily and "puerta" not in daily

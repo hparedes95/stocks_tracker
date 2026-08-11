@@ -255,12 +255,20 @@ def render(report: GateReport) -> str:
         lines.append("")
 
     if report.checks:
-        lines.append(f"{'Comprobacion':32s} {'Observado':>24s}  {'Umbral':>26s}")
-        lines.append("-" * 86)
+        # Anchos calculados sobre el contenido: con anchos fijos, "Frente al
+        # equiponderado" desbordaba su columna y descuadraba la tabla entera
+        # justo en la fila mas dificil de leer.
+        w_name = max(len("Comprobacion"), *(len(c.name) for c in report.checks))
+        w_obs = max(len("Observado"), *(len(c.observed) for c in report.checks))
+        w_req = max(len("Umbral"), *(len(c.required) for c in report.checks))
+
+        lines.append(f"{'':5s} {'Comprobacion':{w_name}s}  {'Observado':>{w_obs}s}  "
+                     f"{'Umbral':>{w_req}s}")
+        lines.append("-" * (7 + w_name + w_obs + w_req))
         for check in report.checks:
-            marca = "OK  " if check.passed else "FALLA"
-            lines.append(f"{marca} {check.name:26s} {check.observed:>24s}  "
-                         f"{check.required:>26s}")
+            marca = "OK" if check.passed else "FALLA"
+            lines.append(f"{marca:5s} {check.name:{w_name}s}  "
+                         f"{check.observed:>{w_obs}s}  {check.required:>{w_req}s}")
         lines.append("")
 
     if report.blockers:

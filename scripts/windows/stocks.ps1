@@ -15,6 +15,7 @@
       autostart Programa la actualizacion diaria automatica
       ingest    Descarga el universo completo de Yahoo Finance
       universo  TODO de una vez: descarga, calcula, puntua y valida
+      puerta    Valida la estrategia del bot contra el historico
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
       validate  Valida las senales contra su historico
@@ -29,7 +30,7 @@
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('setup', 'demo', 'ingest', 'universo', 'compute', 'presets', 'validate',
+    [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
@@ -360,6 +361,37 @@ switch ($Task) {
         Write-Host ""
         Write-Host "Universo completo listo." -ForegroundColor Green
         Write-Host "Ya puedes abrir el dashboard: el ranking cubre todo el universo."
+    }
+
+    'puerta' {
+        # Puerta 1: decide si la estrategia del bot puede pasar a operar en
+        # papel. Son tres pasos porque el backtest necesita indicadores y
+        # ranking de todo el historico, no solo de las ultimas 400 sesiones.
+        #
+        # No se ejecuta sola nunca: validar una estrategia es una decision, no
+        # una tarea de mantenimiento.
+        Assert-Venv
+        Write-Step "[1/3] Indicadores sobre todo el historico (5-15 min)"
+        & $Py -m stocks_tracker.compute.run_compute --only indicators --full-history
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+
+        Write-Step "[2/3] Ranking historico del perfil del bot (3-10 min)"
+        & $Py -m stocks_tracker.compute.run_compute --history 10
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+
+        Write-Step "[3/3] Backtest con costes y umbrales (10-20 min con robustez)"
+        & $Py -m stocks_tracker.trading.run_bot --gate --robustez
+        $veredicto = $LASTEXITCODE
+
+        Write-Host ""
+        if ($veredicto -eq 0) {
+            Write-Host "La estrategia queda certificada para operar EN PAPEL." -ForegroundColor Green
+            Write-Host "No es una prediccion de rentabilidad. Lee el informe entero."
+        } else {
+            Write-Host "La estrategia NO queda certificada. No se opera con ella." -ForegroundColor Yellow
+            Write-Host "Es el sistema funcionando: se ajusta o se descarta."
+        }
+        exit $veredicto
     }
 
     'compute' {

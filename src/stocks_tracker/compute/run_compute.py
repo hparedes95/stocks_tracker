@@ -36,12 +36,22 @@ console = Console()
 EXIT_NOTHING_TO_SCORE = 76
 
 
-def _load_prices(conn, lookback: int) -> pd.DataFrame:
-    """Precios recientes de todos los tickers.
+def _load_prices(conn, lookback: int | None) -> pd.DataFrame:
+    """Precios de todos los tickers. Con `lookback=None`, el historico entero.
 
-    Se limita la ventana: recalcular 10 anos cada noche es innecesario, y 400
-    sesiones cubren la MM200 y el momentum 12-1 con margen.
+    La ventana existe porque recalcular diez anos cada noche es innecesario y
+    400 sesiones cubren la MM200 y el momentum 12-1 con margen. Pero para
+    validar una estrategia hacen falta los diez anos: sin ellos la puerta 1
+    nunca podria comprobar el minimo de cinco, y no por falta de precios sino
+    porque los indicadores no llegaban tan atras.
     """
+    if lookback is None:
+        return conn.execute(
+            """
+            SELECT ticker, date, open, high, low, close, adj_close, volume
+            FROM prices_daily ORDER BY ticker, date
+            """
+        ).fetchdf()
     return conn.execute(
         """
         SELECT ticker, date, open, high, low, close, adj_close, volume
@@ -53,9 +63,14 @@ def _load_prices(conn, lookback: int) -> pd.DataFrame:
     ).fetchdf()
 
 
-def compute_indicators(lookback: int | None = None) -> int:
+def compute_indicators(lookback: int | None = None, full: bool = False) -> int:
     settings = get_settings()
-    lookback = lookback or int(settings.compute.get("lookback_sessions", 400))
+    if full:
+        lookback = None
+        console.print("[cyan]Indicadores sobre el historico completo[/] "
+                      "(tarda varios minutos y se hace una vez)")
+    else:
+        lookback = lookback or int(settings.compute.get("lookback_sessions", 400))
 
     with connect(read_only=True) as conn:
         prices = _load_prices(conn, lookback)
@@ -102,8 +117,9 @@ def compute_indicators(lookback: int | None = None) -> int:
     all_ind["date"] = pd.to_datetime(all_ind["date"]).dt.date
 
     # Solo se guarda la ventana pedida: el resto ya estaba calculado.
-    cutoff = sorted(all_ind["date"].unique())[-lookback:] if len(all_ind) else []
-    if cutoff:
+    cutoff = []
+    if lookback is not None and len(all_ind):
+        cutoff = sorted(all_ind["date"].unique())[-lookback:]
         all_ind = all_ind[all_ind["date"].isin(set(cutoff))]
 
     with connect() as conn:
@@ -644,6 +660,11 @@ def main() -> None:
     )
     parser.add_argument("--lookback", type=int, default=None)
     parser.add_argument(
+        "--full-history", action="store_true", dest="full_history",
+        help="Calcula los indicadores sobre TODO el historico de precios, no "
+             "solo las ultimas 400 sesiones. Necesario para validar el bot.",
+    )
+    parser.add_argument(
         "--history", type=int, default=None, metavar="ANOS",
         help="Calcula el ranking historico del preset del bot, necesario para "
              "validar la estrategia. Solo factores de precio.",
@@ -658,7 +679,8 @@ def main() -> None:
         return
 
     steps = {
-        "indicators": lambda: compute_indicators(args.lookback),
+        "indicators": lambda: compute_indicators(args.lookback,
+                                                 full=args.full_history),
         "breadth": compute_breadth,
         "rotation": compute_rotation,
         "regime": compute_regime,
