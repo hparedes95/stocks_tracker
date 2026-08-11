@@ -134,15 +134,45 @@ def technical_score(ind_row: pd.Series, active_signals: list[str]) -> float:
     """
     score = 0.0
 
-    if bool(ind_row.get("above_sma200", False)):
+    def flag(name: str) -> bool:
+        """Booleano de un indicador que puede no estar calculado todavia.
+
+        `bool(pd.NA)` no es False: lanza "boolean value of NA is ambiguous" y
+        tumba el calculo del ranking entero. Pasa con cualquier valor recien
+        salido a bolsa, que no tiene aun 50 o 200 sesiones de historico, y el
+        error no menciona ni el ticker ni el indicador.
+        """
+        value = ind_row.get(name)
+        if value is None or value is pd.NA:
+            return False
+        if isinstance(value, float) and value != value:  # NaN
+            return False
+        return bool(value)
+
+    def number(name: str) -> float | None:
+        """Numero de un indicador, o None si aun no esta calculado.
+
+        Mismo motivo que `flag`: `np.isfinite(pd.NA)` tampoco devuelve False,
+        lanza TypeError.
+        """
+        value = ind_row.get(name)
+        if value is None or value is pd.NA:
+            return None
+        try:
+            number_value = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number_value if np.isfinite(number_value) else None
+
+    if flag("above_sma200"):
         score += 0.30
     else:
         score -= 0.30
-    if bool(ind_row.get("above_sma50", False)):
+    if flag("above_sma50"):
         score += 0.15
 
-    rsi = ind_row.get("rsi14")
-    if rsi is not None and np.isfinite(rsi):
+    rsi = number("rsi14")
+    if rsi is not None:
         if 40 <= rsi <= 65:
             score += 0.10          # zona sana
         elif rsi > 78:
@@ -150,12 +180,12 @@ def technical_score(ind_row: pd.Series, active_signals: list[str]) -> float:
         elif rsi < 25:
             score -= 0.05          # cuchillo cayendo
 
-    hist = ind_row.get("macd_hist")
-    if hist is not None and np.isfinite(hist):
+    hist = number("macd_hist")
+    if hist is not None:
         score += 0.10 if hist > 0 else -0.10
 
-    dist = ind_row.get("dist_52w_high")
-    if dist is not None and np.isfinite(dist):
+    dist = number("dist_52w_high")
+    if dist is not None:
         if dist > -0.05:
             score += 0.15          # cerca de maximos: liderazgo
         elif dist < -0.40:

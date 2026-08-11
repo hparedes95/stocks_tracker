@@ -14,13 +14,25 @@ tiempo, el sesgo desaparezca hacia adelante.
 
 from __future__ import annotations
 
+import io
+
 import pandas as pd
 import requests
+from rich.console import Console
 
 from .base import ProviderError
 
+console = Console()
+
 _TIMEOUT = 30
-_HEADERS = {"User-Agent": "stocks-tracker/0.1 (uso personal)"}
+# La politica de Wikimedia exige un User-Agent que identifique la herramienta y
+# ofrezca un punto de contacto; los que no lo hacen reciben 403.
+_HEADERS = {
+    "User-Agent": (
+        "stocks-tracker/0.1 (uso personal; "
+        "https://github.com/hparedes95/stocks_tracker)"
+    )
+}
 
 WIKIPEDIA_SOURCES: dict[str, dict] = {
     "SP500": {
@@ -80,7 +92,12 @@ class UniverseProvider:
         try:
             response = requests.get(spec["url"], headers=_HEADERS, timeout=_TIMEOUT)
             response.raise_for_status()
-            tables = pd.read_html(response.text)
+            # io.StringIO y no la cadena pelada: pandas 3.0 elimino el paso de
+            # HTML literal y ahora interpreta la cadena como una RUTA DE
+            # FICHERO. El resultado era un FileNotFoundError en cada descarga,
+            # en cualquier maquina, que el respaldo convertia en un silencioso
+            # "manual (fallo la descarga)" y dejaba el universo en 50 valores.
+            tables = pd.read_html(io.StringIO(response.text))
         except Exception as exc:  # noqa: BLE001
             raise ProviderError(f"No se pudo leer {spec['url']}: {exc}") from exc
 
@@ -128,7 +145,12 @@ def resolve_universe(universe: str, manual_tickers: list[str],
 
     try:
         constituents = UniverseProvider().fetch_constituents(universe)
-    except ProviderError:
+    except ProviderError as exc:
+        # El motivo se imprime. Antes se descartaba, y "manual (fallo la
+        # descarga)" era todo lo que se sabia: no distinguia un 403 de un
+        # timeout, de un cambio de formato de la pagina o —lo que realmente
+        # pasaba— de un fallo de programacion nuestro. Costo dias averiguarlo.
+        console.print(f"[yellow]  {universe}: {exc}[/]")
         return manual_tickers, "manual (fallo la descarga)"
 
     tickers = constituents["ticker"].tolist()

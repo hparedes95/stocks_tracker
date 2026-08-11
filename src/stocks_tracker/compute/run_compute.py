@@ -168,10 +168,29 @@ def compute_factor_scores(preset: str | None = None, all_presets: bool = False) 
         presets = [preset or get_settings().compute.get("weights_preset", "balanced")]
 
     with connect(read_only=True) as conn:
-        last_date = conn.execute("SELECT MAX(date) FROM indicators_daily").fetchone()[0]
+        # La fecha del ranking es la ultima con ACCIONES, no la ultima del
+        # almacen. No es lo mismo: el bitcoin cotiza los domingos y los indices
+        # tienen barra intradia antes de que cierre Wall Street, asi que el
+        # maximo global cae con frecuencia en un dia sin una sola accion. Con
+        # `MAX(date)` a secas el ranking se quedaba vacio cada fin de semana y
+        # cada tarde antes del cierre, sin decir por que.
+        last_date = conn.execute(
+            """
+            SELECT MAX(i.date) FROM indicators_daily i
+            JOIN instruments inst USING (ticker)
+            WHERE inst.asset_class IN ('equity', 'etf')
+            """
+        ).fetchone()[0]
         if last_date is None:
             console.print("[yellow]No hay indicadores. Ejecuta `make compute` tras la ingesta.[/]")
             return 0
+
+        newest = conn.execute("SELECT MAX(date) FROM indicators_daily").fetchone()[0]
+        if newest is not None and newest != last_date:
+            console.print(
+                f"[dim]El almacen llega al {newest:%d/%m/%Y}, pero la ultima "
+                f"sesion con acciones es el {last_date:%d/%m/%Y}: se puntua esa.[/]"
+            )
 
         snapshot = conn.execute(
             """
