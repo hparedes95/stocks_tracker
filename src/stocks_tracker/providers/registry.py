@@ -25,9 +25,20 @@ def _build_stooq():
     return StooqProvider()
 
 
+def _build_kraken():
+    from .kraken_provider import KrakenPriceProvider
+
+    return KrakenPriceProvider()
+
+
 _BUILDERS["yfinance"] = _build_yfinance
 _BUILDERS["stooq"] = _build_stooq
 _BUILDERS["synthetic"] = SyntheticProvider
+# Kraken solo sirve cripto, asi que NO entra en la cadena por defecto de
+# `settings.yaml`: en una cadena responderia "no lo tengo" a todas las
+# acciones y solo anadiria latencia. Se pide por nombre desde la ingesta de
+# cripto.
+_BUILDERS["kraken"] = _build_kraken
 
 
 def available_providers() -> list[str]:

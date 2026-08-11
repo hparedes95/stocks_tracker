@@ -29,6 +29,7 @@ import requests
 
 from ...core import secrets
 from ...core.ids import ulid
+from ...core.kraken_symbols import CASH_ASSETS, canonical_asset, canonical_pair
 from .base import (
     Account,
     BrokerAuthError,
@@ -68,54 +69,13 @@ _ERROR_MAP = {
     "EOrder:Insufficient funds": InsufficientFundsError,
 }
 
-# Kraken arrastra la nomenclatura de su primera version: bitcoin es "XXBT" y el
-# euro "ZEUR". La X y la Z iniciales marcaban "cripto" y "divisa", y hoy solo
-# las llevan los activos antiguos: SOL, ADA, LINK y DOT van tal cual.
-#
-# Quitar esas letras a ciegas es un fallo silencioso: "XXBT" sin X queda en
-# "BT" —que no es ninguna moneda— y "LINK" perderia su propia inicial. El
-# precio simplemente no aparece, la posicion se valora a cero y la equity sale
-# mal sin que nada lance un error.
-_ASSET_ALIASES = {
-    "XXBT": "BTC", "XBT": "BTC",
-    "XETH": "ETH", "XXRP": "XRP", "XLTC": "LTC", "XXDG": "DOGE", "XDG": "DOGE",
-    "XXLM": "XLM", "XXMR": "XMR", "XZEC": "ZEC", "XETC": "ETC", "XMLN": "MLN",
-    "XREP": "REP", "XICN": "ICN",
-    "ZEUR": "EUR", "ZUSD": "USD", "ZGBP": "GBP", "ZJPY": "JPY",
-    "ZCAD": "CAD", "ZAUD": "AUD", "ZCHF": "CHF",
-}
-
-# Divisas de cotizacion, de mas larga a mas corta: "XXBTZEUR" termina tanto en
-# "ZEUR" como en "EUR", y partir por la corta dejaria la base en "XXBTZ".
-_QUOTE_CODES = tuple(sorted(
-    {"ZEUR", "ZUSD", "ZGBP", "ZJPY", "ZCAD", "ZAUD", "ZCHF",
-     "EUR", "USD", "GBP", "JPY", "CAD", "AUD", "CHF", "USDT", "USDC", "DAI"},
-    key=len, reverse=True,
-))
-
-# Lo que es dinero y no posicion. El saldo en euros es caja; el de una
-# stablecoin tambien, porque el mandato cripto solo opera pares contra EUR.
-_CASH_ASSETS = frozenset({"EUR", "USD", "GBP", "JPY", "CAD", "AUD", "CHF",
-                          "USDT", "USDC", "DAI"})
-
-
-def _canonical_asset(code: str) -> str:
-    """'XXBT' -> 'BTC'. Lo que no este en la tabla se deja igual."""
-    limpio = code.upper().split(".")[0]
-    return _ASSET_ALIASES.get(limpio, limpio)
-
-
-def _canonical_pair(name: str) -> str:
-    """'XXBTZEUR' y 'BTC/EUR' -> 'BTC/EUR'. Cadena vacia si no se reconoce.
-
-    Es lo que permite cruzar lo que se pidio con lo que Kraken responde, que
-    no usa el mismo nombre casi nunca.
-    """
-    plano = name.upper().replace("/", "")
-    for quote in _QUOTE_CODES:
-        if plano.endswith(quote) and len(plano) > len(quote):
-            return f"{_canonical_asset(plano[: -len(quote)])}/{_canonical_asset(quote)}"
-    return ""
+# La tabla de nombres de Kraken vive en `core.kraken_symbols`: la necesitan
+# tambien la descarga del historico y el proveedor de precios, y una segunda
+# copia seria la forma de que este fallo —ya corregido una vez— volviera por
+# un lado mientras sigue arreglado por el otro.
+_canonical_asset = canonical_asset
+_canonical_pair = canonical_pair
+_CASH_ASSETS = CASH_ASSETS
 
 
 @dataclass

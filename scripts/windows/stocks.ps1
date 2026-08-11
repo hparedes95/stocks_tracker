@@ -20,6 +20,7 @@
       mercados  Estado de Kraken y Polymarket: que falta para operar
       polymarket Comprueba la lectura de Polymarket (no necesita wallet)
       calibracion ¿Se equivoca Polymarket lo bastante como para apostar?
+      cripto    Descarga el historico de cripto de Kraken (sin claves)
       tiene-universo  Codigo 0 si el universo completo esta descargado
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
@@ -36,7 +37,7 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'claves', 'mercados',
-                 'polymarket', 'calibracion', 'tiene-universo',
+                 'polymarket', 'calibracion', 'cripto', 'tiene-universo',
                  'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
@@ -403,6 +404,20 @@ switch ($Task) {
         # nombre y apellidos del campo que no cuadra, a que reviente luego.
         Assert-Venv
         & $Py -m stocks_tracker.trading.brokers.polymarket_public
+    }
+
+    'cripto' {
+        # Historico de los pares del mandato desde Kraken. El endpoint es
+        # publico: no hacen falta claves ni cuenta.
+        #
+        # Kraken entrega 720 velas diarias como mucho, unos dos anos, y no hay
+        # forma de pedir mas atras. El comando lo dice al terminar, porque dos
+        # anos de cripto caben dentro de una sola subida y un backtest ahi
+        # puede salir estupendo sin que la estrategia valga nada.
+        Assert-Venv
+        # Incremental. Para rehacer los dos anos enteros:
+        #     .venv\Scripts\python.exe -m stocks_tracker.ingest.ingest_crypto --full
+        & $Py -m stocks_tracker.ingest.ingest_crypto
     }
 
     'calibracion' {
