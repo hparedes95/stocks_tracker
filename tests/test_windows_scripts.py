@@ -9,6 +9,7 @@ instalar el programa y no puede.
 from __future__ import annotations
 
 import re
+import subprocess
 import tomllib
 
 import pytest
@@ -165,12 +166,14 @@ def test_there_is_exactly_one_bat_in_the_project():
     """La peticion del usuario, convertida en invariante: un fichero y no
     tres. Cada .bat de mas es una decision que tiene que tomar alguien que solo
     quiere abrir su dashboard."""
-    # Se ignora el entorno virtual: sus .bat son de Python, no nuestros.
-    bats = sorted(
-        p.relative_to(project_root()).as_posix()
-        for p in project_root().rglob("*.bat")
-        if ".venv" not in p.parts
-    )
+    # Se ignora todo lo que no este versionado: los .bat de un entorno
+    # virtual son de Python, no nuestros, y el entorno puede llamarse .venv,
+    # venv o env segun quien lo cree.
+    versionados = subprocess.run(
+        ["git", "ls-files", "*.bat"], cwd=project_root(),
+        capture_output=True, text=True, check=True,
+    ).stdout.splitlines()  # splitlines: el nombre lleva un espacio
+    bats = sorted(versionados)
     assert bats == ["installer/Stocks Tracker.bat"], f"hay mas de uno: {bats}"
 
 
@@ -554,3 +557,64 @@ def test_the_installer_records_the_installed_version():
     src = text("installer/install.ps1")
     assert "'.version'" in src
     assert "api.github.com/repos/$Repo/commits/$Branch" in src
+
+
+# ---------------------------------------------------------------------------
+# Actualizarse sin destruirse
+# ---------------------------------------------------------------------------
+# El lanzador vive DENTRO de la carpeta que el instalador borra para recrearla.
+# Encontrado en revision de codigo, y es el fallo mas grave que he escrito en
+# este proyecto: no solo dejaba el programa sin instalar, sino los datos del
+# usuario en una carpeta temporal de nombre aleatorio.
+def test_the_installer_leaves_the_folder_before_deleting_it():
+    """Windows no deja borrar el directorio de trabajo de un proceso: el
+    borrado se lleva por delante todo el contenido y falla al final, abortando
+    el script con la instalacion ya vaciada."""
+    src = text("installer/install.ps1")
+    borrado = src.index("Remove-Item $InstallDir -Recurse -Force")
+    salida = src.index("Set-Location $env:LOCALAPPDATA")
+    assert salida < borrado, (
+        "se borra la carpeta sin haber salido de ella antes"
+    )
+
+
+def test_the_backup_survives_an_interrupted_update():
+    """En una carpeta con nombre, no en una temporal aleatoria: si el proceso
+    se corta entre el borrado y la restauracion, los datos tienen que poder
+    recuperarse sin adivinar donde quedaron."""
+    src = text("installer/install.ps1")
+    assert "'StocksTracker.backup'" in src
+    assert "Recuperando datos de una actualizacion interrumpida" in src
+    # Y la copia solo se borra despues de restaurar.
+    restaurar = src.index("Get-ChildItem $backup -Force")
+    limpiar = src.index("Remove-Item $backup -Recurse -Force", restaurar)
+    assert restaurar < limpiar
+
+
+def test_the_launcher_reexecutes_from_temp_before_updating():
+    """cmd.exe lee el .bat del disco a medida que lo ejecuta. Si el fichero
+    desaparece a mitad, la ventana se cierra con "no se encuentra el archivo
+    por lotes" y no llega ni al :error ni al pause."""
+    content = text("installer/Stocks Tracker.bat")
+    plano = content.replace("\r\n", "\n")
+
+    assert 'copy /y "%~f0" "%COPIA%"' in plano, (
+        "el lanzador no se pone a salvo antes de que el instalador lo borre"
+    )
+    # La copia se hace ANTES de invocar al instalador. Se busca dentro de la
+    # rama de actualizacion: `-File "%INSTALLER%"` tambien aparece en la
+    # instalacion desde cero, que es anterior en el fichero y no tiene este
+    # problema porque alli la carpeta todavia no existe.
+    rama = plano[plano.index("Hay una version nueva"):]
+    assert rama.index('copy /y "%~f0"') < rama.index('-File "%INSTALLER%"')
+    # Y la copia ya en %TEMP% no vuelve a copiarse: entraria en bucle.
+    assert 'if /i "%~dp0"=="%TEMP%\\" goto :hacer-update' in plano
+
+
+def test_the_window_does_not_close_silently_if_the_dashboard_fails():
+    content = text("installer/Stocks Tracker.bat")
+    plano = content.replace("\r\n", "\n")
+    final = plano[plano.index("\n:abrir\n"):]
+    assert "pause" in final, (
+        "un fallo al arrancar cierra la ventana antes de poder leerlo"
+    )

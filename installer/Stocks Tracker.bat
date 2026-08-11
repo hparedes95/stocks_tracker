@@ -32,6 +32,10 @@ set "BRANCH=claude/stock-market-monitoring-dashboard-7yf0nb"
 set "APP=%LOCALAPPDATA%\StocksTracker"
 set "INSTALLER=%TEMP%\stockstracker_install.ps1"
 set "PS=powershell -NoProfile -ExecutionPolicy Bypass"
+set "COPIA=%TEMP%\stockstracker_lanzador.bat"
+
+REM Reentrada desde la copia de %TEMP% (ver mas abajo).
+if /i "%~1"=="ACTUALIZAR" goto :hacer-update
 
 echo.
 echo   ==========================================
@@ -87,6 +91,25 @@ if "%LOCAL_SHA%"=="%REMOTE_SHA%" goto :aldia
 
 echo   Hay una version nueva del programa. Actualizando...
 echo.
+
+REM cmd.exe lee este .bat del disco A MEDIDA que lo ejecuta, y el instalador
+REM borra la carpeta entera (este fichero incluido) para recrearla. Si se
+REM siguiera desde aqui, cmd no podria leer la linea siguiente y moriria con
+REM "no se encuentra el archivo por lotes": ni :error ni pause, solo una
+REM ventana que se cierra sola. Y si el fichero se sustituye por otro de
+REM distinto tamano, cmd retoma la lectura en el desplazamiento antiguo, o sea
+REM a mitad de una linea cualquiera.
+REM
+REM Por eso se continua desde una copia en %TEMP%, fuera de lo que se borra.
+if /i "%~dp0"=="%TEMP%\" goto :hacer-update
+copy /y "%~f0" "%COPIA%" >nul
+if errorlevel 1 goto :sinversion
+cd /d "%TEMP%"
+"%COPIA%" ACTUALIZAR
+exit /b 0
+
+:hacer-update
+cd /d "%TEMP%"
 %PS% -Command ^
   "$ProgressPreference='SilentlyContinue';" ^
   "try { Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/%REPO%/%BRANCH%/installer/install.ps1' -OutFile '%INSTALLER%' }" ^
@@ -131,6 +154,16 @@ echo   Abriendo el dashboard. Cierra esta ventana para pararlo.
 echo.
 cd /d "%APP%"
 %PS% -File "%APP%\scripts\windows\stocks.ps1" run
+REM El lanzador anterior terminaba en `pause`. Sin el, un fallo al arrancar
+REM (el puerto 8501 ocupado por otra copia, por ejemplo) cierra la ventana
+REM antes de que se pueda leer el motivo.
+if errorlevel 1 (
+    echo.
+    echo   El dashboard no ha podido arrancar. Lee el mensaje de arriba.
+    echo   Lo mas habitual: ya hay otra ventana del programa abierta.
+    echo.
+    pause
+)
 goto :fin
 
 :sinred

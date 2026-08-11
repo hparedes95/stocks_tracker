@@ -237,25 +237,40 @@ Write-Host "  Descargado ($([math]::Round((Get-Item $zip).Length / 1MB, 1)) MB)"
 
 Write-Step 3 8 "Instalando en $InstallDir"
 
+# Copia de seguridad en un sitio ESTABLE y con nombre, no en una carpeta
+# temporal con nombre aleatorio. Si el proceso se corta entre el borrado y la
+# restauracion —y el borrado es lo mas destructivo que hace este script— los
+# datos del usuario tienen que poder recuperarse sin adivinar en que carpeta de
+# %TEMP% quedaron.
+$backup = Join-Path $env:LOCALAPPDATA 'StocksTracker.backup'
+
 if (Test-Path $InstallDir) {
-    # Se conservan los datos y la configuracion: reinstalar no puede borrarte
-    # la cartera ni las claves del .env.
-    $keep = Join-Path $temp 'keep'
-    New-Item -ItemType Directory -Path $keep -Force | Out-Null
+    if (Test-Path $backup) { Remove-Item $backup -Recurse -Force }
+    New-Item -ItemType Directory -Path $backup -Force | Out-Null
     foreach ($item in @('data', '.env', 'config')) {
         $source = Join-Path $InstallDir $item
         if (Test-Path $source) {
-            Copy-Item $source -Destination $keep -Recurse -Force
+            Copy-Item $source -Destination $backup -Recurse -Force
             Write-Host "  Conservando $item"
             # Reinstalar es tambien la forma de actualizar el programa. Si ya
             # habia almacen, sus precios se conservan y NO hay que volver a
-            # generar los de prueba encima: seria tirar por la borda la
-            # descarga del universo completo y dejar datos inventados
-            # mezclados con los reales si la descarga del paso 7 fallase.
+            # generar datos de prueba encima.
             if ($item -eq 'data') { $script:PreservedData = $true }
         }
     }
+
+    # Salir de la carpeta ANTES de borrarla. Windows no deja borrar el
+    # directorio de trabajo de un proceso: el borrado se lleva por delante todo
+    # el contenido y falla al final, con $ErrorActionPreference='Stop' abortando
+    # el script justo despues de haber vaciado la instalacion. El lanzador se
+    # ejecuta con esta carpeta como directorio actual, asi que pasaba siempre.
+    Set-Location $env:LOCALAPPDATA
     Remove-Item $InstallDir -Recurse -Force
+} elseif (Test-Path $backup) {
+    # Hay copia pero no instalacion: una actualizacion anterior se corto a
+    # medias. Se recupera en lugar de empezar de cero y perder el universo.
+    Write-Host "  Recuperando datos de una actualizacion interrumpida" -ForegroundColor Yellow
+    $script:PreservedData = $true
 }
 
 Expand-Archive -Path $zip -DestinationPath $temp -Force
@@ -278,11 +293,12 @@ try {
     Write-Host "  (no se ha podido anotar la version instalada)" -ForegroundColor DarkGray
 }
 
-$keep = Join-Path $temp 'keep'
-if (Test-Path $keep) {
-    Get-ChildItem $keep -Force | ForEach-Object {
+if (Test-Path $backup) {
+    Get-ChildItem $backup -Force | ForEach-Object {
         Copy-Item $_.FullName -Destination $InstallDir -Recurse -Force
     }
+    # Solo se borra la copia cuando los datos ya estan de vuelta en su sitio.
+    Remove-Item $backup -Recurse -Force
 }
 Write-Host "  Copiado"
 
