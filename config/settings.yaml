@@ -24,6 +24,11 @@ ingest:
   sleep_between_batches: [1.5, 3.5]   # jitter en segundos
   max_requests_per_run: 400
   backfill_years: 10
+  # Los metadatos (nombre, bolsa, sector) cambian de año en año, no de día en
+  # día, y cuestan una peticion por ticker: con 617 son entre cinco y quince
+  # minutos por ejecucion. Se reconsultan solo pasado este plazo, o antes si
+  # falta la bolsa o el sector.
+  metadata_ttl_days: 30
   fundamentals_ttl_days: 7
   fundamentals_shard_count: 7         # 1/7 del universo por noche
 

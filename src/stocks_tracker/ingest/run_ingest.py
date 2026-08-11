@@ -89,14 +89,62 @@ def ingest_universe(provider_name: str | None = None) -> int:
     tickers = list(dict.fromkeys(t for members in resolved.values() for t in members))
     console.print(f"[cyan]Universo:[/] {len(tickers)} tickers en {len(resolved)} listas")
 
-    try:
-        meta = provider.fetch_metadata(tickers)
-    except Exception as exc:  # noqa: BLE001
-        console.print(f"[yellow]No se pudieron leer metadatos: {exc}[/]")
-        meta = pd.DataFrame({"ticker": tickers})
+    # Metadatos ya conocidos. Se leen ANTES de pedir nada por dos motivos
+    # distintos, y el segundo es el importante:
+    #
+    # 1. Velocidad. `fetch_metadata` hace una peticion por ticker: con 617 son
+    #    entre cinco y quince minutos, en cada ejecucion, para traer un nombre
+    #    y un sector que no cambian de un dia para otro.
+    # 2. CORRECCION. El presupuesto de peticiones corta a los 400, y los ~217
+    #    restantes se guardaban con la ficha en blanco, PISANDO los metadatos
+    #    que ya tenian de la ejecucion anterior. Cada noche se rellenaban unos
+    #    y se vaciaban otros, sin avanzar nunca.
+    existing: dict[str, dict] = {}
+    with connect(read_only=True) as conn:
+        rows = conn.execute(
+            "SELECT ticker, name, asset_class, exchange, currency, country, "
+            "gics_sector, gics_industry, market_cap, updated_at FROM instruments"
+        ).fetchdf()
+    if not rows.empty:
+        existing = {r["ticker"]: dict(r) for _, r in rows.iterrows()}
 
-    if meta.empty:
-        meta = pd.DataFrame({"ticker": tickers})
+    ttl_days = int(get_settings().ingest.get("metadata_ttl_days", 30))
+    cutoff = utcnow() - timedelta(days=ttl_days)
+
+    def needs_metadata(ticker: str) -> bool:
+        row = existing.get(ticker)
+        if row is None:
+            return True
+        # Sin bolsa no hay simbolo de TradingView; sin sector no hay ranking
+        # sectorial. Son los dos campos cuya ausencia se nota en pantalla.
+        if is_missing(row.get("exchange")) or is_missing(row.get("gics_sector")):
+            return True
+        updated = row.get("updated_at")
+        return updated is None or pd.isna(updated) or pd.Timestamp(updated) < cutoff
+
+    pendientes = [t for t in tickers if needs_metadata(t)]
+    if pendientes:
+        console.print(
+            f"  Metadatos: {len(pendientes)} por consultar de {len(tickers)} "
+            f"(el resto se reutiliza)"
+        )
+        try:
+            meta = provider.fetch_metadata(pendientes)
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[yellow]No se pudieron leer metadatos: {exc}[/]")
+            meta = pd.DataFrame(columns=["ticker"])
+    else:
+        console.print("  Metadatos: al dia, no hace falta consultar ninguno")
+        meta = pd.DataFrame(columns=["ticker"])
+
+    fetched = {r["ticker"]: r for r in meta.to_dict("records")} if not meta.empty else {}
+
+    sin_traer = [t for t in pendientes if t not in fetched]
+    if sin_traer:
+        console.print(
+            f"[yellow]  {len(sin_traer)} se quedan sin detalle en esta pasada "
+            f"(presupuesto de peticiones agotado). Se recogen en la siguiente.[/]"
+        )
 
     # Clase de activo declarada en la configuracion, por ticker.
     class_by_ticker: dict[str, str] = {}
@@ -106,24 +154,20 @@ def ingest_universe(provider_name: str | None = None) -> int:
             for t in members:
                 class_by_ticker.setdefault(t, spec.asset_class)
 
-    # Todo ticker del universo tiene que acabar con ficha, tenga metadatos o
-    # no. `fetch_metadata` para al agotar el presupuesto de peticiones (existe
-    # para no provocar el bloqueo de Yahoo), y los que se quedaban fuera no
-    # aparecian en `instruments`. Como el ranking parte de esa tabla, esos
-    # valores tenian precios pero no existian para el sistema: en la ultima
-    # ingesta fueron 217 de 617, y no lo dijo nadie.
-    known = set(meta["ticker"]) if not meta.empty else set()
-    faltan = [t for t in tickers if t not in known]
-    if faltan:
-        console.print(
-            f"[yellow]  {len(faltan)} tickers sin metadatos (presupuesto de "
-            f"peticiones agotado). Se crea su ficha igualmente; los detalles "
-            f"llegaran en las proximas ingestas.[/]"
-        )
-        meta = pd.concat([meta, pd.DataFrame({"ticker": faltan})],
-                         ignore_index=True)
+    # Una fila por ticker del universo: lo recien traido manda, lo ya conocido
+    # se conserva, y lo que no hay en ninguno de los dos queda vacio a la
+    # espera de otra pasada. Nunca se sustituye un dato por un hueco.
+    records = []
+    for ticker in tickers:
+        row = {"ticker": ticker}
+        row.update({k: v for k, v in (existing.get(ticker) or {}).items()
+                    if not is_missing(v)})
+        row.update({k: v for k, v in (fetched.get(ticker) or {}).items()
+                    if not is_missing(v)})
+        row["ticker"] = ticker
+        row.pop("updated_at", None)
+        records.append(row)
 
-    records = meta.to_dict("records")
     for rec in records:
         declared = class_by_ticker.get(rec["ticker"])
         inferred = rec.get("asset_class")
