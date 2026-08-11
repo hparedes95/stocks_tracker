@@ -106,6 +106,23 @@ def ingest_universe(provider_name: str | None = None) -> int:
             for t in members:
                 class_by_ticker.setdefault(t, spec.asset_class)
 
+    # Todo ticker del universo tiene que acabar con ficha, tenga metadatos o
+    # no. `fetch_metadata` para al agotar el presupuesto de peticiones (existe
+    # para no provocar el bloqueo de Yahoo), y los que se quedaban fuera no
+    # aparecian en `instruments`. Como el ranking parte de esa tabla, esos
+    # valores tenian precios pero no existian para el sistema: en la ultima
+    # ingesta fueron 217 de 617, y no lo dijo nadie.
+    known = set(meta["ticker"]) if not meta.empty else set()
+    faltan = [t for t in tickers if t not in known]
+    if faltan:
+        console.print(
+            f"[yellow]  {len(faltan)} tickers sin metadatos (presupuesto de "
+            f"peticiones agotado). Se crea su ficha igualmente; los detalles "
+            f"llegaran en las proximas ingestas.[/]"
+        )
+        meta = pd.concat([meta, pd.DataFrame({"ticker": faltan})],
+                         ignore_index=True)
+
     records = meta.to_dict("records")
     for rec in records:
         declared = class_by_ticker.get(rec["ticker"])

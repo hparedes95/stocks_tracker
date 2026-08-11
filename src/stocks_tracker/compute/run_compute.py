@@ -174,22 +174,38 @@ def compute_factor_scores(preset: str | None = None, all_presets: bool = False) 
         # maximo global cae con frecuencia en un dia sin una sola accion. Con
         # `MAX(date)` a secas el ranking se quedaba vacio cada fin de semana y
         # cada tarde antes del cierre, sin decir por que.
-        last_date = conn.execute(
+        # No basta con "la ultima fecha que tenga alguna accion": un solo valor
+        # con un dia de mas —y siempre lo hay, porque las descargas no terminan
+        # todas a la vez— definiria la fecha para los seiscientos, y el ranking
+        # saldria con un unico elemento. Paso previo y real.
+        #
+        # La sesion buena es la mas reciente en la que estan la mayoria: se toma
+        # como referencia el dia mas poblado de las ultimas semanas y se exige
+        # al menos el 60 % de esa poblacion.
+        counts = conn.execute(
             """
-            SELECT MAX(i.date) FROM indicators_daily i
+            SELECT i.date, COUNT(*) AS n
+            FROM indicators_daily i
             JOIN instruments inst USING (ticker)
             WHERE inst.asset_class IN ('equity', 'etf')
+            GROUP BY i.date ORDER BY i.date DESC LIMIT 30
             """
-        ).fetchone()[0]
-        if last_date is None:
+        ).fetchdf()
+        if counts.empty:
             console.print("[yellow]No hay indicadores. Ejecuta `make compute` tras la ingesta.[/]")
             return 0
 
+        reference = int(counts["n"].max())
+        usable = counts[counts["n"] >= reference * 0.6]
+        last_date = usable["date"].max() if not usable.empty else counts["date"].max()
+
         newest = conn.execute("SELECT MAX(date) FROM indicators_daily").fetchone()[0]
-        if newest is not None and newest != last_date:
+        if newest is not None and pd.Timestamp(newest) != pd.Timestamp(last_date):
+            chosen = int(counts.loc[counts["date"] == last_date, "n"].iloc[0])
             console.print(
-                f"[dim]El almacen llega al {newest:%d/%m/%Y}, pero la ultima "
-                f"sesion con acciones es el {last_date:%d/%m/%Y}: se puntua esa.[/]"
+                f"[dim]El almacen llega al {pd.Timestamp(newest):%d/%m/%Y}, pero "
+                f"la ultima sesion completa es el {pd.Timestamp(last_date):%d/%m/%Y} "
+                f"({chosen} valores). Se puntua esa.[/]"
             )
 
         snapshot = conn.execute(

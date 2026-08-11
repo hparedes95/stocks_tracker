@@ -98,8 +98,18 @@ def test_the_query_used_by_the_code_filters_by_asset_class():
     code = "\n".join(line for line in block.splitlines()
                      if not line.strip().startswith("#"))
 
-    assert 'MAX(i.date)' in code, "la fecha del ranking no filtra por clase"
-    assert "asset_class IN ('equity', 'etf')" in code
+    assert "asset_class IN ('equity', 'etf')" in code, (
+        "la fecha del ranking no filtra por clase de activo"
+    )
+    # El maximo pelado si aparece, pero solo para AVISAR de la diferencia.
+    # Lo que no puede es decidir la fecha del ranking.
+    assert 'last_date = conn.execute("SELECT MAX(date)' not in code, (
+        "la fecha del ranking vuelve a salir del maximo pelado, que ignora si "
+        "ese dia hay acciones"
+    )
+    assert "0.6" in code, (
+        "no se exige que la sesion elegida tenga a la mayoria de los valores"
+    )
 
 
 def test_a_stock_without_enough_history_does_not_kill_the_ranking():
@@ -119,3 +129,23 @@ def test_a_stock_without_enough_history_does_not_kill_the_ranking():
     alcista = pd.Series({"above_sma200": True, "above_sma50": True})
     bajista = pd.Series({"above_sma200": False, "above_sma50": False})
     assert technical_score(alcista, []) > technical_score(bajista, [])
+
+
+def test_one_ticker_with_an_extra_day_does_not_define_the_session(warehouse):
+    """El fallo que quedaba: usar el MAXIMO de las fechas con acciones deja que
+    un solo valor —siempre hay uno, porque las descargas no acaban a la vez—
+    fije la fecha de los seiscientos. El ranking salia con un unico elemento.
+    """
+    lunes, martes = date(2026, 8, 10), date(2026, 8, 11)
+    rows = [(f"T{i}", lunes) for i in range(20)]
+    rows.append(("T0", martes))          # uno solo va por delante
+    seed([(f"T{i}", "equity") for i in range(20)], rows)
+
+    run_compute.compute_factor_scores(preset="balanced")
+
+    scores = db.query("SELECT date, COUNT(*) AS n FROM factor_scores GROUP BY 1")
+    assert len(scores) == 1
+    assert pd.Timestamp(scores["date"][0]).date() == lunes, (
+        "se ha puntuado el dia del valor adelantado en lugar de la sesion buena"
+    )
+    assert int(scores["n"][0]) == 20, f"solo se han puntuado {int(scores['n'][0])}"

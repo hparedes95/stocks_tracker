@@ -144,3 +144,38 @@ def test_the_user_agent_identifies_the_tool_and_a_contact():
     agent = up._HEADERS["User-Agent"]
     assert "stocks-tracker" in agent
     assert "http" in agent, "el User-Agent no ofrece punto de contacto"
+
+
+# ---------------------------------------------------------------------------
+# La pagina cambia de formato
+# ---------------------------------------------------------------------------
+NASDAQ_CON_SYMBOL = """
+<table><tr><th>Company</th><th>Symbol</th><th>GICS Sector</th></tr>
+<tr><td>Apple</td><td>AAPL</td><td>Tech</td></tr></table>
+"""
+
+
+def test_the_nasdaq_table_is_found_under_either_column_name(monkeypatch):
+    """Wikipedia ha usado 'Ticker' y 'Symbol' para la misma tabla. Con un solo
+    nombre aceptado, un retoque de la pagina dejaba el universo en 20 valores y
+    el mensaje era 'No se encontro la tabla de constituyentes'."""
+    monkeypatch.setattr(up.requests, "get",
+                        lambda *a, **k: FakeResponse(NASDAQ_CON_SYMBOL))
+    out = up.UniverseProvider().fetch_constituents("NASDAQ100")
+    assert list(out["ticker"]) == ["AAPL"]
+
+    con_ticker = NASDAQ_CON_SYMBOL.replace("<th>Symbol</th>", "<th>Ticker</th>")
+    monkeypatch.setattr(up.requests, "get",
+                        lambda *a, **k: FakeResponse(con_ticker))
+    assert list(up.UniverseProvider().fetch_constituents("NASDAQ100")["ticker"]) == ["AAPL"]
+
+
+def test_the_error_says_which_columns_there_were(monkeypatch):
+    """Para no tener que adivinar como ha cambiado la pagina."""
+    monkeypatch.setattr(
+        up.requests, "get",
+        lambda *a, **k: FakeResponse("<table><tr><th>Empresa</th></tr>"
+                                     "<tr><td>x</td></tr></table>"),
+    )
+    with pytest.raises(ProviderError, match="Empresa"):
+        up.UniverseProvider().fetch_constituents("NASDAQ100")

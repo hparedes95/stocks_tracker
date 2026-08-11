@@ -44,15 +44,18 @@ WIKIPEDIA_SOURCES: dict[str, dict] = {
     },
     "NASDAQ100": {
         "url": "https://en.wikipedia.org/wiki/Nasdaq-100",
-        "table_index": None,      # se busca la tabla que tenga columna Ticker
-        "symbol_column": "Ticker",
+        "table_index": None,
+        # Wikipedia ha usado "Ticker" y "Symbol" en distintos momentos para
+        # esta misma tabla. Aceptar los dos evita que un retoque de la pagina
+        # deje el universo a 20 valores.
+        "symbol_column": ["Ticker", "Symbol"],
         "name_column": "Company",
         "sector_column": "GICS Sector",
     },
     "ESTOXX50": {
         "url": "https://en.wikipedia.org/wiki/EURO_STOXX_50",
         "table_index": None,
-        "symbol_column": "Ticker",
+        "symbol_column": ["Ticker", "Symbol"],
         "name_column": "Name",
         "sector_column": None,
     },
@@ -68,12 +71,20 @@ def _pick_table(tables: list[pd.DataFrame], spec: dict) -> pd.DataFrame | None:
     index = spec.get("table_index")
     if index is not None and index < len(tables):
         return tables[index]
-    # Sin indice fijo, se busca la primera tabla que tenga la columna esperada.
-    wanted = spec.get("symbol_column")
+    # Sin indice fijo, se busca la primera tabla que tenga alguna de las
+    # columnas esperadas.
     for table in tables:
-        if wanted in [str(c) for c in table.columns]:
+        if _symbol_column(table, spec):
             return table
     return None
+
+
+def _symbol_column(table: pd.DataFrame, spec: dict) -> str | None:
+    """Nombre real de la columna de tickers, entre los alias aceptados."""
+    wanted = spec.get("symbol_column")
+    candidates = [wanted] if isinstance(wanted, str) else list(wanted or [])
+    columns = [str(c) for c in table.columns]
+    return next((c for c in candidates if c in columns), None)
 
 
 class UniverseProvider:
@@ -103,13 +114,21 @@ class UniverseProvider:
 
         table = _pick_table(tables, spec)
         if table is None or table.empty:
-            raise ProviderError(f"No se encontro la tabla de constituyentes de {universe}")
-
-        symbol_col = spec["symbol_column"]
-        if symbol_col not in table.columns:
+            # Se listan las cabeceras encontradas: sin eso, "no se encontro la
+            # tabla" obliga a abrir la pagina a mano para ver que ha cambiado.
+            seen = [[str(c) for c in t.columns][:6] for t in tables[:5]]
             raise ProviderError(
-                f"La tabla de {universe} no tiene columna '{symbol_col}'. "
-                "La pagina ha cambiado de formato."
+                f"No se encontro la tabla de constituyentes de {universe}. "
+                f"Se buscaba una columna de {spec['symbol_column']} y las "
+                f"cabeceras encontradas son {seen}"
+            )
+
+        symbol_col = _symbol_column(table, spec)
+        if symbol_col is None:
+            raise ProviderError(
+                f"La tabla de {universe} no tiene ninguna columna de "
+                f"{spec['symbol_column']}; las que hay son "
+                f"{[str(c) for c in table.columns]}. La pagina ha cambiado."
             )
 
         out = pd.DataFrame({"ticker": table[symbol_col].map(_normalize_us_ticker)})
