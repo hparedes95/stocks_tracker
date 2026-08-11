@@ -96,3 +96,117 @@ strategies:
     rebalance_band_pp: 5.0      # banda muerta de desviacion del peso objetivo
     stop_atr_mult: 2.5
     trailing: true
+
+# ===========================================================================
+# VENUES
+# ===========================================================================
+# Dos carteras, nunca un bote comun. Cada venue tiene su tope de capital, sus
+# limites y su estado propio: una racha mala en cripto no puede consumir el
+# presupuesto de Polymarket ni al reves, y el kill switch de uno no para al
+# otro.
+#
+# Los numeros de acciones NO sirven aqui. Un -3 % diario es una tarde
+# cualquiera en bitcoin, y en un mercado de prediccion el precio ES una
+# probabilidad: no tiene ATR ni media de 200 sesiones.
+venues:
+
+  kraken:
+    enabled: false            # se enciende cuando haya credenciales y validacion
+    label: "Kraken (cripto)"
+    asset_class: crypto
+    quote_currency: EUR
+    capital_cap: 25.0
+    initial_equity: 25.0
+    # Lista blanca corta a proposito. Con 25 EUR y un minimo de orden de unos
+    # 5 EUR no caben mas de cuatro posiciones, y anadir monedas pequenas solo
+    # anade riesgo de liquidez sin diversificar nada.
+    universe:
+      allowed: [BTC/EUR, ETH/EUR, SOL/EUR, ADA/EUR, DOT/EUR, LINK/EUR]
+      min_daily_volume_eur: 1000000
+    risk:
+      risk_per_trade_pct: 2.0        # menos operaciones, cada una pesa mas
+      atr_stop_mult: 4.0             # stop al ~15-20 %, fuera del ruido normal
+      atr_stop_mult_hard: 5.5        # red nativa en el exchange
+      atr_trailing: true
+      min_notional: 5.0              # minimo tipico de Kraken
+      max_position_pct: 40.0         # BTC/ETH: con 4 posiciones no cabe menos
+      max_position_pct_non_core: 18.0
+      target_position_pct: 25.0
+      max_positions: 4
+      max_sector_pct: 100.0          # no hay sectores en cripto
+      max_gross_exposure_pct: 80.0
+      min_cash_pct: 20.0             # reserva mayor: absorbe golpes y compra caidas
+      max_daily_loss_pct: 8.0        # un -3 % diario en BTC no es noticia
+      max_drawdown_pct: 20.0         # ver docs/03 §5.3: 15 % liquidaria en retrocesos normales
+      drawdown_warn_pct: 12.0
+      max_orders_per_day: 2
+      max_orders_per_ticker_per_day: 1
+      max_new_positions_per_day: 2
+      max_day_trades_5d: 99          # la regla PDT es de bolsa de EE. UU., aqui no aplica
+      min_holding_days: 21
+      block_days_before_earnings: 0  # no hay resultados trimestrales
+      block_days_after_earnings: 0
+      block_if_evidence_not_validated: true
+      min_data_coverage: 0.5
+      max_data_staleness_hours: 6    # mercado 24/7: 30 h seria una eternidad
+      allow_shorting: false
+      allow_leverage: false
+      allow_options: false
+      allow_extended_hours: true     # 24/7: no existe "fuera de horario"
+      allow_margin: false            # Kraken lo ofrece en spot; hay que apagarlo
+    execution:
+      order_type: market
+      time_in_force: gtc
+      slippage_bps_assumed: 25       # libros mas finos que en acciones
+      commission_bps: 26             # taker de Kraken en el tramo mas bajo
+      fill_at: next_open
+
+  polymarket:
+    enabled: false
+    label: "Polymarket (mercados de prediccion)"
+    asset_class: prediction
+    quote_currency: USDC
+    capital_cap: 25.0
+    initial_equity: 25.0
+    universe:
+      min_liquidity_usdc: 5000       # sin libro no hay salida
+      min_days_to_resolution: 2      # evita el ruido de las ultimas horas
+      max_days_to_resolution: 180
+    risk:
+      # Aqui NO hay stop: una posicion binaria vale entre 0 y 1 y puede irse a
+      # cero de golpe cuando el evento se resuelve. La perdida maxima es lo
+      # apostado, y por eso el tamano es el unico control real.
+      max_position_pct: 10.0         # nada de concentrar en un solo evento
+      max_correlated_pct: 25.0       # eventos del mismo tema (una eleccion, un torneo)
+      max_positions: 8
+      min_notional: 1.0
+      min_cash_pct: 20.0
+      max_gross_exposure_pct: 80.0
+      max_daily_loss_pct: 10.0
+      max_drawdown_pct: 25.0
+      drawdown_warn_pct: 15.0
+      max_orders_per_day: 4
+      max_orders_per_ticker_per_day: 1
+      max_new_positions_per_day: 3
+      min_holding_days: 0            # se puede salir en cualquier momento si hay libro
+      block_if_evidence_not_validated: true
+      max_data_staleness_hours: 6
+      allow_shorting: false          # comprar NO ya es la posicion contraria
+      allow_leverage: false
+      allow_options: false
+      allow_extended_hours: true
+    execution:
+      order_type: limit               # a mercado en un libro fino se paga caro
+      time_in_force: gtc
+      slippage_bps_assumed: 100       # los libros son mucho mas finos
+      commission_bps: 0               # Polymarket no cobra comision de trading
+      max_spread_pct: 5.0             # si la horquilla es mayor, no se opera
+
+# Politica de autonomia por modo, no global. Ver docs/03 §8.
+# Aprobar cuarenta propuestas de papel no ensena nada y produce fatiga: a la
+# decima se pulsa "aprobar" sin leer. La friccion vuelve donde hay
+# consecuencias, que es al entrar en dinero real.
+autonomy_policy:
+  simulated: auto
+  paper: auto
+  live: semi                          # obligatorio al entrar; no configurable

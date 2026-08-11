@@ -314,6 +314,35 @@ class TradingConfig:
     def strategy(self, strategy_id: str) -> dict[str, Any]:
         return dict((self.raw.get("strategies") or {}).get(strategy_id) or {})
 
+    @property
+    def venues(self) -> dict[str, Any]:
+        return dict(self.raw.get("venues") or {})
+
+    def venue(self, key: str) -> VenueConfig:
+        raw = self.venues.get(key)
+        if raw is None:
+            disponibles = ", ".join(sorted(self.venues)) or "ninguno"
+            raise ConfigError(
+                f"No hay ningun venue llamado '{key}'. Configurados: {disponibles}"
+            )
+        return VenueConfig(key=key, raw=raw)
+
+    def enabled_venues(self) -> list[str]:
+        return sorted(k for k, v in self.venues.items() if (v or {}).get("enabled"))
+
+    def autonomy_for(self, mode: str) -> str:
+        """Autonomia por modo. En real es 'semi' y no se negocia.
+
+        Aprobar cuarenta propuestas de papel no ensena nada y produce fatiga de
+        alertas: a la decima se pulsa "aprobar" sin leer, y una aprobacion que
+        se sella sin mirar no es un control, es teatro. La friccion vuelve
+        donde hay consecuencias.
+        """
+        politica = dict(self.raw.get("autonomy_policy") or {})
+        if mode == "live":
+            return "semi"
+        return str(politica.get(mode, "semi"))
+
     def limit(self, name: str) -> float:
         """Limite numerico de riesgo, con error claro si falta.
 
@@ -325,6 +354,84 @@ class TradingConfig:
         if name not in risk:
             raise ConfigError(f"Falta el limite de riesgo '{name}' en trading.yaml")
         return float(risk[name])
+
+
+@dataclass(frozen=True)
+class VenueConfig:
+    """Un mercado donde operar, con su cartera y sus limites propios.
+
+    Cartera separada, nunca un bote comun: una racha mala en cripto no puede
+    consumir el presupuesto de Polymarket, y el kill switch de uno no para al
+    otro. Compartir el saldo convertiria dos apuestas independientes en una
+    sola, mas grande.
+    """
+
+    key: str
+    raw: dict[str, Any]
+
+    def __post_init__(self) -> None:
+        for name in FORBIDDEN_ALWAYS:
+            # `allow_extended_hours` si es legitimo en cripto y en mercados de
+            # prediccion: funcionan 24/7 y "fuera de horario" no significa nada.
+            # Los otros tres siguen prohibidos en todas partes.
+            if name == "allow_extended_hours":
+                continue
+            if self.risk.get(name):
+                raise ConfigError(
+                    f"venue '{self.key}': '{name}' no se puede activar. Es una "
+                    "prohibicion absoluta del mandato, no una opcion."
+                )
+        if self.capital_cap <= 0:
+            raise ConfigError(f"venue '{self.key}': capital_cap tiene que ser positivo")
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.raw.get("enabled", False))
+
+    @property
+    def label(self) -> str:
+        return str(self.raw.get("label", self.key))
+
+    @property
+    def asset_class(self) -> str:
+        return str(self.raw.get("asset_class", "equity"))
+
+    @property
+    def quote_currency(self) -> str:
+        return str(self.raw.get("quote_currency", "EUR"))
+
+    @property
+    def capital_cap(self) -> float:
+        return float(self.raw.get("capital_cap", 0.0))
+
+    @property
+    def initial_equity(self) -> float:
+        return float(self.raw.get("initial_equity", self.capital_cap))
+
+    @property
+    def universe(self) -> dict[str, Any]:
+        return dict(self.raw.get("universe") or {})
+
+    @property
+    def risk(self) -> dict[str, Any]:
+        return dict(self.raw.get("risk") or {})
+
+    @property
+    def execution(self) -> dict[str, Any]:
+        return dict(self.raw.get("execution") or {})
+
+    def limit(self, name: str) -> float:
+        """Limite numerico, con error claro si falta.
+
+        Igual que en el mandato de acciones: un limite ausente que se rellena
+        con un valor por defecto silencioso pasa a ser un limite inventado por
+        el codigo, y el usuario creeria estar operando bajo lo que leyo.
+        """
+        if name not in self.risk:
+            raise ConfigError(
+                f"venue '{self.key}': falta el limite '{name}' en trading.yaml"
+            )
+        return float(self.risk[name])
 
 
 @lru_cache(maxsize=1)

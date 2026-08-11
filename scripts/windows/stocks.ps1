@@ -17,6 +17,7 @@
       universo  TODO de una vez: descarga, calcula, puntua y valida
       puerta    Valida la estrategia del bot contra el historico
       claves    Muestra que credenciales faltan y como conseguirlas
+      mercados  Estado de Kraken y Polymarket: que falta para operar
       tiene-universo  Codigo 0 si el universo completo esta descargado
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
@@ -32,7 +33,7 @@
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'claves', 'tiene-universo',
+    [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'claves', 'mercados', 'tiene-universo',
                  'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
@@ -381,6 +382,12 @@ switch ($Task) {
         # imprime un valor: es para mirar en pantalla sin miedo.
         Assert-Venv
         & $Py -m stocks_tracker.core.secrets
+    }
+
+    'mercados' {
+        # Que falta en cada mercado para poder operar, en una frase por venue.
+        Assert-Venv
+        & $Py -m stocks_tracker.trading.venues
     }
 
     'tiene-universo' {
