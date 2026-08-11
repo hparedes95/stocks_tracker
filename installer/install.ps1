@@ -294,11 +294,43 @@ try {
 }
 
 if (Test-Path $backup) {
-    Get-ChildItem $backup -Force | ForEach-Object {
-        Copy-Item $_.FullName -Destination $InstallDir -Recurse -Force
+    # El almacen y las claves son del usuario: vuelven a su sitio tal cual.
+    foreach ($item in @('data', '.env')) {
+        $source = Join-Path $backup $item
+        if (Test-Path $source) {
+            Copy-Item $source -Destination $InstallDir -Recurse -Force
+        }
     }
+
+    # La configuracion NO. Sus ficheros vienen con el programa, y devolver los
+    # antiguos encima significa que un cambio de configuracion no llega nunca:
+    # se actualizaria el codigo y se quedaria la configuracion de la primera
+    # instalacion. Es lo que dejaria una instalacion ya existente sin el bloque
+    # `venues`, con el bot diciendo que Kraken no esta configurado y un
+    # fichero delante que dice que si.
+    #
+    # No se borra: si alguna vez se toco a mano, queda al lado para comparar.
+    $configVieja = Join-Path $backup 'config'
+    if (Test-Path $configVieja) {
+        $aparte = Join-Path $InstallDir 'config.anterior'
+        if (Test-Path $aparte) { Remove-Item $aparte -Recurse -Force }
+        Copy-Item $configVieja -Destination $aparte -Recurse -Force
+        Write-Host "  Configuracion actualizada (la anterior, en config.anterior)"
+    }
+
     # Solo se borra la copia cuando los datos ya estan de vuelta en su sitio.
     Remove-Item $backup -Recurse -Force
+}
+
+# Fichero de claves. Se crea vacio a partir del ejemplo para que poner una
+# credencial sea abrir un fichero que ya existe y escribir detras del igual.
+# Sin esto hay que saber que hay que copiar `.env.example` a `.env`, que es
+# justo el tipo de paso previo que convierte "pon tus claves" en una consulta.
+$envFile = Join-Path $InstallDir '.env'
+$envEjemplo = Join-Path $InstallDir '.env.example'
+if ((Test-Path $envEjemplo) -and -not (Test-Path $envFile)) {
+    Copy-Item $envEjemplo -Destination $envFile -Force
+    Write-Host "  Creado .env para tus claves (vacio; el programa funciona sin el)"
 }
 Write-Host "  Copiado"
 

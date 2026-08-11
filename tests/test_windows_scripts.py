@@ -214,7 +214,19 @@ def test_installer_never_writes_outside_the_user_folder():
 # No hay `git pull` posible: el instalador descarga un ZIP, no clona. Asi que
 # volver a ejecutar el .bat es el unico camino para traerse una correccion, y
 # tiene que ser seguro hacerlo sobre una instalacion en uso.
-def test_reinstalling_keeps_data_keys_and_config():
+def restore_block() -> str:
+    """El trozo que devuelve las cosas a su sitio tras reinstalar.
+
+    Se ancla en el comentario y no en `if (Test-Path $backup)`, que aparece
+    dos veces: la primera es la que BORRA la copia anterior, justo lo
+    contrario, y cortar ahi mete en el trozo el bloque de respaldo entero.
+    """
+    src = text("installer/install.ps1")
+    inicio = src.index("    # El almacen y las claves son del usuario")
+    return src[inicio:src.index("# 4. Entorno")]
+
+
+def test_reinstalling_saves_data_keys_and_config_before_deleting():
     src = text("installer/install.ps1")
     block = src[src.index("if (Test-Path $InstallDir) {"):src.index("Expand-Archive")]
 
@@ -222,6 +234,54 @@ def test_reinstalling_keeps_data_keys_and_config():
         assert item in block, f"reinstalar borraria {item}"
     assert block.index("Copy-Item") < block.index("Remove-Item $InstallDir"), (
         "se borra la instalacion antes de poner a salvo los datos"
+    )
+
+
+def test_the_store_and_the_keys_come_back_after_an_update():
+    """Actualizar es reinstalar. Si el almacen o las claves no volviesen, cada
+    version nueva costaria una descarga de universo entera y volver a pegar las
+    credenciales."""
+    restore = restore_block()
+    assert "foreach ($item in @('data', '.env'))" in restore, (
+        "el almacen y las claves no se restauran"
+    )
+
+
+def test_an_update_does_not_restore_the_old_config_over_the_new_one():
+    """La configuracion viene con el programa. Devolver la antigua encima hace
+    que un cambio de configuracion no llegue nunca: se actualiza el codigo y se
+    queda la configuracion de la primera instalacion. Es lo que dejaria una
+    instalacion existente sin el bloque `venues`, con el bot diciendo que
+    Kraken no esta configurado y un fichero delante que dice que si."""
+    restore = restore_block()
+
+    assert "config.anterior" in restore, (
+        "la configuracion anterior se pierde en vez de quedar al lado"
+    )
+    # Se enumera lo que se copia y adonde, en vez de buscar la ausencia de una
+    # linea concreta: cualquier otra forma de devolver `config` a su sitio
+    # —copiar la copia entera, un Copy-Item suelto— tiene el mismo efecto y
+    # pasaria desapercibida.
+    copias = [linea.strip() for linea in restore.splitlines() if "Copy-Item" in linea]
+    assert copias == [
+        # El almacen y las claves, a su sitio.
+        "Copy-Item $source -Destination $InstallDir -Recurse -Force",
+        # La configuracion anterior, al lado y no encima.
+        "Copy-Item $configVieja -Destination $aparte -Recurse -Force",
+        # El fichero de claves vacio, si no habia.
+        "Copy-Item $envEjemplo -Destination $envFile -Force",
+    ], f"se copia algo mas de lo previsto al restaurar: {copias}"
+
+
+def test_the_installer_creates_the_env_file_for_the_keys():
+    """Poner una credencial tiene que ser abrir un fichero que ya existe. Si
+    hay que saber que primero se copia `.env.example` a `.env`, "pon tus
+    claves" deja de ser un paso y pasa a ser una consulta."""
+    src = text("installer/install.ps1")
+    assert ".env.example" in src, "no se parte del fichero de ejemplo"
+    creacion = src[src.index("$envEjemplo = "):]
+    assert "-not (Test-Path $envFile)" in creacion, (
+        "sobrescribiria el .env del usuario, con sus claves dentro"
     )
 
 
@@ -585,8 +645,10 @@ def test_the_backup_survives_an_interrupted_update():
     src = text("installer/install.ps1")
     assert "'StocksTracker.backup'" in src
     assert "Recuperando datos de una actualizacion interrumpida" in src
-    # Y la copia solo se borra despues de restaurar.
-    restaurar = src.index("Get-ChildItem $backup -Force")
+    # Y la copia solo se borra despues de restaurar. Se comprueba sobre la
+    # restauracion en si, no sobre la linea que la hace: el borrado prematuro
+    # de esa copia es el unico camino que pierde el almacen para siempre.
+    restaurar = src.index("foreach ($item in @('data', '.env'))")
     limpiar = src.index("Remove-Item $backup -Recurse -Force", restaurar)
     assert restaurar < limpiar
 
