@@ -330,6 +330,17 @@ switch ($Task) {
             # 75 = habia otro proceso descargando y esta ejecucion no hizo
             # nada. No es un fallo, pero tampoco se puede seguir: los pasos
             # siguientes calcularian sobre una descarga que no ocurrio.
+            # 76 = hay indicadores pero ningun instrumento que puntuar. La
+            # causa casi siempre es una ingesta de universo incompleta, y
+            # seguir dejaria el dashboard sin ranking sin decir por que.
+            if ($LASTEXITCODE -eq 76) {
+                Write-Host ""
+                Write-Host "  El calculo no ha encontrado nada que puntuar." -ForegroundColor Red
+                Write-Host "  La descarga del universo se ha quedado a medias." -ForegroundColor Yellow
+                Write-Host "  Vuelve a ejecutar esto cuando tengas conexion estable." -ForegroundColor Yellow
+                Write-Host ""
+                exit 1
+            }
             if ($LASTEXITCODE -eq 75) {
                 Write-Host ""
                 Write-Host "  Ya hay otra descarga en marcha." -ForegroundColor Yellow

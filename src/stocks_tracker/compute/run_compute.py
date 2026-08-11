@@ -30,6 +30,11 @@ from ..core.scoring import compute_scores, preset_names, weights_hash
 
 console = Console()
 
+# Hay indicadores pero ningun instrumento que puntuar. Codigo propio para que
+# la cadena de la descarga completa pueda pararse en vez de dar por bueno un
+# almacen sin ranking.
+EXIT_NOTHING_TO_SCORE = 76
+
 
 def _load_prices(conn, lookback: int) -> pd.DataFrame:
     """Precios recientes de todos los tickers.
@@ -193,8 +198,18 @@ def compute_factor_scores(preset: str | None = None, all_presets: bool = False) 
         ).fetchdf()
 
     if snapshot.empty:
-        console.print("[yellow]Sin instrumentos que puntuar.[/]")
-        return 0
+        # No es un aviso menor: sin ranking no hay Oportunidades, ni candidatos
+        # para el bot, ni comparacion sectorial. Antes salia con codigo 0 y la
+        # cadena del universo seguia hasta anunciar "Universo completo listo"
+        # con la tabla de scores vacia.
+        console.print("[bold red]Sin instrumentos que puntuar.[/]")
+        console.print(
+            "[yellow]Hay indicadores pero ningun instrumento con clase "
+            "'equity' o 'etf' en la fecha mas reciente. Lo habitual es que la "
+            "ingesta del universo fallase o se quedase a medias: vuelve a "
+            "ejecutar la descarga completa.[/]"
+        )
+        raise SystemExit(EXIT_NOTHING_TO_SCORE)
 
     merged = snapshot.merge(
         fundamentals.drop(columns=["as_of"], errors="ignore"), on="ticker", how="left"

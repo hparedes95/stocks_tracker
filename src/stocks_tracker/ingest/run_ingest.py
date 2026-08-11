@@ -27,6 +27,7 @@ from ..core.config import (
 from ..core.db import connect, migrate, upsert_df
 from ..core.locking import AlreadyRunning, single_writer
 from ..core.symbols import resolve_all
+from ..core.textutils import is_missing
 from ..core.timeutils import utcnow
 from ..providers.base import completeness
 from ..providers.fred_provider import FredProvider
@@ -116,7 +117,12 @@ def ingest_universe(provider_name: str | None = None) -> int:
         # prima mejor que una etiqueta generica de universo.
         if declared in {"etf", "index"}:
             rec["asset_class"] = declared
-        elif not inferred:
+        elif is_missing(inferred):
+            # `is_missing` y no `not inferred`: un hueco de pandas es NaN, que
+            # es VERDADERO, asi que el respaldo no se aplicaba. El instrumento
+            # se guardaba sin clase, el ranking filtra por 'equity'/'etf' y el
+            # resultado era "Sin instrumentos que puntuar" al final de una
+            # ingesta sin ningun error a la vista.
             rec["asset_class"] = declared or "equity"
 
     enriched = pd.DataFrame(resolve_all(records))

@@ -59,7 +59,11 @@ universes:
       - CLNX.MC, AMS.MC, ELE.MC, NTGY.MC, CABK.MC, ACS.MC, RED.MC, GRF.MC
       - MAP.MC, BKT.MC, ANA.MC, ENG.MC, COL.MC, MRL.MC, SAB.MC, IAG.MC
       - ACX.MC, MTS.MC, SLR.MC, LOG.MC, FDR.MC, ROVI.MC, UNI.MC, PUIG.MC
-      - IDR.MC, ANE.MC, CRIT.MC
+      # CRIT.MC estaba aqui y no existe en Yahoo: devolvia un 404 en cada
+      # ingesta. Criteria Caixa no cotiza, es la holding no cotizada de la
+      # Fundacion La Caixa. El 404 era inofensivo pero ensuciaba la salida y
+      # hacia dudar de todo lo demas.
+      - IDR.MC, ANE.MC
 
   ESTOXX50:
     name: "Euro Stoxx 50"

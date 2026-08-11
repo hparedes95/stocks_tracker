@@ -11,6 +11,7 @@ La resolucion es: overrides del YAML -> reglas por sufijo -> reglas por bolsa
 from __future__ import annotations
 
 from .config import get_symbol_blacklist, get_symbol_overrides
+from .textutils import as_text as _text
 
 # Sufijo de mercado de yfinance -> prefijo de bolsa en TradingView.
 SUFFIX_TO_EXCHANGE: dict[str, str] = {
@@ -46,20 +47,6 @@ EXCHANGE_TO_TV: dict[str, str] = {
 
 # Sufijos nordicos donde el guion del ticker pasa a guion bajo.
 _UNDERSCORE_EXCHANGES = {"OMXCOP", "OMXSTO", "OMXHEX", "OSL"}
-
-
-def _text(value) -> str:
-    """Texto limpio a partir de lo que venga: None, NaN, numeros o cadenas.
-
-    Existe por un fallo concreto: un instrumento sin bolsa declarada llegaba
-    como `float('nan')` desde pandas, `bool(nan)` es True y el codigo lo
-    trataba como una cadena. La ingesta entera moria por un valor.
-    """
-    if value is None:
-        return ""
-    if isinstance(value, float) and value != value:  # NaN
-        return ""
-    return str(value).strip()
 
 
 def _normalize_base(base: str, exchange: str) -> str:
