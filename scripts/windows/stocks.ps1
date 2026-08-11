@@ -89,7 +89,7 @@ if (-not $Root) {
     }
     Write-Host ""
     Write-Host "  Ejecutalo desde la carpeta del programa, o instalalo con" -ForegroundColor Yellow
-    Write-Host "  'Instalar Stocks Tracker.bat'." -ForegroundColor Yellow
+    Write-Host "  'Stocks Tracker.bat'." -ForegroundColor Yellow
     Write-Host ""
     exit 1
 }

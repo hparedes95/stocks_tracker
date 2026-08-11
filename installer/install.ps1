@@ -3,8 +3,9 @@
     Instalador de Stocks Tracker para Windows.
 
 .DESCRIPTION
-    Descarga el proyecto, prepara el entorno de Python, genera datos de
-    prueba y deja un acceso directo en el Escritorio.
+    Lo llama 'Stocks Tracker.bat', que es el unico fichero que el usuario
+    maneja. Descarga el proyecto, prepara el entorno de Python, trae
+    precios reales y deja el acceso directo en el Escritorio.
 
     No hace falta tener git ni saber usar la consola: se descarga el ZIP
     del repositorio.
@@ -325,22 +326,18 @@ if ($script:PreservedData) {
 # ---------------------------------------------------------------------------
 Write-Step 6 8 "Creando el acceso directo"
 
+# El acceso directo apunta al MISMO fichero que se descarga de GitHub, no a un
+# lanzador aparte que haya que mantener en paralelo. Un solo fichero para
+# instalar, actualizar, descargar datos y abrir: cualquier otro reparto obliga
+# al usuario a saber cual toca, que es pedirle que lleve la cuenta del estado
+# interno del programa.
 $launcher = Join-Path $InstallDir 'Stocks Tracker.bat'
-@"
-@echo off
-title Stocks Tracker
-cd /d "%~dp0"
-echo Comprobando si hay datos nuevos del mercado...
-echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\stocks.ps1" update
-echo.
-echo Arrancando el dashboard...
-echo Se abrira solo en el navegador. Cierra esta ventana para pararlo.
-echo.
-start "" /b powershell -NoProfile -Command "Start-Sleep 6; Start-Process 'http://127.0.0.1:8501'"
-".venv\Scripts\python.exe" -m streamlit run src/stocks_tracker/app/main.py --server.address 127.0.0.1 --server.port 8501 --server.headless true
-pause
-"@ | Set-Content -Path $launcher -Encoding ASCII
+$origen = Join-Path $InstallDir 'installer\Stocks Tracker.bat'
+if (Test-Path $origen) {
+    Copy-Item $origen $launcher -Force
+} else {
+    Fail "El paquete descargado no trae 'Stocks Tracker.bat'." $null
+}
 
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut(
@@ -438,7 +435,6 @@ Write-Host "  (varios minutos, una sola vez):"
 Write-Host "      .\scripts\windows\stocks.ps1 ingest" -ForegroundColor Cyan
 Write-Host ""
 
-$answer = Read-Host "  Abrir el dashboard ahora? (S/n)"
-if ($answer -eq '' -or $answer -match '^[sSyY]') {
-    Start-Process $launcher
-}
+Write-Host "  A partir de ahora: doble clic en 'Stocks Tracker' del Escritorio."
+Write-Host "  Ese mismo icono actualiza, descarga y abre. No hay nada mas."
+Write-Host ""

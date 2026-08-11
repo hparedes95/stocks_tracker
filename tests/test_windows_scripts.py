@@ -16,10 +16,9 @@ import pytest
 from stocks_tracker.core.config import project_root
 
 PS_SCRIPTS = ["installer/install.ps1", "scripts/windows/stocks.ps1"]
-BAT_SCRIPTS = ["installer/Stocks Tracker.bat",
-               "installer/Instalar Stocks Tracker.bat",
-               "scripts/windows/Ver dashboard.bat",
-               "scripts/windows/Descargar universo completo.bat"]
+# Un solo .bat, a proposito. Habia tres y el usuario tenia que saber cual
+# tocaba y en que orden.
+BAT_SCRIPTS = ["installer/Stocks Tracker.bat"]
 
 
 def read(path: str) -> bytes:
@@ -162,30 +161,28 @@ def test_scripts_reference_the_right_repository(script):
 # Los .bat acaban sueltos en Descargas: se bajan de GitHub de uno en uno. La
 # primera version daba por hecho que estaban dentro de la carpeta del programa
 # y fallaba con "el argumento ... no existe", sin decir que faltaba instalar.
-@pytest.mark.parametrize("script", ["scripts/windows/Ver dashboard.bat",
-                                    "scripts/windows/Descargar universo completo.bat"])
-def test_bat_finds_the_installation_when_run_from_elsewhere(script):
-    content = text(script)
-    assert "LOCALAPPDATA%\\StocksTracker" in content, (
-        "el .bat no busca la instalacion por defecto si no esta dentro de ella"
+def test_there_is_exactly_one_bat_in_the_project():
+    """La peticion del usuario, convertida en invariante: un fichero y no
+    tres. Cada .bat de mas es una decision que tiene que tomar alguien que solo
+    quiere abrir su dashboard."""
+    # Se ignora el entorno virtual: sus .bat son de Python, no nuestros.
+    bats = sorted(
+        p.relative_to(project_root()).as_posix()
+        for p in project_root().rglob("*.bat")
+        if ".venv" not in p.parts
     )
-    assert "Instalar Stocks Tracker.bat" in content, (
-        "cuando no encuentra nada, no dice que hay que instalar primero"
-    )
-    # La ruta al .ps1 tiene que ser absoluta: con una relativa, `cd` a un sitio
-    # equivocado convierte el fallo en un mensaje incomprensible.
-    assert '-File "%APP%\\scripts\\windows\\stocks.ps1"' in content
+    assert bats == ["installer/Stocks Tracker.bat"], f"hay mas de uno: {bats}"
 
 
-@pytest.mark.parametrize("script", ["scripts/windows/Ver dashboard.bat",
-                                    "scripts/windows/Descargar universo completo.bat"])
-def test_bat_does_not_announce_success_after_failing(script):
-    """Lo que mas confunde no es el fallo, es que despues diga 'Listo'."""
-    content = text(script)
-    body = content[content.index(":found"):]
-    assert ":error" in body, "no hay salida de error"
-    # Toda ejecucion del .ps1 que pueda fallar tiene que comprobarse.
-    assert body.count("if errorlevel 1 goto :error") >= 1
+def test_the_shortcut_points_at_that_same_file():
+    """Si el instalador generase su propio lanzador, habria dos ficheros que
+    mantener en paralelo y volverian a divergir."""
+    src = text("installer/install.ps1")
+    step = src[src.index("Write-Step 6 8"):src.index("# 7. Precios reales")]
+    assert "Copy-Item $origen $launcher" in step, (
+        "el acceso directo no usa el mismo fichero que se descarga de GitHub"
+    )
+    assert "installer\\Stocks Tracker.bat" in step
 
 
 def test_powershell_script_survives_an_empty_psscriptroot():
@@ -305,34 +302,6 @@ def test_daily_update_is_scheduled_by_the_installer():
     assert "StartWhenAvailable" in src, (
         "Sin StartWhenAvailable la tarea se pierde cada noche que el equipo "
         "este apagado, que en un ordenador personal son casi todas"
-    )
-
-
-def test_launcher_updates_before_opening():
-    """La red de seguridad de la tarea nocturna: al abrir el programa se pone
-    al dia si hace falta."""
-    content = text("scripts/windows/Ver dashboard.bat")
-    assert "update" in content, "el lanzador no actualiza antes de arrancar"
-    assert content.index("update") < content.index("run"), (
-        "el lanzador arranca el dashboard antes de actualizar"
-    )
-
-
-def test_installer_generated_launcher_also_updates():
-    """El acceso directo del Escritorio es el camino que el instalador dice que
-    uses, y es OTRO fichero: se genera dentro de install.ps1. Tenia el mismo
-    hueco y el test anterior no lo miraba porque recorria una tupla de un solo
-    elemento.
-    """
-    src = text("installer/install.ps1")
-    start = src.index("$launcher = Join-Path")
-    launcher = src[start:src.index('| Set-Content -Path $launcher', start)]
-
-    assert "stocks.ps1" in launcher and "update" in launcher, (
-        "El lanzador que genera el instalador no llama a `update`"
-    )
-    assert launcher.index("update") < launcher.index("streamlit run"), (
-        "El lanzador arranca Streamlit antes de actualizar"
     )
 
 

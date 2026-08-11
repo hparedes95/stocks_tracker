@@ -10,10 +10,10 @@ REM    - Sin datos reales  -> descarga el universo completo
 REM    - Datos viejos      -> los pone al dia
 REM    - Todo listo        -> abre el dashboard
 REM
-REM  Sustituye a "Instalar Stocks Tracker.bat", "Ver dashboard.bat" y
-REM  "Descargar universo completo.bat". Antes habia que saber cual tocaba y en
-REM  que orden; eso era pedirle al usuario que llevase la cuenta del estado
-REM  interno del programa.
+REM  Es el UNICO fichero del proyecto que se maneja a mano. Hubo tres
+REM  (instalar, ver y descargar) y obligaban a saber cual tocaba y en que
+REM  orden, o sea a llevar la cuenta del estado interno del programa. Se han
+REM  borrado del repositorio.
 REM
 REM  NUNCA genera datos inventados. Este dashboard se usa para decidir
 REM  inversiones reales y un numero falso con aspecto de real es peor que no
