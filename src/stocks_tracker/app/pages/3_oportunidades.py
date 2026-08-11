@@ -26,6 +26,7 @@ from stocks_tracker.core.config import get_factor_config
 from stocks_tracker.core.explain import build_reasons
 from stocks_tracker.core.flags import red_flags
 from stocks_tracker.core.scoring import PRESET_DESCRIPTIONS, preset_label
+from stocks_tracker.core.textutils import as_float, as_text
 
 st.title("Oportunidades")
 st.caption(
@@ -165,7 +166,8 @@ def _render_card(row: pd.Series) -> None:
         with head_left:
             st.markdown(f"### {ticker}")
             st.caption(
-                f"{row.get('name') or ''} · {row.get('gics_sector') or 'Sin sector'}"
+                f"{as_text(row.get('name'))} · "
+                f"{as_text(row.get('gics_sector')) or 'Sin sector'}"
             )
         with head_right:
             pctile = row.get("composite_pctile")
@@ -187,7 +189,12 @@ def _render_card(row: pd.Series) -> None:
         # motivos se explican con otros, la explicacion no explica nada.
         contributions = da.get_contributions(ticker, preset=style)
         signals = da.get_active_signals(ticker)
-        medians = da.get_sector_medians(row.get("gics_sector") or "")
+        # as_text y no `or ""`: un sector ausente llega como NaN, que es
+        # VERDADERO, asi que `or` lo dejaba pasar. DuckDB recibia un numero
+        # donde esperaba texto e intentaba convertir la columna entera a
+        # DOUBLE: "Could not convert string 'Industrials' to DOUBLE". La
+        # pagina entera se caia por un valor sin sector.
+        medians = da.get_sector_medians(as_text(row.get("gics_sector")))
         zscores = {
             f.replace("_z", ""): row.get(f)
             for f in FACTOR_LABELS
@@ -228,7 +235,7 @@ def _render_card(row: pd.Series) -> None:
             st.session_state["selected_ticker"] = ticker
             st.switch_page("pages/4_ficha_valor.py")
         if action_cols[1].button("Guardar", key=f"wl_{ticker}", width="stretch"):
-            da.add_to_watchlist(ticker, price=float(row.get("close") or 0))
+            da.add_to_watchlist(ticker, price=as_float(row.get("close")))
             st.toast(f"{ticker} anadido a la watchlist")
 
 

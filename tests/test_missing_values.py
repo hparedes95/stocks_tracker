@@ -15,8 +15,9 @@ La segunda es la peligrosa: no hubo error que leer.
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
-from stocks_tracker.core.textutils import as_text, first_text, is_missing
+from stocks_tracker.core.textutils import as_float, as_text, first_text, is_missing
 
 
 def pandas_gap():
@@ -102,3 +103,63 @@ def test_the_ingest_uses_is_missing_and_not_a_bare_truth_test():
     block = block[:block.index("enriched = pd.DataFrame")]
     assert "is_missing(inferred)" in block
     assert "elif not inferred:" not in block
+
+
+# ---------------------------------------------------------------------------
+# Tercera averia de la misma familia
+# ---------------------------------------------------------------------------
+def test_a_missing_sector_does_not_crash_the_opportunities_page(tmp_path, monkeypatch):
+    """El fallo: `row.get("gics_sector") or ""` deja pasar el NaN, DuckDB
+    recibe un numero donde espera texto e intenta convertir la columna entera
+    a DOUBLE. El error habla de "Could not convert string 'Industrials' to
+    DOUBLE" y no menciona ni el sector que falta ni el ticker, asi que no
+    apunta a ninguna parte. La pagina entera se cae por un valor sin metadatos.
+    """
+    from stocks_tracker.core import db
+
+    class Stub:
+        warehouse_path = tmp_path / "test.duckdb"
+
+    monkeypatch.setattr(db, "get_settings", lambda: Stub())
+    db.migrate()
+    with db.connect() as conn:
+        conn.execute("INSERT INTO instruments (ticker, gics_sector, asset_class) "
+                     "VALUES ('AAA', 'Industrials', 'equity')")
+
+    hueco = pd.DataFrame({"gics_sector": ["Industrials", None]}).iloc[1]["gics_sector"]
+
+    # Asi es como se rompia: el parametro llega como float y DuckDB casta la
+    # columna de texto a numero.
+    with pytest.raises(Exception, match="DOUBLE"):
+        with db.connect(read_only=True) as conn:
+            conn.execute(
+                "SELECT ticker FROM instruments WHERE gics_sector = ?", [hueco]
+            ).fetchdf()
+
+    # Y asi es como deja de romperse.
+    with db.connect(read_only=True) as conn:
+        out = conn.execute(
+            "SELECT ticker FROM instruments WHERE gics_sector = ?",
+            [as_text(hueco)],
+        ).fetchdf()
+    assert out.empty, "un sector ausente no deberia coincidir con ninguno"
+
+
+def test_the_page_uses_as_text_for_the_sector():
+    """Guardarrail: `or ""` volveria a colar el NaN."""
+    from stocks_tracker.core.config import project_root
+
+    page = (project_root() / "src/stocks_tracker/app/pages/3_oportunidades.py"
+            ).read_text("utf-8")
+    assert 'get_sector_medians(as_text(' in page
+    assert 'row.get("gics_sector") or ""' not in page
+
+
+def test_as_float_does_not_let_nan_through():
+    """`float(nan or 0)` devuelve nan, no 0: el mismo `or` de siempre."""
+    hueco = pd.DataFrame({"close": [1.0, None]}).iloc[1]["close"]
+    assert (hueco or 0) != (hueco or 0), "el escenario ya no reproduce el problema"
+    assert as_float(hueco) == 0.0
+    assert as_float(hueco, default=-1.0) == -1.0
+    assert as_float("12.5") == 12.5
+    assert as_float(3) == 3.0

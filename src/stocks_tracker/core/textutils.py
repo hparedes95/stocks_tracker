@@ -55,3 +55,17 @@ def first_text(*values: Any) -> str:
         if text:
             return text
     return ""
+
+
+def as_float(value: Any, default: float = 0.0) -> float:
+    """Numero limpio, o `default` si el valor falta.
+
+    `float(nan or 0)` devuelve nan, no 0: mismo motivo que todo lo anterior.
+    """
+    if is_missing(value):
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if number != number else number

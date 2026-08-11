@@ -20,6 +20,7 @@ from ..core.config import (
 )
 from ..core.db import connect
 from ..core.scoring import preset_hash, preset_names
+from ..core.textutils import as_text
 from ..core.timeutils import hours_since
 
 TTL = 900  # 15 minutos: los datos se actualizan una vez al dia
@@ -654,7 +655,16 @@ def get_active_signals(ticker: str) -> list[str]:
 
 @st.cache_data(ttl=TTL, show_spinner=False)
 def get_sector_medians(sector: str) -> pd.Series:
-    """Medianas del sector, para poder decir 'PER 11 frente a 14,8 del sector'."""
+    """Medianas del sector, para poder decir 'PER 11 frente a 14,8 del sector'.
+
+    El parametro se normaliza aqui ademas de en quien llama: es la ultima
+    frontera antes de la base de datos, y un hueco de pandas colandose como
+    parametro tumba la pagina con un error sobre conversiones a DOUBLE que no
+    menciona ni el sector ni el ticker.
+    """
+    sector = as_text(sector)
+    if not sector:
+        return pd.Series(dtype=float)
     df = _fetch(
         """
         SELECT MEDIAN(fu.trailing_pe) AS trailing_pe,
@@ -862,7 +872,7 @@ def replace_positions(frame: pd.DataFrame, note: str = "") -> int:
     rows = [
         (
             str(uuid.uuid4()), str(r["ticker"]), float(r["qty"]), float(r["avg_cost"]),
-            str(r.get("currency") or "EUR"), today, None, note, now,
+            as_text(r.get("currency")) or "EUR", today, None, note, now,
         )
         for _, r in frame.iterrows()
     ]
