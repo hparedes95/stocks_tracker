@@ -265,6 +265,18 @@ if (-not $extracted) { Fail "El ZIP descargado no tiene el formato esperado." $n
 
 Move-Item $extracted.FullName $InstallDir
 
+# Marca de version instalada. La usa "Stocks Tracker.bat" para saber si el
+# codigo de la carpeta esta al dia sin tener que reinstalar en cada arranque.
+# Sin esto, el lanzador actualizaba los datos pero nunca el programa, y las
+# correcciones no llegaban nunca por muchas veces que se abriera.
+try {
+    $head = Invoke-RestMethod -UseBasicParsing -TimeoutSec 20 `
+        -Uri "https://api.github.com/repos/$Repo/commits/$Branch"
+    Set-Content -Path (Join-Path $InstallDir '.version') -Value $head.sha -Encoding ASCII
+} catch {
+    Write-Host "  (no se ha podido anotar la version instalada)" -ForegroundColor DarkGray
+}
+
 $keep = Join-Path $temp 'keep'
 if (Test-Path $keep) {
     Get-ChildItem $keep -Force | ForEach-Object {

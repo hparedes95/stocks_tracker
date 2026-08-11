@@ -531,3 +531,57 @@ def test_the_universe_download_purges_leftover_fake_data():
     src = text("scripts/windows/stocks.ps1")
     block = src[src.index("'universo' {"):src.index("'compute' {")]
     assert "'--drop-synthetic'" in block
+
+
+def launcher_block(content: str, start: str, end: str) -> str:
+    """Trozo entre dos ETIQUETAS de un .bat.
+
+    Buscar ":instalado" a secas encuentra antes el `goto :instalado`, y el
+    trozo resultante no contiene el bloque que se quiere comprobar. El test
+    pasaba o fallaba por el motivo equivocado.
+    """
+    # Los .bat van con CRLF: buscar "\n:etiqueta\n" no encuentra nada.
+    plano = content.replace("\r\n", "\n")
+    i = plano.index(f"\n{start}\n")
+    j = plano.index(f"\n{end}\n", i)
+    return plano[i:j]
+
+
+def test_the_launcher_updates_the_code_and_not_only_the_data():
+    """El fallo: el lanzador ponia al dia los precios pero nunca el programa.
+    El usuario reinstalaba, veia "Datos al dia" y le seguia saliendo el mismo
+    error, porque el codigo de la carpeta era el de siempre.
+    """
+    content = text("installer/Stocks Tracker.bat")
+    ya_instalado = launcher_block(content, ":instalado", ":abrir")
+
+    assert "install.ps1" in ya_instalado, (
+        "estando ya instalado, no hay forma de que llegue una correccion"
+    )
+    assert ".version" in ya_instalado, "no compara la version instalada"
+    # Y el codigo se actualiza ANTES de abrir el dashboard.
+    assert ya_instalado.index("install.ps1") < ya_instalado.index("stocks.ps1")
+
+
+def test_the_launcher_does_not_reinstall_on_every_launch():
+    """Rehacer el entorno de Python en cada doble clic haria inusable el
+    programa: son varios minutos."""
+    content = text("installer/Stocks Tracker.bat")
+    ya_instalado = launcher_block(content, ":instalado", ":abrir")
+    assert '"%LOCAL_SHA%"=="%REMOTE_SHA%"' in ya_instalado
+    assert ":aldia" in ya_instalado
+
+
+def test_a_failure_to_check_the_version_does_not_block_the_dashboard():
+    """Sin internet, el programa tiene que abrirse igual con lo que haya."""
+    content = text("installer/Stocks Tracker.bat")
+    assert ":sinversion" in content
+    sin = launcher_block(content, ":sinversion", ":aldia")
+    assert "goto :datos" in sin, "quedarse sin comprobar version impide abrir"
+
+
+def test_the_installer_records_the_installed_version():
+    """Sin la marca, el lanzador no puede saber si hace falta actualizar."""
+    src = text("installer/install.ps1")
+    assert "'.version'" in src
+    assert "api.github.com/repos/$Repo/commits/$Branch" in src
