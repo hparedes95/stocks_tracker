@@ -167,15 +167,22 @@ def test_the_verdict_cannot_mint_its_own_order():
 # ---------------------------------------------------------------------------
 # Alcance de la fase 6
 # ---------------------------------------------------------------------------
-def test_the_dashboard_shows_the_verdict_but_not_the_bot():
-    """La fase 6 es "sin UI", y el motivo era concreto: si una pagina mostrase
-    propuestas de una estrategia que nadie ha validado, el usuario las leeria
-    como recomendaciones.
+def test_the_dashboard_never_imports_what_decides():
+    """El dashboard puede ENSENAR lo que el bot hizo, nunca DECIDIR.
 
-    Mostrar el INFORME de la validacion es lo contrario de ese riesgo: dice
-    precisamente si esta validada o no, y tiene que verlo quien pone el dinero
-    sin escribir un comando. Lo que sigue prohibido es la estrategia, el
-    riesgo, las intenciones y las ordenes.
+    La regla original prohibia al dashboard tocar nada del bot, y el motivo
+    sigue siendo bueno: una pagina que mostrase propuestas de una estrategia
+    sin validar las convertiria en recomendaciones, y se ejecutarian a mano.
+
+    Lo que se abrio despues es lo contrario de una propuesta —el registro de
+    lo que ya paso y lo que espera confirmacion— y con el freno de mano hace
+    falta verlo: una orden retenida que no sale en ninguna pantalla es una
+    orden perdida.
+
+    Lo que sigue prohibido, y es la parte que importa: importar lo que decide.
+    Si el dashboard pudiera construir una estrategia o un veredicto de riesgo,
+    podria generar propuestas nuevas, y volveriamos exactamente al riesgo
+    original.
     """
     prohibido = ("trading.risk", "trading.strategies", "trading.run_bot",
                  "trading.execution", "trading.intents", "trading.journal")
@@ -187,18 +194,45 @@ def test_the_dashboard_shows_the_verdict_but_not_the_bot():
             if modulo in source:
                 offenders.append(f"{path.relative_to(SRC).as_posix()} -> {modulo}")
 
-    assert not offenders, f"el dashboard usa el bot: {offenders}"
+    assert not offenders, f"el dashboard usa lo que decide: {offenders}"
 
 
-def test_the_dashboard_never_shows_orders_or_intents():
-    """Ninguna pagina puede leer las tablas de operativa del bot todavia."""
+def test_only_one_module_reads_the_bot_tables():
+    """Y en solo lectura. Concentrarlo en `bot_view` es lo que permite que la
+    regla de arriba siga significando algo: con consultas sueltas por las
+    paginas, cualquiera podria sacar intenciones vetadas y presentarlas como
+    candidatas sin importar ningun modulo prohibido."""
+    permitido = SRC / "app" / "bot_view.py"
     offenders = []
     for path in (SRC / "app").rglob("*.py"):
+        if path == permitido:
+            continue
         source = path.read_text("utf-8")
-        for tabla in ("FROM intents", "FROM orders", "FROM bot_positions"):
+        for tabla in ("FROM intents", "FROM orders", "FROM bot_positions",
+                      "FROM decision_log", "FROM bot_runs"):
             if tabla in source:
                 offenders.append(f"{path.relative_to(SRC).as_posix()} -> {tabla}")
-    assert not offenders, f"el dashboard muestra operativa sin validar: {offenders}"
+    assert not offenders, f"leen tablas del bot fuera de bot_view: {offenders}"
+
+
+def test_the_bot_view_never_writes():
+    """El dashboard abre la base en solo lectura y DuckDB admite un solo
+    escritor. Una escritura desde aqui competiria con el ciclo del bot, y el
+    que perdiera se quedaria sin poder anotar lo que acaba de hacer."""
+    source = (SRC / "app" / "bot_view.py").read_text("utf-8")
+    for verbo in ("INSERT", "UPDATE", "DELETE", "CREATE", "DROP"):
+        assert verbo not in source, f"bot_view escribe en la base: {verbo}"
+    assert source.count("connect(") == source.count("connect(read_only=True)"), (
+        "alguna conexion de bot_view no es de solo lectura"
+    )
+
+
+def test_the_bot_page_says_it_is_not_advice():
+    """Es la diferencia entre un registro y una recomendacion, y quien la lee
+    no tiene por que deducirla."""
+    pagina = (SRC / "app" / "pages" / "10_bot.py").read_text("utf-8")
+    assert "no una lista de recomendaciones" in pagina
+    assert "sugerencia para tu cartera" in pagina
 
 
 def test_a_real_broker_needs_to_say_which_market():

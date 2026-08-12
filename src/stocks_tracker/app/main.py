@@ -65,6 +65,10 @@ pages = {
                 icon=":material/bookmark:", url_path="watchlist"),
         alerts_page,
     ],
+    "El bot": [
+        st.Page("pages/10_bot.py", title="Que hace el bot",
+                icon=":material/smart_toy:", url_path="bot"),
+    ],
     "Sistema": [
         st.Page("pages/8_estado.py", title="Estado de los datos",
                 icon=":material/database:", url_path="estado"),

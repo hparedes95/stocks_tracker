@@ -1,0 +1,171 @@
+"""Pagina 10 — El bot: que tiene, que hizo y que espera tu visto bueno.
+
+Esta pagina es un REGISTRO, no una lista de recomendaciones. Muestra lo que el
+bot ya hizo con su propio dinero asignado y lo que quedo retenido por el freno
+de mano. Nada de lo que aparece aqui es una sugerencia para tu cartera.
+
+Existe porque con el freno puesto hace falta: una orden retenida que no sale
+en ninguna pantalla es una orden perdida.
+"""
+
+from __future__ import annotations
+
+import streamlit as st
+
+from stocks_tracker.app import bot_view
+from stocks_tracker.app.components.common import render_disclaimer
+
+st.title("El bot")
+
+st.info(
+    "Esto es el **registro** del bot, no una lista de recomendaciones. Son "
+    "operaciones que ya ha hecho con el capital que tiene asignado, y ordenes "
+    "que esperan tu confirmacion. Nada de lo que aparece aqui es una "
+    "sugerencia para tu cartera.",
+    icon=":material/smart_toy:",
+)
+
+carteras = bot_view.modes()
+if not carteras:
+    st.warning(
+        "El bot no ha ejecutado ningun ciclo todavia. Cuando lo haga, aqui "
+        "apareceran sus posiciones, sus ordenes y el motivo de cada decision.",
+        icon=":material/hourglass_empty:",
+    )
+    render_disclaimer()
+    st.stop()
+
+# ---------------------------------------------------------------------------
+# Lo que espera confirmacion, arriba del todo
+# ---------------------------------------------------------------------------
+# Va lo primero porque es lo unico de esta pagina que requiere que hagas algo,
+# y porque caduca: enterrarlo debajo de las tablas seria la forma de que
+# caducase sin que nadie lo viera.
+pendientes = bot_view.pending()
+if not pendientes.empty:
+    st.subheader(f"Esperando tu confirmacion ({len(pendientes)})")
+    st.warning(
+        "El bot opera solo, pero estas ordenes han cruzado un freno y no "
+        "saldran hasta que las apruebes. **Caducan**: si nadie decide, se "
+        "descartan y el bot volvera a proponerlas con el precio de entonces.",
+        icon=":material/pan_tool:",
+    )
+    st.dataframe(
+        pendientes.rename(columns={
+            "created_at": "propuesta", "expires_at": "caduca",
+            "ticker": "valor", "side": "lado",
+            "notional_approved": "importe", "qty_approved": "cantidad",
+            "ref_price": "precio ref.", "decision_note": "por que espera",
+        }).drop(columns=["intent_id"]),
+        hide_index=True, use_container_width=True,
+    )
+    st.caption(
+        "Para decidir, en la ventana del programa:  "
+        "`stocks.ps1 pendientes`  —  aprobar no se salta el riesgo: la orden "
+        "ya paso por el mandato, y el precio se comprueba otra vez antes de "
+        "enviarla."
+    )
+    st.divider()
+
+# ---------------------------------------------------------------------------
+cartera = st.selectbox(
+    "Cartera", carteras,
+    help="Cada mercado lleva su contabilidad aparte: nunca un bote comun.",
+)
+
+estado = bot_view.kill_switch(cartera)
+run = bot_view.last_run(cartera)
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    # "Sin arrancar" habiendo un ciclo registrado seria falso: lo que falta no
+    # es el bot, es la fila del kill switch, que solo se crea en los modos que
+    # gestionan estado.
+    bruto = (estado or {}).get("state")
+    if bruto == "RUNNING":
+        st.metric("Estado", "En marcha")
+    elif bruto:
+        st.metric("Estado", str(bruto))
+    elif run:
+        st.metric("Estado", "Sin registro")
+    else:
+        st.metric("Estado", "Sin arrancar")
+with col2:
+    st.metric("Ultimo ciclo",
+              str((run or {}).get("started_at") or "—")[:16])
+with col3:
+    equity = (run or {}).get("equity_end")
+    st.metric("Equity", f"{equity:.2f}" if equity else "—")
+
+if run and not estado:
+    st.caption(
+        "El kill switch no tiene registro para esta cartera. Solo se crea en "
+        "los modos que gestionan estado, asi que un ciclo de simulacion "
+        "antiguo puede aparecer sin el."
+    )
+
+if estado and estado.get("state") not in (None, "RUNNING"):
+    st.error(
+        f"**El bot esta parado.** Regla: {estado.get('halt_rule') or '—'}. "
+        f"{estado.get('halt_detail') or ''}\n\n"
+        "El rearme es **manual siempre**: un kill switch que se rearma solo no "
+        "es un kill switch, es una pausa.",
+        icon=":material/block:",
+    )
+
+# ---------------------------------------------------------------------------
+tab_pos, tab_ord, tab_dec = st.tabs(
+    ["Posiciones abiertas", "Ordenes", "Por que hizo cada cosa"]
+)
+
+with tab_pos:
+    posiciones = bot_view.positions(cartera)
+    if posiciones.empty:
+        st.caption("Sin posiciones abiertas.")
+    else:
+        st.dataframe(
+            posiciones.rename(columns={
+                "ticker": "valor", "qty": "cantidad",
+                "avg_entry_price": "entrada media", "stop_price": "stop",
+                "opened_at": "abierta el",
+                "highest_close_since_entry": "maximo desde entrada",
+            }),
+            hide_index=True, use_container_width=True,
+        )
+        st.caption(
+            "El stop es **sintetico**: lo vigila este programa, no el "
+            "exchange. Con el ordenador apagado no se dispara."
+        )
+
+with tab_ord:
+    ordenes = bot_view.orders(cartera)
+    if ordenes.empty:
+        st.caption("Todavia no ha enviado ninguna orden.")
+    else:
+        st.dataframe(
+            ordenes.rename(columns={
+                "submitted_at": "enviada", "ticker": "valor", "side": "lado",
+                "qty": "cantidad", "notional": "importe", "status": "estado",
+            }),
+            hide_index=True, use_container_width=True,
+        )
+
+with tab_dec:
+    st.caption(
+        "Incluye lo que NO hizo y por que. Es la respuesta a \"por que no "
+        "compro X el martes\", que sin esto no la tiene nadie."
+    )
+    decisiones = bot_view.recent_decisions(cartera)
+    if decisiones.empty:
+        st.caption("Sin decisiones registradas.")
+    else:
+        st.dataframe(
+            decisiones.rename(columns={
+                "logged_at": "cuando", "ticker": "valor",
+                "decision": "decision", "reason_code": "codigo",
+                "reason_text": "motivo",
+            }),
+            hide_index=True, use_container_width=True,
+        )
+
+render_disclaimer()
