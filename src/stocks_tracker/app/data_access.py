@@ -899,6 +899,61 @@ def close_position(position_id: str) -> None:
             "UPDATE positions SET closed_at = ? WHERE id = ?", [date.today(), position_id]
         )
     get_positions.clear()
+    get_closed_sales.clear()
+
+
+# Cuantos dias de margen se admiten entre la fecha de venta y la ultima sesion
+# con precio. Un fin de semana o un festivo largo caben; si hay que retroceder
+# mas, el precio ya no representa el dia de la venta y es mejor no estimar.
+_MAX_DIAS_SIN_PRECIO = 7
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_closed_sales(ticker: str, days: int = 400) -> pd.DataFrame:
+    """Ventas cerradas de un valor con el resultado ESTIMADO de cada una.
+
+    `positions` guarda a que precio se compro pero no a que precio se vendio,
+    asi que el resultado no se puede saber: se estima con el cierre del dia de
+    la venta. Es una aproximacion —el precio de ejecucion no es el de cierre y
+    `avg_cost` no lleva comisiones— y por eso se devuelve el porcentaje y quien
+    lo use decide con margen.
+
+    Sin precio para ese dia, `resultado_pct` sale nulo: significa "no se sabe",
+    que no es lo mismo que "fue ganancia".
+    """
+    # El limite de antiguedad va FUERA del ASOF y no dentro: DuckDB solo admite
+    # una desigualdad en la condicion del ASOF, y con dos falla al enlazar la
+    # consulta. Se une por la sesion anterior mas cercana y se descarta despues
+    # si quedo demasiado lejos.
+    return _fetch(
+        f"""
+        WITH cerradas AS (
+            SELECT p.closed_at, p.qty, p.avg_cost, p.currency,
+                   pr.close AS cierre, pr.date AS fecha_cierre
+            FROM positions p
+            ASOF LEFT JOIN prices_daily pr
+                 ON pr.ticker = p.ticker AND pr.date <= p.closed_at
+            WHERE p.ticker = ?
+              AND p.closed_at IS NOT NULL
+              AND p.closed_at >= CURRENT_DATE - INTERVAL (?) DAY
+        ),
+        vigentes AS (
+            SELECT *, CASE
+                WHEN fecha_cierre IS NOT NULL
+                 AND date_diff('day', fecha_cierre, closed_at)
+                     <= {_MAX_DIAS_SIN_PRECIO}
+                THEN cierre END AS precio_estimado
+            FROM cerradas
+        )
+        SELECT closed_at, qty, avg_cost, currency, precio_estimado,
+               CASE WHEN avg_cost > 0 AND precio_estimado IS NOT NULL
+                    THEN (precio_estimado / avg_cost - 1) * 100.0
+               END AS resultado_pct
+        FROM vigentes
+        ORDER BY closed_at DESC
+        """,
+        [ticker, days],
+    )
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)

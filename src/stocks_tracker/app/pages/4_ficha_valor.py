@@ -86,8 +86,9 @@ kpi[5].metric("Desde maximos", format_pct(latest_ind.get("dist_52w_high"), 1, Fa
 # El widget de TradingView depende de que el navegador alcance su dominio, y si
 # no lo alcanza (sin conexion, bloqueador, red restringida) la pestana sale en
 # blanco. Abrir en una pestana vacia haria parecer que la aplicacion no funciona.
-tab_own, tab_tv, tab_fund, tab_news = st.tabs(
-    ["Nuestras senales", "Grafico TradingView", "Fundamentales", "Noticias"]
+tab_own, tab_tv, tab_fund, tab_cost, tab_news = st.tabs(
+    ["Nuestras senales", "Grafico TradingView", "Fundamentales",
+     "Lo que cuesta", "Noticias"]
 )
 
 with tab_own:
@@ -216,6 +217,23 @@ with tab_fund:
         if tv_widgets.enabled() and tv_symbol:
             with st.expander("Estados financieros completos (TradingView)"):
                 tv_widgets.fundamental_data(tv_symbol, height=560)
+
+with tab_cost:
+    # Va en la ficha del valor y no en una calculadora aparte porque es aqui
+    # donde se decide comprar. Una pantalla que hay que ir a buscar no se mira.
+    from stocks_tracker.app.components.cost_panel import render_cost_panel
+
+    render_cost_panel(
+        ticker=ticker,
+        currency=currency,
+        dividend_yield=(
+            float(fundamentals["dividend_yield"]) * 100.0
+            if fundamentals is not None
+            and pd.notna(fundamentals.get("dividend_yield"))
+            else 0.0
+        ),
+        country=(instrument["country"] if instrument is not None else "") or "",
+    )
 
 with tab_news:
     if tv_widgets.enabled() and tv_symbol:

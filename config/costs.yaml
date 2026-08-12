@@ -1,0 +1,106 @@
+# Costes e impuestos de operar. Todo lo que separa la rentabilidad bruta que
+# ves en pantalla de los euros que acaban en tu cuenta.
+#
+# ESTO NO ES ASESORAMIENTO FISCAL. Son las reglas generales de un residente
+# fiscal en Espana que invierte por cuenta propia, y sirven para COMPARAR
+# alternativas antes de comprar, no para liquidar impuestos. Los tipos cambian,
+# tu situacion puede tener particularidades (plusvalias de otros ejercicios,
+# minusvalias pendientes de compensar, regimenes especiales) y la declaracion
+# la hace Hacienda con sus datos, no este programa.
+#
+# Los numeros de aqui son editables a proposito: si tu broker cobra otra cosa,
+# cambias una linea y todo el dashboard usa tu coste real.
+
+# ---------------------------------------------------------------------------
+# Tu broker
+# ---------------------------------------------------------------------------
+# Por defecto, tarifas tipicas de un broker europeo de bajo coste. Cambialas
+# por las tuyas: una comision mal puesta hace que compares mal.
+broker:
+  nombre: "Generico (edita esto)"
+  # Comision por operacion: lo que sea mayor entre el fijo y el porcentaje.
+  comision_fija_eur: 1.0
+  comision_pct: 0.0
+  comision_minima_eur: 1.0
+  # Muchos brokers cobran el cambio de divisa aparte, y suele ser el coste
+  # OCULTO mas grande al comprar en dolares: 0,25 % sobre el importe entero,
+  # no sobre el beneficio.
+  cambio_divisa_pct: 0.25
+  # Canon de bolsa espanola y similares. Cero en la mayoria de brokers
+  # extranjeros porque ya va dentro de la comision.
+  canon_pct: 0.0
+
+# ---------------------------------------------------------------------------
+# Retencion en origen de dividendos
+# ---------------------------------------------------------------------------
+# Lo que el pais de la empresa se queda ANTES de que el dividendo llegue a tu
+# broker. Con el formulario W-8BEN presentado (tu broker suele pedirlo al
+# abrir la cuenta), EE. UU. retiene el 15 % en vez del 30 %.
+#
+# Parte de esa retencion se recupera despues en la declaracion, via deduccion
+# por doble imposicion internacional, y con el limite del tipo del convenio.
+# Aqui se calcula el coste BRUTO y se dice cuanto es recuperable, porque el
+# dinero no vuelve hasta la declaracion del ano siguiente.
+retencion_origen_pct:
+  US: 15.0            # con W-8BEN; sin el, 30
+  US_sin_w8ben: 30.0
+  ES: 19.0
+  DE: 26.375          # Alemania retiene mucho y recuperar el exceso es un tramite
+  FR: 12.8
+  GB: 0.0             # Reino Unido no retiene a no residentes
+  NL: 15.0
+  CH: 35.0            # Suiza retiene el 35; recuperar 20 exige solicitud aparte
+  IE: 25.0
+  PT: 28.0
+  IT: 26.0
+  desconocido: 15.0   # supuesto prudente cuando no se sabe el pais
+
+# Tipo del convenio de doble imposicion: hasta aqui se puede deducir en la
+# declaracion espanola. Lo retenido POR ENCIMA de este tipo no se deduce; se
+# reclama al pais de origen, que es un tramite que casi nadie hace.
+limite_convenio_pct:
+  US: 15.0
+  DE: 15.0
+  FR: 15.0
+  CH: 15.0
+  IE: 15.0
+  PT: 15.0
+  IT: 15.0
+  NL: 15.0
+  GB: 0.0
+  desconocido: 15.0
+
+# ---------------------------------------------------------------------------
+# IRPF: base del ahorro
+# ---------------------------------------------------------------------------
+# Tramos de la base del ahorro (plusvalias y dividendos). Son acumulativos: los
+# primeros 6.000 EUR al 19 %, de ahi a 50.000 al 21 %, etc.
+irpf_base_ahorro:
+  - hasta: 6000
+    tipo: 19.0
+  - hasta: 50000
+    tipo: 21.0
+  - hasta: 200000
+    tipo: 23.0
+  - hasta: 300000
+    tipo: 27.0
+  - hasta: null       # sin limite
+    tipo: 30.0
+
+# ---------------------------------------------------------------------------
+# Regla de los dos meses (antiaplicacion)
+# ---------------------------------------------------------------------------
+# Art. 33.5 LIRPF: si vendes con perdidas y compras valores HOMOGENEOS —el
+# mismo valor— dentro de los dos meses anteriores o posteriores, esa perdida NO
+# se puede compensar en ese ejercicio. No se pierde: queda aplazada hasta que
+# vendas las nuevas participaciones.
+#
+# Es el error mas caro y mas facil de cometer sin enterarse: vendes en perdidas
+# para "hacer caja fiscal", recompras a los diez dias porque el valor te sigue
+# gustando, y te quedas sin la compensacion que buscabas.
+#
+# Dos meses para valores cotizados; un ano para los no cotizados.
+regla_dos_meses:
+  dias_cotizados: 60
+  dias_no_cotizados: 365
+  activa: true
