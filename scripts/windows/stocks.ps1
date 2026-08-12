@@ -274,6 +274,11 @@ switch ($Task) {
             Write-Host "La descarga ha fallado. Se conservan los datos anteriores." -ForegroundColor Yellow
             return
         }
+        # Cripto tambien: es incremental y tarda segundos cuando no hay nada
+        # nuevo. Sin esto, el universo de acciones se mantendria al dia y el de
+        # cripto se quedaria congelado en la fecha de la instalacion, con el
+        # bot decidiendo sobre precios viejos.
+        & $Py -m stocks_tracker.ingest.ingest_crypto
         & $Py -m stocks_tracker.compute.run_compute
         & $Py -m stocks_tracker.compute.run_compute --only scores --all-presets
         & $Py -m stocks_tracker.alerts.run_alerts
@@ -378,7 +383,15 @@ switch ($Task) {
                Args = @('-m', 'stocks_tracker.compute.run_compute', '--only', 'scores',
                         '--all-presets') },
             @{ Name = 'Validando las senales contra su historico (2-5 min)'
-               Args = @('-m', 'stocks_tracker.backtest.run_backtest', '--tag-signals') }
+               Args = @('-m', 'stocks_tracker.backtest.run_backtest', '--tag-signals') },
+            # El historico de cripto va aqui y no en un comando aparte: si
+            # hubiera que acordarse de ejecutarlo, el bot de cripto se quedaria
+            # sin datos y sin decir por que. Sale de Yahoo porque Kraken solo
+            # da dos anos.
+            @{ Name = 'Descargando el historico de cripto (2-4 min)'
+               Args = @('-m', 'stocks_tracker.ingest.ingest_crypto') },
+            @{ Name = 'Calculando indicadores de cripto (1-2 min)'
+               Args = @('-m', 'stocks_tracker.compute.run_compute', '--only', 'indicators') }
         )
         $n = 0
         foreach ($step in $steps) {
@@ -590,6 +603,7 @@ switch ($Task) {
         # dashboard con datos de ayer que dejarlo a medias sin alertas.
         foreach ($step in @(
             @{ Name = 'Ingesta'; Args = @('-m', 'stocks_tracker.ingest.run_ingest', '--what', 'all') },
+            @{ Name = 'Ingesta de cripto'; Args = @('-m', 'stocks_tracker.ingest.ingest_crypto') },
             @{ Name = 'Calculo'; Args = @('-m', 'stocks_tracker.compute.run_compute') },
             @{ Name = 'Alertas'; Args = @('-m', 'stocks_tracker.alerts.run_alerts') }
         )) {
@@ -626,6 +640,22 @@ switch ($Task) {
                 Write-Step 'Validando la estrategia del bot (puerta 1)'
                 & $Py -m stocks_tracker.trading.run_bot --gate --robustez
             }
+
+            # La puerta de CRIPTO y el estudio de Polymarket, por el mismo
+            # motivo y con la misma cadencia: son los dos examenes que deciden
+            # si cada mercado puede operar, y su resultado tiene que existir
+            # aunque nadie abra una consola nunca. Se leen en el dashboard.
+            #
+            # No detienen nada si fallan: un suspenso es un resultado, y que
+            # Polymarket no responda un domingo no puede dejar sin ejecutar lo
+            # demas.
+            Write-Step 'Validando la estrategia de cripto'
+            try { & $Py -m stocks_tracker.trading.run_bot --venue kraken --gate --robustez }
+            catch { Write-Host "  La puerta de cripto ha fallado, se continua." -ForegroundColor Yellow }
+
+            Write-Step 'Midiendo la calibracion de Polymarket'
+            try { & $Py -m stocks_tracker.trading.polymarket_calibration }
+            catch { Write-Host "  El estudio de Polymarket ha fallado, se continua." -ForegroundColor Yellow }
         }
     }
 

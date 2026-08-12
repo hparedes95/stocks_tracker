@@ -357,14 +357,40 @@ def test_installer_steps_are_numbered_consistently():
     assert numbers == sorted(numbers), f"Los pasos van desordenados: {numbers}"
 
 
-def test_daily_update_is_scheduled_by_the_installer():
+def test_the_installer_schedules_everything_without_being_asked():
     """Lo pedido es que funcione sin tocar nada: si el instalador no programa
-    la tarea, el usuario tiene que acordarse de ejecutarla."""
+    las tareas, el usuario tiene que acordarse de ejecutarlas."""
     src = text("installer/install.ps1")
-    assert "Register-ScheduledTask" in src
-    assert "StartWhenAvailable" in src, (
-        "Sin StartWhenAvailable la tarea se pierde cada noche que el equipo "
-        "este apagado, que en un ordenador personal son casi todas"
+    assert "stocks.ps1') autostart" in src or "autostart" in src, (
+        "el instalador no programa nada"
+    )
+
+
+def test_the_schedule_is_defined_in_exactly_one_place():
+    """El instalador duplicaba la logica de programacion, y paso lo que pasa
+    siempre con una copia: al anadir el ciclo del bot en `autostart`, el
+    instalador siguio registrando solo la tarea de datos. Quien instalaba desde
+    cero se quedaba sin bot y sin ninguna senal de que faltaba algo."""
+    instalador = text("installer/install.ps1")
+    assert "Register-ScheduledTask" not in instalador, (
+        "el instalador vuelve a registrar tareas por su cuenta: la definicion "
+        "se duplicara y las dos copias divergiran"
+    )
+    lanzador = text("scripts/windows/stocks.ps1")
+    assert lanzador.count("Register-ScheduledTask") == 2, (
+        "se esperan exactamente dos: la de datos y la del bot"
+    )
+
+
+def test_the_scheduled_tasks_survive_a_powered_off_computer():
+    """Sin StartWhenAvailable la tarea se pierde cada noche que el equipo este
+    apagado, que en un ordenador personal son casi todas."""
+    lanzador = text("scripts/windows/stocks.ps1")
+    # Se cuenta el FLAG (`-StartWhenAvailable`) y no la palabra suelta: la
+    # palabra aparece tambien en un comentario, y contarla daria tres donde
+    # hay dos usos reales.
+    assert lanzador.count("-StartWhenAvailable") == 2, (
+        "alguna de las dos tareas se perderia si el equipo esta apagado"
     )
 
 
@@ -752,3 +778,54 @@ def test_the_automation_warns_that_a_powered_off_computer_does_not_trade():
     descubrirla un lunes."""
     src = text("scripts/windows/stocks.ps1")
     assert "con el ordenador apagado el bot NO opera" in src
+
+
+# ---------------------------------------------------------------------------
+# Un solo fichero: nada exige comandos sueltos
+# ---------------------------------------------------------------------------
+def task_block(nombre: str) -> str:
+    """El cuerpo de una tarea de stocks.ps1, por su nombre en el switch."""
+    src = text("scripts/windows/stocks.ps1")
+    inicio = src.index(f"    '{nombre}' {{")
+    # Hasta la siguiente tarea del switch, sea cual sea.
+    resto = src[inicio + 10:]
+    siguiente = re.search(r"\n    '[a-z-]+' \{", resto)
+    fin = inicio + 10 + (siguiente.start() if siguiente else len(resto))
+    return src[inicio:fin]
+
+
+def test_the_first_run_also_brings_the_crypto_history():
+    """Si hubiera que acordarse de un comando aparte, el bot de cripto se
+    quedaria sin datos y sin decir por que: el ranking saldria vacio con todo
+    lo demas descargado."""
+    assert "ingest_crypto" in task_block("universo"), (
+        "la instalacion completa no trae el historico de cripto"
+    )
+
+
+def test_every_launch_keeps_the_crypto_history_fresh():
+    """El lanzador llama a `update` en cada arranque. Sin cripto ahi, el
+    universo de acciones se mantendria al dia y el de cripto se quedaria
+    congelado en la fecha de instalacion, con el bot decidiendo sobre precios
+    viejos."""
+    assert "ingest_crypto" in task_block("update")
+
+
+def test_the_nightly_run_covers_both_universes():
+    assert "ingest_crypto" in task_block("daily")
+
+
+def test_both_gates_run_by_themselves():
+    """El veredicto sobre si un mercado puede operar tiene que existir aunque
+    nadie abra una consola nunca. Es lo que se lee en el dashboard."""
+    daily = task_block("daily")
+    assert "--venue kraken --gate" in daily, "la puerta de cripto no se ejecuta sola"
+    assert "polymarket_calibration" in daily, "el estudio de Polymarket no se ejecuta solo"
+
+
+def test_a_failing_study_does_not_stop_the_rest():
+    """Un suspenso es un resultado, y que Polymarket no responda un domingo no
+    puede dejar sin ejecutar lo demas."""
+    daily = task_block("daily")
+    trozo = daily[daily.index("--venue kraken --gate"):]
+    assert "catch" in trozo, "un fallo de la puerta de cripto detiene el ciclo"

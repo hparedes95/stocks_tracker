@@ -431,27 +431,20 @@ if ($LASTEXITCODE -eq 0) {
 # ---------------------------------------------------------------------------
 # 8. Actualizacion automatica
 # ---------------------------------------------------------------------------
-Write-Step 8 8 "Programando la actualizacion diaria"
+Write-Step 8 8 "Programando las tareas automaticas"
+# Se llama a `stocks.ps1 autostart` en vez de registrar las tareas aqui.
+# Antes este bloque duplicaba la logica de programacion, y el resultado fue
+# exactamente lo que pasa siempre con una copia: al anadir el ciclo del bot en
+# `autostart`, el instalador siguio programando solo la actualizacion de datos.
+# Quien instalaba desde cero se quedaba sin bot y sin ninguna senal de que
+# faltaba algo.
 try {
-    $daily = New-ScheduledTaskAction -Execute 'powershell.exe' `
-        -Argument ("-NoProfile -ExecutionPolicy Bypass -File `"" +
-                   (Join-Path $InstallDir 'scripts\windows\stocks.ps1') + "`" daily") `
-        -WorkingDirectory $InstallDir
-    $trigger = New-ScheduledTaskTrigger -Daily -At '23:15'
-    # StartWhenAvailable es lo que hace que esto sirva en un ordenador personal:
-    # si a las 23:15 estaba apagado, la tarea corre al encenderlo en lugar de
-    # perderse hasta el dia siguiente.
-    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
-        -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries `
-        -ExecutionTimeLimit (New-TimeSpan -Hours 2)
-    Register-ScheduledTask -TaskName 'Stocks Tracker - actualizacion diaria' `
-        -Action $daily -Trigger $trigger -Settings $settings `
-        -Description 'Descarga precios, recalcula y evalua las alertas.' `
-        -Force | Out-Null
-    Write-Host "  Cada dia a las 23:15. Si el equipo esta apagado, al encenderlo."
+    & powershell -NoProfile -ExecutionPolicy Bypass `
+        -File (Join-Path $InstallDir 'scripts\windows\stocks.ps1') autostart
+    if ($LASTEXITCODE -ne 0) { throw "codigo $LASTEXITCODE" }
 } catch {
     Write-Host "  No se ha podido programar: $($_.Exception.Message)" -ForegroundColor Yellow
-    Write-Host "  Actívala luego con: .\scripts\windows\stocks.ps1 autostart"
+    Write-Host "  Activalas luego con: .\scripts\windows\stocks.ps1 autostart"
 }
 
 Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
