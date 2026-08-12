@@ -18,6 +18,7 @@ from stocks_tracker.app.components.broker_import import (
     render_manual_table,
 )
 from stocks_tracker.app.components.common import render_disclaimer
+from stocks_tracker.app.components.health_panel import render_health_panel
 from stocks_tracker.app.components.theme import format_money, format_pct
 
 st.title("Cartera y watchlist")
@@ -98,8 +99,22 @@ with tab_portfolio:
             )
 
         # -------------------------------------------------------------------
+        # Semaforo de deterioro
+        # -------------------------------------------------------------------
+        # Aqui arriba y no al final: una posicion que gana un 15 % con el
+        # margen desplomandose es justo la que no se mira, porque el numero
+        # verde de al lado dice que todo va bien.
+        st.divider()
+        render_health_panel(
+            da.get_position_health(),
+            nombres=dict(zip(positions["ticker"], positions["name"].fillna(""),
+                             strict=False)),
+        )
+
+        # -------------------------------------------------------------------
         # Detalle
         # -------------------------------------------------------------------
+        st.divider()
         view = pd.DataFrame(
             {
                 "Ticker": positions["ticker"],

@@ -956,6 +956,69 @@ def get_closed_sales(ticker: str, days: int = 400) -> pd.DataFrame:
     )
 
 
+# Los campos que necesita `core.deterioration`. En una lista y no incrustados
+# en el SQL para que anadir una comprobacion alli sea una linea aqui.
+_CAMPOS_FUND = ("profit_margin", "roe", "revenue_growth_yoy",
+                "net_debt_to_ebitda", "payout_ratio")
+_CAMPOS_IND = ("above_sma200", "death_cross", "drawdown", "rs_vs_bench_3m",
+               "realized_vol_20", "realized_vol_252")
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_position_health() -> pd.DataFrame:
+    """Cada posicion abierta con sus datos de HOY y los del dia que la compraste.
+
+    Las columnas del pasado llevan el sufijo `_entonces`. Se traen con una
+    union ASOF sobre `as_of <= opened_at`, la misma idea punto-en-el-tiempo que
+    impide que el ranking historico se sepa el futuro: comparar contra la foto
+    de hoy en los dos lados no compararia nada y todo saldria en verde.
+
+    Una posicion comprada antes de que existiera el historico de fundamentales
+    no tiene columnas `_entonces`: salen nulas, y el diagnostico se queda en lo
+    que se puede mirar solo con el presente.
+    """
+    fund = ", ".join(f"f.{c} AS {c}_entonces" for c in _CAMPOS_FUND)
+    ind = ", ".join(f"i.{c} AS {c}_entonces" for c in _CAMPOS_IND)
+    entonces = _fetch(
+        f"""
+        WITH abiertas AS (
+            SELECT ticker, MIN(opened_at) AS opened_at
+            FROM positions WHERE closed_at IS NULL AND qty > 0
+            GROUP BY ticker
+        ),
+        con_fund AS (
+            SELECT a.ticker, a.opened_at, {fund}
+            FROM abiertas a
+            ASOF LEFT JOIN fundamentals_snapshot f
+                 ON f.ticker = a.ticker AND f.as_of <= a.opened_at
+        )
+        SELECT c.*, {ind}
+        FROM con_fund c
+        ASOF LEFT JOIN indicators_daily i
+             ON i.ticker = c.ticker AND i.date <= c.opened_at
+        """
+    )
+
+    hoy = _fetch(
+        f"""
+        SELECT a.ticker,
+               {", ".join(f"f.{c}" for c in _CAMPOS_FUND)},
+               {", ".join(f"i.{c}" for c in _CAMPOS_IND)}
+        FROM (SELECT DISTINCT ticker FROM positions
+              WHERE closed_at IS NULL AND qty > 0) a
+        LEFT JOIN indicators_daily i ON i.ticker = a.ticker
+             AND i.date = (SELECT date FROM current_session)
+        LEFT JOIN (
+            SELECT * FROM fundamentals_snapshot
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY as_of DESC) = 1
+        ) f ON f.ticker = a.ticker
+        """
+    )
+    if hoy.empty:
+        return hoy
+    return hoy.merge(entonces, on="ticker", how="left")
+
+
 @st.cache_data(ttl=TTL, show_spinner=False)
 def get_returns_matrix(tickers: tuple[str, ...], days: int = 250) -> pd.DataFrame:
     """Retornos diarios en formato ancho, para calcular correlaciones."""
