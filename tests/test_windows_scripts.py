@@ -680,3 +680,67 @@ def test_the_window_does_not_close_silently_if_the_dashboard_fails():
     assert "pause" in final, (
         "un fallo al arrancar cierra la ventana antes de poder leerlo"
     )
+
+
+# ---------------------------------------------------------------------------
+# La programacion del bot
+# ---------------------------------------------------------------------------
+def bot_schedule_block() -> str:
+    """El trozo que programa el ciclo del bot.
+
+    El final se busca A PARTIR del inicio: `'autostart-off'` aparece antes en
+    el texto de ayuda, y cortar por su primera aparicion devolvia una cadena
+    vacia —con lo que cualquier `in` habria sido falso y el test habria
+    "detectado" problemas que no existen, o peor, pasado por vacuidad—.
+    """
+    src = text("scripts/windows/stocks.ps1")
+    inicio = src.index("# --- El bot de cripto")
+    return src[inicio:src.index("'autostart-off' {", inicio)]
+
+
+def test_the_bot_runs_more_than_once_a_day():
+    """Cripto no cierra. Un stop que solo se mira a las 23:15 no es un stop,
+    es una consulta."""
+    src = text("scripts/windows/stocks.ps1")
+    bloque = bot_schedule_block()
+    assert "RepetitionInterval" in bloque, "el bot se programa una sola vez al dia"
+    assert "New-TimeSpan -Hours 6" in bloque
+
+
+def test_the_bot_does_not_collide_with_the_data_update():
+    """DuckDB admite un solo escritor. Si el ciclo del bot cayera a la misma
+    hora que la ingesta, uno de los dos se quedaria sin poder anotar lo que
+    acaba de hacer."""
+    src = text("scripts/windows/stocks.ps1")
+    assert "-Daily -At '23:15'" in src
+    assert "-Once -At '00:20'" in bot_schedule_block(), (
+        "el bot arranca en punto y puede chocar con la ingesta"
+    )
+
+
+def test_turning_the_automation_off_stops_the_bot_too():
+    """Quitar solo la tarea de datos dejaria el bot operando despues de que el
+    usuario creyera haberlo desactivado. Es la peor forma posible de que un
+    boton de apagado no apague."""
+    src = text("scripts/windows/stocks.ps1")
+    off = src[src.index("'autostart-off' {"):src.index("'ingest' {")]
+    assert "Stocks Tracker - ciclo del bot" in off, (
+        "el bot sigue programado despues de desactivar la automatizacion"
+    )
+    assert "Stocks Tracker - actualizacion diaria" in off
+
+
+def test_the_cycle_task_targets_the_crypto_venue():
+    """Sin --venue caeria en el bot de acciones: reglas de bolsa, stops de
+    2,5x ATR y limite PDT aplicados a cripto."""
+    src = text("scripts/windows/stocks.ps1")
+    ciclo = src[src.index("    'ciclo' {"):src.index("    'pendientes' {")]
+    assert "--venue kraken" in ciclo
+
+
+def test_the_automation_warns_that_a_powered_off_computer_does_not_trade():
+    """Es la limitacion mas importante de ejecutar esto en un ordenador
+    personal, y quien lo activa tiene que saberla en ese momento, no
+    descubrirla un lunes."""
+    src = text("scripts/windows/stocks.ps1")
+    assert "con el ordenador apagado el bot NO opera" in src

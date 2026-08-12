@@ -22,6 +22,7 @@
       calibracion ¿Se equivoca Polymarket lo bastante como para apostar?
       cripto    Historico de cripto (Yahoo) y comparacion con Kraken
       pendientes Ordenes que el freno de mano dejo esperando tu visto bueno
+      ciclo     Un ciclo del bot de cripto (lo llama el programador)
       tiene-universo  Codigo 0 si el universo completo esta descargado
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
@@ -38,7 +39,7 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'claves', 'mercados',
-                 'polymarket', 'calibracion', 'cripto', 'pendientes',
+                 'polymarket', 'calibracion', 'cripto', 'pendientes', 'ciclo',
                  'tiene-universo',
                  'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
@@ -297,18 +298,54 @@ switch ($Task) {
             -Description 'Descarga precios, recalcula y evalua las alertas.' `
             -Force | Out-Null
 
+        # --- El bot de cripto -------------------------------------------------
+        # Cada seis horas y no una vez al dia: cripto no cierra, y un stop que
+        # solo se mira a las 23:15 no es un stop, es una consulta. Seis horas
+        # tampoco es proteccion de verdad —eso serian minutos— pero es lo que
+        # da un ordenador personal sin tenerlo encendido a proposito.
+        #
+        # No a la hora en punto: si coincidiera con la actualizacion de datos,
+        # el bot leeria el almacen mientras se escribe y DuckDB solo admite un
+        # escritor. El desfase de veinte minutos evita el choque.
+        $botScript = Join-Path $Root 'scripts\windows\stocks.ps1'
+        $bot = New-ScheduledTaskAction -Execute 'powershell.exe' `
+            -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$botScript`" ciclo" `
+            -WorkingDirectory $Root
+        $botTrigger = New-ScheduledTaskTrigger -Once -At '00:20' `
+            -RepetitionInterval (New-TimeSpan -Hours 6)
+        $botSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+            -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries `
+            -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+
+        Register-ScheduledTask -TaskName 'Stocks Tracker - ciclo del bot' `
+            -Action $bot -Trigger $botTrigger -Settings $botSettings `
+            -Description 'Ciclo del bot de cripto: propone, aplica el riesgo y ejecuta.' `
+            -Force | Out-Null
+
         Write-Host ""
-        Write-Host "Actualizacion automatica activada." -ForegroundColor Green
-        Write-Host "  Cada dia a las 23:15, con el mercado americano ya cerrado."
-        Write-Host "  Si el ordenador esta apagado, se ejecuta al encenderlo."
+        Write-Host "Automatizacion activada." -ForegroundColor Green
+        Write-Host "  Datos:  cada dia a las 23:15, con el mercado americano cerrado."
+        Write-Host "  Bot:    cada 6 horas, empezando a las 00:20."
+        Write-Host "  Si el ordenador esta apagado, se ejecutan al encenderlo."
+        Write-Host ""
+        Write-Host "  OJO: con el ordenador apagado el bot NO opera." -ForegroundColor Yellow
+        Write-Host "  Un stop no se dispara y una senal no se ejecuta. En cripto," -ForegroundColor Yellow
+        Write-Host "  que no cierra, un fin de semana son 48 h sin vigilancia." -ForegroundColor Yellow
         Write-Host ""
         Write-Host "Para desactivarla:  .\scripts\windows\stocks.ps1 autostart-off"
     }
 
     'autostart-off' {
-        Unregister-ScheduledTask -TaskName 'Stocks Tracker - actualizacion diaria' `
-            -Confirm:$false -ErrorAction SilentlyContinue
-        Write-Host "Actualizacion automatica desactivada." -ForegroundColor Yellow
+        # Las DOS tareas. Quitar solo la de datos dejaria el bot operando
+        # despues de que el usuario creyera haberlo desactivado, que es la
+        # peor forma posible de que un boton de apagado no apague.
+        foreach ($nombre in @('Stocks Tracker - actualizacion diaria',
+                              'Stocks Tracker - ciclo del bot')) {
+            Unregister-ScheduledTask -TaskName $nombre `
+                -Confirm:$false -ErrorAction SilentlyContinue
+        }
+        Write-Host "Automatizacion desactivada: ni datos ni bot." -ForegroundColor Yellow
+        Write-Host "El bot no volvera a operar hasta que la vuelvas a activar."
     }
 
     'ingest' {
@@ -425,6 +462,19 @@ switch ($Task) {
         # Para rehacer los ocho anos enteros:
         #     .venv\Scripts\python.exe -m stocks_tracker.ingest.ingest_crypto --full
         & $Py -m stocks_tracker.ingest.ingest_crypto --comparar
+    }
+
+    'ciclo' {
+        # Un ciclo del bot de cripto: propone, aplica el riesgo y ejecuta lo
+        # que no cruce un freno. Lo llama el Programador de tareas cada seis
+        # horas; a mano sirve para ver que haria ahora mismo.
+        #
+        # El modo sale del mandato. Mientras la puerta de cripto no este
+        # superada, `venues.require_tradeable` lo para con una frase que dice
+        # que falta, y eso es lo correcto: sin validar no se opera.
+        Assert-Venv
+        & $Py -m stocks_tracker.trading.run_bot --venue kraken --mode simulated
+        & $Py -m stocks_tracker.trading.confirm
     }
 
     'pendientes' {
