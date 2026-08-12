@@ -70,9 +70,27 @@ def build_broker(venue: str, mode: BrokerMode | str = BrokerMode.LIVE) -> Broker
 
     require_tradeable(venue, str(mode))
 
-    if venue == "kraken":
-        from .kraken import KrakenBroker
+    if venue != "kraken":
+        raise ConfigError(f"'{venue}' no tiene adaptador de ejecucion.")
 
-        return KrakenBroker(mode=BrokerMode(mode))
+    from .kraken import KrakenBroker
 
-    raise ConfigError(f"'{venue}' no tiene adaptador de ejecucion.")
+    if BrokerMode(mode) is BrokerMode.LIVE:
+        return KrakenBroker(mode=BrokerMode.LIVE)
+
+    # Kraken spot no tiene entorno de pruebas. El modo papel se hace con
+    # precios reales de Kraken y ejecucion simulada por nuestra cuenta;
+    # devolver el adaptador real habria mandado ordenes con dinero mientras
+    # el usuario creia estar probando.
+    from ..context import scope
+    from .paper import PaperBroker
+
+    cfg = get_trading_config()
+    vcfg = cfg.venue(venue)
+    return PaperBroker(
+        prices=KrakenBroker(mode=BrokerMode.LIVE),   # solo para leer precios
+        mode_key=scope(str(mode), venue),
+        initial_cash=vcfg.initial_equity,
+        slippage_bps=float(vcfg.execution.get("slippage_bps_assumed", 25.0)),
+        commission_bps=float(vcfg.execution.get("commission_bps", 26.0)),
+    )

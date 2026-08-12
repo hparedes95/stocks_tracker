@@ -322,11 +322,25 @@ class KrakenBroker:
         )
 
     def submit_order(self, req: OrderRequest) -> Order:
-        """Envia una orden. Comprueba antes por identificador propio.
+        """Envia una orden REAL. Comprueba antes por identificador propio.
 
         Reintentar sin comprobar es como se duplica una orden despues de un
         corte de red: la primera llego al broker y la respuesta no volvio.
         """
+        # Kraken spot NO tiene entorno de pruebas: esta clase habla siempre con
+        # el mercado de verdad. El campo `mode` existia y no se miraba, asi que
+        # pedir modo papel devolvia este mismo adaptador y las ordenes salian
+        # con dinero real mientras el usuario creia estar probando. Es el peor
+        # fallo posible de todo el programa, y por eso la comprobacion esta en
+        # el metodo que gasta y no en quien lo construye.
+        if self.mode is not BrokerMode.LIVE:
+            raise BrokerRejectedError(
+                f"Este adaptador opera con dinero real y se ha pedido en modo "
+                f"'{self.mode}'. Kraken spot no tiene entorno de pruebas: para "
+                "modo papel se usa `PaperBroker`, que lee precios reales de "
+                "Kraken y simula la ejecucion sin mandar nada."
+            )
+
         existente = self.get_order_by_client_id(req.client_order_id)
         if existente is not None:
             # Se devuelve con el identificador original: Kraken solo guarda el
