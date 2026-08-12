@@ -108,7 +108,7 @@ if live_tab is not None:
     with live_tab:
         # El texto va ANTES del widget a proposito. El widget es un iframe de
         # TradingView: si la red lo bloquea o tarda, deja un hueco en blanco de
-        # 380 px sin decir nada, y esta es la primera pestana que ve cualquiera
+        # 398 px sin decir nada, y esta es la primera pestana que ve cualquiera
         # al abrir el programa. Un aviso que siempre se pinta convierte ese
         # vacio en algo comprensible.
         # El aviso NO dice "tu red lo bloquea". Lo dijo en su primera version y

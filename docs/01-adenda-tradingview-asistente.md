@@ -64,7 +64,7 @@ def _render(widget: str, config: dict, height: int, key: str) -> None
     con json.dumps(config) inline, incluye SIEMPRE el div de atribución,
     y llama a st.components.v1.html(html, height=height+12, scrolling=False)."""
 
-def advanced_chart(tv_symbol, interval="D", studies=None, height=620, key=...)
+def advanced_chart(tv_symbol, interval="D", studies=None, height=720, key=...)
 def ticker_tape(symbols: list[dict], height=78)
 def technical_analysis(tv_symbol, interval="1D", height=450)
 def symbol_info(tv_symbol, height=180)

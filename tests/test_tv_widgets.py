@@ -207,12 +207,23 @@ def html_of(widget="advanced-chart", config=None, height=400, key="k"):
 
 
 def test_the_container_is_the_widget_plus_the_attribution():
-    """Y nada mas. El `_HEIGHT_PADDING` de antes era un margen a ojo que no
-    correspondia a nada medible."""
+    """Y nada mas: lo que pide la pagina es lo que recibe el widget."""
     cap = html_of(height=400)
     assert f"height:{400 + tv_widgets._COPYRIGHT_PX}px" in cap["html"]
     assert "height:400px" in cap["html"]
     assert cap["height"] == 400 + tv_widgets._COPYRIGHT_PX
+
+
+def test_the_attribution_gets_the_space_tradingview_gives_it():
+    """El script de TradingView inyecta `.tradingview-widget-copyright` con
+    `line-height:32px !important`, y un `!important` de autor gana a nuestro
+    estilo en linea: el pie mide 32 aunque pidamos 16.
+
+    Por eso su propio fragmento usa `calc(100% - 32px)`. Reservar menos recorta
+    el enlace de atribucion —condicion de la licencia— y ademas en silencio,
+    porque `overflow:hidden` quito la barra de scroll que lo delataba.
+    """
+    assert tv_widgets._COPYRIGHT_PX >= 32
 
 
 def test_the_iframe_body_margin_is_reset():
@@ -238,12 +249,36 @@ def test_no_widget_measures_its_own_container():
     assert codigo == [], f"algun widget sigue midiendo su contenedor: {codigo}"
 
 
-def test_the_ticker_tape_has_room_for_its_content(captured):
-    """La cinta pinta logo, simbolo, precio y variacion. Con 20 px —que es lo
-    que le quedaba tras reservar 32 de 52— sale achatada y con la variacion
-    cortada."""
+# Alto de las dos maquetaciones de la cinta, con la holgura ya dentro. El test
+# de abajo se apoya en esto en vez de repetir el numero de produccion: una
+# asercion `>= 46` contra un valor de exactamente 46 esta pegada a su propio
+# limite y solo puede fallar si el alto BAJA, que es lo contrario de la
+# regresion que dice vigilar.
+_UNA_LINEA_PX = 46
+_DOS_LINEAS_PX = 72
+
+
+def test_the_header_tape_asks_for_the_single_line_layout(captured):
+    """El `compact` de TradingView no es el modo pequeno: es el que APILA
+    descripcion sobre precio en dos lineas y ocupa MAS alto. El de una sola
+    linea es `regular`.
+
+    Estaban al reves, y como la cabecera usa `compact=True` en todas las
+    paginas, pedia el modo de dos lineas con el alto de una. Con
+    `overflow:hidden` la segunda linea se recorta sin barra que lo avise.
+    """
     tv_widgets.ticker_tape(compact=True)
-    assert captured[0]["height"] >= 46
+    assert captured[0]["config"]["displayMode"] == "regular"
+    assert captured[0]["height"] > _UNA_LINEA_PX, (
+        "sin holgura: el alto exacto depende de la fuente del sistema y del "
+        "zoom, y quedarse corto recorta"
+    )
+
+
+def test_the_tall_tape_has_room_for_two_lines(captured):
+    tv_widgets.ticker_tape(compact=False)
+    assert captured[0]["config"]["displayMode"] == "compact"
+    assert captured[0]["height"] > _DOS_LINEAS_PX
 
 
 def test_the_main_chart_is_big_enough_to_read(captured):

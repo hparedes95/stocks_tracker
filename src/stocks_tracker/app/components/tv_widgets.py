@@ -26,11 +26,22 @@ from .theme import is_dark
 
 _BASE = "https://s3.tradingview.com/external-embedding/embed-widget-"
 
-# Alto real del pie de atribucion: 11px de fuente, interlineado y 2px de
-# separacion. Antes se reservaban 32px "por si acaso", que en un widget alto no
-# se nota y en la cinta —52px en total— dejaba al widget 20px: la mitad de lo
-# que necesita, y por eso salia achatada y cortada.
-_COPYRIGHT_PX = 18
+# Reserva del pie de atribucion. Son 32 y no los 18 que parecen bastar mirando
+# nuestro HTML: el script de TradingView inyecta su propia hoja de estilos con
+# `.tradingview-widget-copyright { line-height:32px !important }`, y un
+# `!important` de autor gana a nuestro estilo en linea. O sea que el pie mide
+# 32 aunque nosotros pidamos 16.
+#
+# Por eso el fragmento que publica TradingView usa `calc(100% - 32px)`: ese 32
+# no era un margen a ojo, era su medida. Bajarlo a 18 recortaba el enlace de
+# atribucion —que es condicion de la licencia, ver regla 1 de arriba— y ademas
+# en silencio, porque `overflow:hidden` quito la barra de scroll que antes lo
+# delataba.
+#
+# El fallo que se arreglo no era este numero, sino de donde se restaba: antes
+# salia del alto que pedia la pagina, asi que en la cinta el widget se quedaba
+# con 20 px. Ahora se anade por fuera y cada widget recibe lo que pidio.
+_COPYRIGHT_PX = 32
 
 
 def enabled() -> bool:
@@ -82,8 +93,8 @@ def _render(widget: str, config: dict, height: int, key: str) -> None:
     <div class="tradingview-widget-container" data-key="{key}" style="height:{total}px">
       <div class="tradingview-widget-container__widget" style="height:{height}px"></div>
       <div class="tradingview-widget-copyright"
-           style="font:11px system-ui,-apple-system,sans-serif;line-height:16px;
-                  color:#898781;text-align:right;padding-top:2px">
+           style="font:11px system-ui,-apple-system,sans-serif;
+                  color:#898781;text-align:right">
         <a href="https://es.tradingview.com/" rel="noopener nofollow" target="_blank"
            style="color:#898781;text-decoration:none">Datos y graficos por TradingView</a>
       </div>
@@ -129,18 +140,28 @@ def ticker_tape(symbols: list[dict] | None = None, compact: bool = True) -> None
         {"proName": "TVC:USOIL", "title": "Petroleo"},
         {"proName": "CRYPTO:BTCUSD", "title": "Bitcoin"},
     ]
-    # Alto del WIDGET, no del contenedor: `_render` anade el pie aparte. La
-    # cinta compacta de TradingView pinta logo, simbolo, precio y variacion en
-    # unos 46 px; antes el contenedor media 52 y el pie se quedaba con 32, asi
-    # que al widget le llegaban 20. De ahi que saliera achatada y con la
-    # variacion cortada.
-    height = 46 if compact else 76
+    # OJO con el nombre: el `compact` de TradingView NO es el modo pequeno.
+    # Es el que APILA descripcion sobre precio en dos lineas —pensado para
+    # anchos estrechos— y ocupa mas alto, no menos. El de una sola linea es
+    # `regular`.
+    #
+    # Estaban al reves: `compact=True` (que es lo que usa la cabecera en todas
+    # las paginas) pedia el modo de dos lineas y le daba el alto de una. Con
+    # `overflow:hidden` la segunda linea se recorta sin barra de scroll que lo
+    # avise, que es justo el sintoma que se reporto.
+    #
+    # Nuestro `compact` significa "tira de cabecera, baja": eso es `regular`.
+    display_mode = "regular" if compact else "compact"
+    # Una linea con logo son ~46 px; dos, ~72. Se anaden 10 de holgura porque
+    # el alto exacto depende de la fuente del sistema y del zoom del navegador,
+    # y pasarse diez pixeles no cuesta nada mientras que quedarse corto recorta.
+    height = 56 if compact else 82
     config = {
         **_locale_defaults(),
         "symbols": symbols,
         "showSymbolLogo": True,
         "isTransparent": True,
-        "displayMode": "compact" if compact else "regular",
+        "displayMode": display_mode,
     }
     _render("ticker-tape", config, height, _key("tape"))
 
