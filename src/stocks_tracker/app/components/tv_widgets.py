@@ -26,8 +26,11 @@ from .theme import is_dark
 
 _BASE = "https://s3.tradingview.com/external-embedding/embed-widget-"
 
-# Margen que evita la barra de scroll interna que provoca el div de atribucion.
-_HEIGHT_PADDING = 14
+# Alto real del pie de atribucion: 11px de fuente, interlineado y 2px de
+# separacion. Antes se reservaban 32px "por si acaso", que en un widget alto no
+# se nota y en la cinta —52px en total— dejaba al widget 20px: la mitad de lo
+# que necesita, y por eso salia achatada y cortada.
+_COPYRIGHT_PX = 18
 
 
 def enabled() -> bool:
@@ -49,18 +52,37 @@ def _locale_defaults() -> dict:
 
 
 def _render(widget: str, config: dict, height: int, key: str) -> None:
-    """Construye el contenedor del widget, con atribucion obligatoria.
+    """Monta el widget con su atribucion, dandole EXACTAMENTE `height` px.
+
+    `height` es el alto del widget, no el del contenedor. Antes era lo segundo
+    y cada widget restaba por su cuenta 30 px en su configuracion mientras el
+    div reservaba 32: el widget se dibujaba dos pixeles mas alto que su caja y
+    aparecia una barra de scroll interna en todos.
+
+    Dos cosas mas que salieron al medirlo en el navegador:
+
+    - El documento del iframe trae `body { margin: 8px }` por defecto. Son 16 px
+      verticales que nadie habia contado, asi que el contenedor no cabia en el
+      iframe y se recortaba por abajo. Se pone el margen a cero.
+    - `overflow:hidden` en el body evita la barra de scroll que asomaba por el
+      pixel de diferencia al redondear.
 
     El `key` se incrusta como atributo del contenedor a proposito: hace que el
     HTML difiera entre temas, y con ello Streamlit vuelve a montar el iframe.
     Sin eso, al pasar de claro a oscuro el widget se queda con el tema anterior.
     """
     payload = json.dumps(config)
+    total = height + _COPYRIGHT_PX
     html = f"""
-    <div class="tradingview-widget-container" data-key="{key}" style="height:{height}px">
-      <div class="tradingview-widget-container__widget" style="height:{height - 32}px"></div>
+    <style>
+      html, body {{ margin:0; padding:0; overflow:hidden; }}
+      .tradingview-widget-container {{ width:100%; }}
+      .tradingview-widget-container__widget {{ width:100%; }}
+    </style>
+    <div class="tradingview-widget-container" data-key="{key}" style="height:{total}px">
+      <div class="tradingview-widget-container__widget" style="height:{height}px"></div>
       <div class="tradingview-widget-copyright"
-           style="font:11px system-ui,-apple-system,sans-serif;
+           style="font:11px system-ui,-apple-system,sans-serif;line-height:16px;
                   color:#898781;text-align:right;padding-top:2px">
         <a href="https://es.tradingview.com/" rel="noopener nofollow" target="_blank"
            style="color:#898781;text-decoration:none">Datos y graficos por TradingView</a>
@@ -70,7 +92,7 @@ def _render(widget: str, config: dict, height: int, key: str) -> None:
       </script>
     </div>
     """
-    st.iframe(html, height=height + _HEIGHT_PADDING, width="stretch")
+    st.iframe(html, height=total, width="stretch")
 
 
 def _key(name: str, *parts: str) -> str:
@@ -107,7 +129,12 @@ def ticker_tape(symbols: list[dict] | None = None, compact: bool = True) -> None
         {"proName": "TVC:USOIL", "title": "Petroleo"},
         {"proName": "CRYPTO:BTCUSD", "title": "Bitcoin"},
     ]
-    height = 52 if compact else 84
+    # Alto del WIDGET, no del contenedor: `_render` anade el pie aparte. La
+    # cinta compacta de TradingView pinta logo, simbolo, precio y variacion en
+    # unos 46 px; antes el contenedor media 52 y el pie se quedaba con 32, asi
+    # que al widget le llegaban 20. De ahi que saliera achatada y con la
+    # variacion cortada.
+    height = 46 if compact else 76
     config = {
         **_locale_defaults(),
         "symbols": symbols,
@@ -192,10 +219,7 @@ def market_overview(height: int = 400, groups: list[dict] | None = None) -> None
         "showFloatingTooltip": True,
         "largeChartUrl": "",
         "width": "100%",
-        # La misma altura que el div interior que crea `_render`. Si aqui se
-        # pone la altura total, la ultima fila queda cortada por el pie de
-        # atribucion.
-        "height": height - 32,
+        "height": height,
         "plotLineColorGrowing": "rgba(41, 98, 255, 1)",
         "plotLineColorFalling": "rgba(41, 98, 255, 1)",
         "belowLineFillColorGrowing": "rgba(41, 98, 255, 0.12)",
@@ -210,10 +234,15 @@ def market_overview(height: int = 400, groups: list[dict] | None = None) -> None
 
 
 def advanced_chart(
-    tv_symbol: str | None, height: int = 620, interval: str = "D",
+    tv_symbol: str | None, height: int = 720, interval: str = "D",
     studies: list[str] | None = None, fallback: Callable[[], None] | None = None,
 ) -> None:
-    """Grafico principal de velas. Es la herramienta familiar del usuario."""
+    """Grafico principal de velas. Es la herramienta familiar del usuario.
+
+    Alto generoso a proposito: con la barra lateral de dibujo, la de tiempos y
+    dos indicadores debajo, por debajo de unos 700 px el area de velas queda en
+    una franja donde no se distingue nada.
+    """
     if not enabled() or not tv_symbol:
         _unavailable(
             fallback,
@@ -228,7 +257,14 @@ def advanced_chart(
         "interval": interval,
         "theme": _color_theme(),
         "style": "1",
-        "autosize": True,
+        # Alto explicito y NO `autosize`. Este grafico vive en una pestana que
+        # arranca oculta, y una pestana oculta en Streamlit deja el iframe en
+        # 0x0: `autosize` mide su contenedor al arrancar, se encuentra cero y
+        # dibuja un grafico diminuto que ya no vuelve a crecer al abrir la
+        # pestana. Medido en el navegador: los iframes de las pestanas
+        # inactivas daban 0x0 mientras el visible daba 980x574.
+        "width": "100%",
+        "height": height,
         "hide_side_toolbar": False,
         "allow_symbol_change": False,
         "studies": studies or ["STD;SMA", "STD;RSI"],
@@ -256,7 +292,7 @@ def technical_analysis(tv_symbol: str | None, height: int = 400,
         "displayMode": "single",
         "isTransparent": True,
         "width": "100%",
-        "height": height - 30,
+        "height": height,
     }
     _render("technical-analysis", config, height, _key("ta", tv_symbol))
     st.caption(
@@ -268,7 +304,8 @@ def technical_analysis(tv_symbol: str | None, height: int = 400,
 def symbol_info(tv_symbol: str | None, height: int = 180) -> None:
     if not enabled() or not tv_symbol:
         return
-    config = {**_locale_defaults(), "symbol": tv_symbol, "width": "100%", "isTransparent": True}
+    config = {**_locale_defaults(), "symbol": tv_symbol, "width": "100%",
+              "isTransparent": True}
     _render("symbol-info", config, height, _key("info", tv_symbol))
 
 
@@ -278,7 +315,7 @@ def fundamental_data(tv_symbol: str | None, height: int = 500) -> None:
         return
     config = {
         **_locale_defaults(), "symbol": tv_symbol, "displayMode": "regular",
-        "isTransparent": True, "width": "100%", "height": height - 30,
+        "isTransparent": True, "width": "100%", "height": height,
     }
     _render("financials", config, height, _key("fin", tv_symbol))
 
@@ -288,7 +325,7 @@ def company_profile(tv_symbol: str | None, height: int = 400) -> None:
         return
     config = {
         **_locale_defaults(), "symbol": tv_symbol, "isTransparent": True,
-        "width": "100%", "height": height - 30,
+        "width": "100%", "height": height,
     }
     _render("symbol-profile", config, height, _key("profile", tv_symbol))
 
@@ -309,7 +346,7 @@ def stock_heatmap(data_source: str = "SPX500", height: int = 560) -> None:
         "hasSymbolTooltip": True,
         "isTransparent": True,
         "width": "100%",
-        "height": height - 30,
+        "height": height,
     }
     _render("stock-heatmap", config, height, _key("heatmap", data_source))
 
@@ -320,7 +357,7 @@ def crypto_heatmap(height: int = 520) -> None:
     config = {
         **_locale_defaults(), "dataSource": "Crypto", "blockSize": "market_cap_calc",
         "blockColor": "change", "isTransparent": True, "width": "100%",
-        "height": height - 30,
+        "height": height,
     }
     _render("crypto-coins-heatmap", config, height, _key("cheatmap"))
 
@@ -334,7 +371,7 @@ def top_stories(tv_symbol: str | None = None, height: int = 520) -> None:
         "isTransparent": True,
         "displayMode": "regular",
         "width": "100%",
-        "height": height - 30,
+        "height": height,
     }
     if tv_symbol:
         config["symbol"] = tv_symbol
@@ -347,7 +384,7 @@ def economic_calendar(height: int = 520) -> None:
     config = {
         **_locale_defaults(), "importanceFilter": "0,1",
         "countryFilter": "es,eu,us", "isTransparent": True,
-        "width": "100%", "height": height - 30,
+        "width": "100%", "height": height,
     }
     _render("events", config, height, _key("calendar"))
 
@@ -363,7 +400,7 @@ def screener(market: str = "america", height: int = 520) -> None:
     config = {
         **_locale_defaults(), "market": market, "defaultColumn": "overview",
         "showToolbar": True, "isTransparent": True,
-        "width": "100%", "height": height - 30,
+        "width": "100%", "height": height,
     }
     _render("screener", config, height, _key("screener", market))
 
@@ -372,7 +409,11 @@ def mini_symbol_overview(tv_symbol: str | None, height: int = 200) -> None:
     if not enabled() or not tv_symbol:
         return
     config = {
+        # Alto explicito por el mismo motivo que el grafico grande: esto vive
+        # dentro de columnas y desplegables que pueden empezar cerrados, y
+        # `autosize` mediria cero al arrancar y ya no creceria.
         **_locale_defaults(), "symbol": tv_symbol, "dateRange": "6M",
-        "isTransparent": True, "autosize": True, "chartOnly": False,
+        "isTransparent": True, "chartOnly": False,
+        "width": "100%", "height": height,
     }
     _render("mini-symbol-overview", config, height, _key("mini", tv_symbol))

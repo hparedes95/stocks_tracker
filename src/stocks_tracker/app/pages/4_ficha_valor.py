@@ -166,7 +166,7 @@ with tab_tv:
     )
     tv_widgets.advanced_chart(
         tv_symbol,
-        height=560,
+        height=760,
         fallback=lambda: st.plotly_chart(
             charts.price_with_signals(prices, indicators, signals, height=460),
             width="stretch",
@@ -215,11 +215,11 @@ with tab_fund:
 
         if tv_widgets.enabled() and tv_symbol:
             with st.expander("Estados financieros completos (TradingView)"):
-                tv_widgets.fundamental_data(tv_symbol, height=440)
+                tv_widgets.fundamental_data(tv_symbol, height=560)
 
 with tab_news:
     if tv_widgets.enabled() and tv_symbol:
-        tv_widgets.top_stories(tv_symbol, height=480)
+        tv_widgets.top_stories(tv_symbol, height=560)
     else:
         st.caption("Noticias no disponibles sin TradingView o sin simbolo equivalente.")
 
@@ -298,7 +298,7 @@ with extra_col:
         )
 
     if tv_widgets.enabled() and tv_symbol:
-        tv_widgets.technical_analysis(tv_symbol, height=360)
+        tv_widgets.technical_analysis(tv_symbol, height=420)
 
 # ---------------------------------------------------------------------------
 # Historial de senales

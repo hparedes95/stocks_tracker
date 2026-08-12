@@ -14,6 +14,7 @@ su documentacion pide, que es donde estuvo el fallo.
 from __future__ import annotations
 
 import json
+import pathlib
 
 import pytest
 
@@ -110,12 +111,14 @@ def test_the_two_headers_show_the_same_indices(captured):
     )
 
 
-def test_market_overview_fits_inside_its_container(captured):
-    """`_render` reserva 32 px para el pie de atribucion. Si el widget se cree
-    mas alto que el hueco que tiene, se come la ultima fila."""
+def test_market_overview_asks_for_exactly_the_height_it_gets(captured):
+    """`height` es el alto del WIDGET, no el del contenedor: `_render` anade el
+    pie de atribucion por fuera. Antes cada widget restaba 30 por su cuenta
+    mientras el div reservaba 32, y el widget se dibujaba dos pixeles mas alto
+    que su caja: barra de scroll interna en todos."""
     tv_widgets.market_overview(height=380)
     call = captured[0]
-    assert call["config"]["height"] <= call["height"] - 32
+    assert call["config"]["height"] == call["height"]
 
 
 def test_market_overview_accepts_custom_groups(captured):
@@ -177,3 +180,104 @@ def test_attribution_is_always_rendered():
     html = open(src, encoding="utf-8").read()
     assert "tradingview-widget-copyright" in html
     assert "TradingView" in html
+
+
+# ---------------------------------------------------------------------------
+# Tamanos: que ningun widget salga achatado ni cortado
+# ---------------------------------------------------------------------------
+def html_of(widget="advanced-chart", config=None, height=400, key="k"):
+    """El HTML que `_render` manda al iframe, sin pasar por Streamlit."""
+    capturado = {}
+
+    class FakeSt:
+        @staticmethod
+        def iframe(html, height, width):
+            capturado["html"] = html
+            capturado["height"] = height
+
+    import stocks_tracker.app.components.tv_widgets as m
+
+    real = m.st
+    m.st = FakeSt
+    try:
+        m._render(widget, config or {}, height, key)
+    finally:
+        m.st = real
+    return capturado
+
+
+def test_the_container_is_the_widget_plus_the_attribution():
+    """Y nada mas. El `_HEIGHT_PADDING` de antes era un margen a ojo que no
+    correspondia a nada medible."""
+    cap = html_of(height=400)
+    assert f"height:{400 + tv_widgets._COPYRIGHT_PX}px" in cap["html"]
+    assert "height:400px" in cap["html"]
+    assert cap["height"] == 400 + tv_widgets._COPYRIGHT_PX
+
+
+def test_the_iframe_body_margin_is_reset():
+    """El documento del iframe trae `body { margin: 8px }` por defecto: 16 px
+    verticales que nadie contaba, con lo que el contenedor no cabia dentro del
+    iframe y se recortaba por abajo. Medido en el navegador."""
+    html = html_of()["html"]
+    assert "margin:0" in html.replace(" ", "")
+
+
+def test_no_widget_measures_its_own_container():
+    """`autosize` mide el contenedor al arrancar. Estos widgets viven en
+    pestanas y desplegables que empiezan cerrados, y en Streamlit un iframe
+    oculto es de 0x0: el widget se dibuja diminuto y ya no vuelve a crecer al
+    abrir la pestana. Es exactamente el sintoma que se reporto.
+
+    Medido: los iframes de las pestanas inactivas daban 0x0 mientras el
+    visible daba 980x574.
+    """
+    fuente = pathlib.Path(tv_widgets.__file__).read_text(encoding="utf-8")
+    codigo = [linea for linea in fuente.splitlines()
+              if "autosize" in linea and not linea.strip().startswith("#")]
+    assert codigo == [], f"algun widget sigue midiendo su contenedor: {codigo}"
+
+
+def test_the_ticker_tape_has_room_for_its_content(captured):
+    """La cinta pinta logo, simbolo, precio y variacion. Con 20 px —que es lo
+    que le quedaba tras reservar 32 de 52— sale achatada y con la variacion
+    cortada."""
+    tv_widgets.ticker_tape(compact=True)
+    assert captured[0]["height"] >= 46
+
+
+def test_the_main_chart_is_big_enough_to_read(captured):
+    """Con la barra lateral de dibujo, la de tiempos y dos indicadores debajo,
+    por debajo de unos 700 px el area de velas queda en una franja donde no se
+    distingue nada."""
+    tv_widgets.advanced_chart("NASDAQ:AAPL")
+    assert captured[0]["height"] >= 700
+
+
+def test_every_sized_widget_agrees_with_its_box(captured):
+    """Barrido: el alto que cada widget pide en su configuracion tiene que ser
+    el mismo que el de la caja que `_render` le da. Un desajuste de un pixel
+    saca una barra de scroll dentro del iframe."""
+    tv_widgets.market_overview(height=380)
+    tv_widgets.advanced_chart("NASDAQ:AAPL", height=700)
+    tv_widgets.technical_analysis("NASDAQ:AAPL", height=420)
+    tv_widgets.fundamental_data("NASDAQ:AAPL", height=560)
+    tv_widgets.company_profile("NASDAQ:AAPL", height=400)
+    tv_widgets.stock_heatmap(height=560)
+    tv_widgets.crypto_heatmap(height=520)
+    tv_widgets.top_stories("NASDAQ:AAPL", height=560)
+    tv_widgets.economic_calendar(height=520)
+    tv_widgets.screener(height=460)
+    tv_widgets.mini_symbol_overview("NASDAQ:AAPL", height=220)
+
+    revisados = 0
+    for call in captured:
+        alto = call["config"].get("height")
+        if alto is None:
+            continue          # widgets que se ajustan a su contenido
+        assert alto == call["height"], (
+            f"{call['widget']}: pide {alto} px dentro de una caja de "
+            f"{call['height']} px"
+        )
+        revisados += 1
+    assert revisados >= 10, "el barrido no ha comprobado casi nada"
