@@ -286,20 +286,88 @@ def compute_factor_scores(preset: str | None = None, all_presets: bool = False) 
     return total
 
 
-# Factores que se pueden calcular con solo los precios. Los demas
-# —calidad, valor, crecimiento, dividendo— salen de `fundamentals_snapshot`,
-# que guarda la foto de HOY y no una serie por fecha.
+# Factores que salen solo del precio. Los demas —calidad, valor, crecimiento,
+# dividendo— vienen de `fundamentals_snapshot`.
 PRICE_ONLY_FACTORS = {"momentum", "lowvol", "technical"}
+
+# Cuantos valores necesitan tener foto ANTERIOR a la fecha para que puntuar esa
+# sesion con fundamentales signifique algo. Por debajo, la mitad del universo
+# competiria sin ratios contra la otra mitad con ellos, y el ranking mediria
+# quien tenia datos, no quien estaba mejor.
+MIN_PIT_COVERAGE = 0.80
+
+
+def fundamentals_as_of(conn, dates: list) -> pd.DataFrame:
+    """Los fundamentales VIGENTES en cada fecha, no los de hoy.
+
+    Para cada (fecha, ticker) devuelve la foto con el `as_of` mas reciente que
+    NO sea posterior a esa fecha. Es lo que separa un backtest honesto de uno
+    que puntua 2019 con los balances de 2026 —y ese sale bien por construccion,
+    porque la estrategia "sabe" que empresas iban a publicar buenos numeros—.
+
+    `as_of <= fecha` y no `< fecha`: la foto se descarga por la noche con los
+    datos que ya eran publicos ese dia, asi que usarla ese mismo dia no es
+    mirar el futuro. Si algun dia la descarga pasa a ser intradia, esto tendria
+    que volverse estricto.
+    """
+    if not dates:
+        return pd.DataFrame()
+    valores = ", ".join(["(?)"] * len(dates))
+    return conn.execute(
+        f"""
+        SELECT d.fecha AS date, f.*
+        FROM (VALUES {valores}) AS d(fecha)
+        JOIN fundamentals_snapshot f ON f.as_of <= d.fecha
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY d.fecha, f.ticker ORDER BY f.as_of DESC
+        ) = 1
+        """,
+        list(dates),
+    ).fetchdf()
+
+
+def pit_coverage(conn, dates: list) -> dict:
+    """Que fraccion del universo tiene foto anterior a cada fecha.
+
+    Se mide y se informa en vez de suponerlo: el historico de fundamentales
+    empezo a acumularse hace poco, asi que hoy casi ninguna fecha pasada lo
+    tiene, y eso hay que decirlo con el numero delante.
+    """
+    if not dates:
+        return {}
+    marcas = ", ".join(["(?)"] * len(dates))
+    filas = conn.execute(
+        f"""
+        WITH universo AS (
+            SELECT COUNT(*) AS n FROM instruments
+            WHERE asset_class IN ('equity', 'etf')
+        )
+        SELECT d.fecha,
+               COUNT(DISTINCT f.ticker) AS con_foto,
+               (SELECT n FROM universo) AS total
+        FROM (VALUES {marcas}) AS d(fecha)
+        LEFT JOIN fundamentals_snapshot f ON f.as_of <= d.fecha
+        GROUP BY d.fecha ORDER BY d.fecha
+        """,
+        list(dates),
+    ).fetchall()
+    return {f[0]: (float(f[1]) / float(f[2]) if f[2] else 0.0) for f in filas}
 
 
 def compute_score_history(preset: str = "bot_core", years: int = 6,
                           weekday: int = 0) -> int:
     """Ranking historico, para poder validar una estrategia contra el pasado.
 
-    Solo admite presets construidos con factores derivados del precio. Con
-    fundamentales seria puntuar 2019 con los balances de 2026, y el backtest
-    saldria bien por construccion: la estrategia "sabria" que empresas iban a
-    tener buenos numeros siete anos despues.
+    Los presets con fundamentales se admiten SOLO si el almacen tiene foto
+    anterior a cada fecha para la mayoria del universo. Sin eso seria puntuar
+    2019 con los balances de 2026, y el backtest saldria bien por construccion:
+    la estrategia "sabria" que empresas iban a tener buenos numeros siete anos
+    despues.
+
+    Hasta hace poco esto se rechazaba siempre, y el comentario decia que
+    `fundamentals_snapshot` guardaba solo la foto de hoy. Ya no es cierto: la
+    tabla lleva `as_of` en la clave y acumula una serie. Lo que faltaba era
+    USARLA con la union correcta, que es `fundamentals_as_of`.
 
     Se puntua un dia por semana (el de rebalanceo) y no todos: la estrategia
     solo mira el ranking ese dia, y calcular los otros cuatro multiplicaria por
@@ -308,14 +376,7 @@ def compute_score_history(preset: str = "bot_core", years: int = 6,
     cfg = get_factor_config()
     weights = cfg.weights(preset)
     usados = {f for f, w in weights.items() if w}
-    fuera = usados - PRICE_ONLY_FACTORS
-    if fuera:
-        raise ValueError(
-            f"El preset '{preset}' usa {sorted(fuera)}, que salen de los "
-            "fundamentales. No hay serie historica de fundamentales, asi que "
-            "su ranking pasado seria mirar el futuro. Usa un preset construido "
-            f"solo con {sorted(PRICE_ONLY_FACTORS)}."
-        )
+    necesita_fundamentales = bool(usados - PRICE_ONLY_FACTORS)
     whash = weights_hash(weights)
 
     with connect(read_only=True) as conn:
@@ -357,6 +418,29 @@ def compute_score_history(preset: str = "bot_core", years: int = 6,
             wanted,
         ).fetchdf()
 
+        # Fundamentales VIGENTES en cada fecha. Si el historico no da, se dice
+        # con el numero delante en vez de puntuar con huecos: media muestra sin
+        # ratios compitiendo contra la otra media mide quien tenia datos.
+        fundamentals = pd.DataFrame()
+        if necesita_fundamentales:
+            cobertura = pit_coverage(conn, wanted)
+            floja = {d: c for d, c in cobertura.items() if c < MIN_PIT_COVERAGE}
+            if floja:
+                peor = min(floja.values())
+                raise ValueError(
+                    f"El preset '{preset}' usa {sorted(usados - PRICE_ONLY_FACTORS)}, "
+                    f"que salen de los fundamentales, y {len(floja)} de "
+                    f"{len(wanted)} sesiones no tienen foto anterior para el "
+                    f"{MIN_PIT_COVERAGE:.0%} del universo (la peor: "
+                    f"{peor:.0%}).\n"
+                    "  El historico de fundamentales se acumula desde que se "
+                    "instalo el programa, asi que esto se arregla solo con el "
+                    "tiempo: no hay forma de recuperar fotos del pasado.\n"
+                    f"  Mientras tanto usa un preset de "
+                    f"{sorted(PRICE_ONLY_FACTORS)}, como 'bot_core'."
+                )
+            fundamentals = fundamentals_as_of(conn, wanted)
+
     if snapshot.empty:
         console.print("[yellow]Sin instrumentos que puntuar en el historico.[/]")
         return 0
@@ -372,6 +456,16 @@ def compute_score_history(preset: str = "bot_core", years: int = 6,
     for day, frame in snapshot.groupby("date"):
         day_signals = by_date_signals.get(day, {})
         frame = frame.copy()
+        if not fundamentals.empty:
+            del_dia = fundamentals[fundamentals["date"] == day].drop(
+                columns=["date", "as_of"], errors="ignore"
+            )
+            # `how="left"`: un valor sin foto ese dia se queda con los ratios a
+            # nulo y el `completeness` del scoring lo penaliza solo. Tirarlo
+            # cambiaria el universo segun la fecha y el ranking no seria
+            # comparable entre sesiones.
+            frame = frame.merge(del_dia, on="ticker", how="left",
+                                suffixes=("", "_fund"))
         frame["technical_raw"] = frame.apply(
             lambda r, sigs=day_signals: sig_mod.technical_score(
                 r, sigs.get(r["ticker"], [])
