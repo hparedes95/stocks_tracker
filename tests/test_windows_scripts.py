@@ -701,7 +701,6 @@ def bot_schedule_block() -> str:
 def test_the_bot_runs_more_than_once_a_day():
     """Cripto no cierra. Un stop que solo se mira a las 23:15 no es un stop,
     es una consulta."""
-    src = text("scripts/windows/stocks.ps1")
     bloque = bot_schedule_block()
     assert "RepetitionInterval" in bloque, "el bot se programa una sola vez al dia"
     assert "New-TimeSpan -Hours 6" in bloque
