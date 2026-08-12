@@ -168,7 +168,7 @@ base de datos temporal. Los que más valen:
 |---|---|
 | [`docs/00-plan-general.md`](docs/00-plan-general.md) | Arquitectura, modelo de datos, catálogo de factores y señales, scoring, backtesting, alertas, fases, riesgos |
 | [`docs/01-adenda-tradingview-asistente.md`](docs/01-adenda-tradingview-asistente.md) | Estrategia de visualización con TradingView, mapeo de símbolos, reenfoque de la interfaz como asistente diario |
-| [`docs/02-adenda-bot-trading.md`](docs/02-adenda-bot-trading.md) | Capa de trading automatizado con Alpaca: gestión de riesgo, flujo de aprobación, estrategias, validación previa, seguridad |
+| [`docs/02-adenda-bot-trading.md`](docs/02-adenda-bot-trading.md) | **Bot de acciones: RETIRADO.** Se conserva porque su diseño de riesgo, kill switch y auditoría es el que sostiene el bot de cripto |
 | [`docs/03-adenda-cripto-kraken-multivenue.md`](docs/03-adenda-cripto-kraken-multivenue.md) | Cripto en Kraken como segundo venue: stops nativos en el exchange, presupuesto de comisiones, autonomía por modo, ejecución en un equipo no permanente |
 
 Los documentos son acumulativos y describen el proyecto completo; el código
@@ -503,7 +503,7 @@ cara. Ejecútala a mano o con un cron semanal.
   ETFs e índices, más cripto y materias primas como termómetro de riesgo.
 - **Gráficos**: widgets de TradingView para el mercado, `lightweight-charts` para
   nuestros datos y señales, Plotly para todo lo que no es una serie de precio.
-- **Bot**: dos carteras independientes — cripto en Kraken (EUR) y acciones en Alpaca
+- **Bot**: cripto en Kraken (EUR) y mercados de predicción en Polymarket (USDC), con cartera separada cada uno. El bot de acciones se retiró: exigía permisos y trámites que no compensaban, y el análisis de bolsa no necesita ninguna cuenta de broker
   (USD) —, mandato conservador diversificado, y aprobación humana obligatoria en el
   momento en que entra dinero real.
 

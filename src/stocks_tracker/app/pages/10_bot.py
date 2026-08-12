@@ -25,6 +25,62 @@ st.info(
     icon=":material/smart_toy:",
 )
 
+# ---------------------------------------------------------------------------
+# El veredicto de la puerta
+# ---------------------------------------------------------------------------
+# Estaba en la pagina de validacion de senales, que es analisis y se usa a
+# diario. Aqui encaja mejor: es la respuesta a "¿puede este bot operar?", no a
+# "¿sirve esta senal?". Y se ejecuta solo, los domingos.
+from stocks_tracker.trading import gate as _gate  # noqa: E402
+
+_report = _gate.latest_report()
+st.subheader("¿Esta validado?")
+
+if _report is None:
+    st.info(
+        "La estrategia no se ha validado todavia. Se examina sola los domingos, "
+        "despues de la actualizacion nocturna. Hasta entonces el bot no opera "
+        "con dinero, aunque tenga credenciales.",
+        icon=":material/schedule:",
+    )
+elif _report["blockers"]:
+    st.error(
+        "**No se puede certificar.** El resultado del backtest no seria "
+        "interpretable:\n\n"
+        + "\n\n".join(f"- {b}" for b in _report["blockers"]),
+        icon=":material/block:",
+    )
+elif _report["passed"]:
+    st.success(
+        "**Validada.** Esto NO dice que vaya a ganar dinero: dice que no ha "
+        "fallado ninguna comprobacion que sepamos hacer. Es condicion "
+        "necesaria, nunca suficiente.",
+        icon=":material/verified:",
+    )
+else:
+    _fallan = [c["name"] for c in _report["checks"] if not c["passed"]]
+    st.warning(
+        f"**No validada.** Falla: {', '.join(_fallan)}. El bot no opera con "
+        "dinero: la estrategia se ajusta o se descarta. Es el sistema "
+        "funcionando, no una averia.",
+        icon=":material/gpp_maybe:",
+    )
+
+if _report and _report["checks"]:
+    with st.expander("Ver las comprobaciones"):
+        import pandas as _pd
+
+        st.dataframe(
+            _pd.DataFrame([
+                {"": "OK" if c["passed"] else "FALLA", "Comprobacion": c["name"],
+                 "Observado": c["observed"], "Umbral": c["required"]}
+                for c in _report["checks"]
+            ]),
+            hide_index=True, use_container_width=True,
+        )
+
+st.divider()
+
 carteras = bot_view.modes()
 if not carteras:
     st.warning(

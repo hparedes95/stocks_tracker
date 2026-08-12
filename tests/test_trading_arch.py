@@ -30,13 +30,11 @@ def tree_of(path: Path) -> ast.AST:
 # ---------------------------------------------------------------------------
 # Aislamiento del broker
 # ---------------------------------------------------------------------------
-def test_alpaca_is_only_imported_in_its_adapter():
-    """El SDK del broker vive en un unico fichero.
-
-    Sin esa frontera, cambiar de broker o probar sin broker obliga a tocar
-    media docena de modulos, y el CI acabaria necesitando credenciales.
-    """
-    allowed = SRC / "trading" / "brokers" / "alpaca.py"
+def test_no_stock_broker_sdk_is_imported_anywhere():
+    """Alpaca era el broker del bot de acciones, que se retiro. La regla se
+    queda —invertida— porque su SDK no tiene ya ningun sitio legitimo donde
+    aparecer: si vuelve, es que ha vuelto tambien lo que se quito."""
+    allowed = SRC / "trading" / "brokers" / "no-existe.py"
     offenders = []
 
     for path in python_files():
@@ -92,7 +90,7 @@ def test_the_strategy_and_the_risk_are_network_free():
     """Los dos modulos donde un acceso a red seria mas danino, comprobados por
     nombre para que la regla no se afloje por accidente."""
     for relativo in ("trading/risk.py", "trading/context.py",
-                     "trading/strategies/momentum_multifactor.py"):
+                     "trading/strategies/crypto_momentum.py"):
         source = (SRC / relativo).read_text("utf-8")
         for modulo in ("import requests", "import urllib", "import yfinance"):
             assert modulo not in source, f"{relativo} usa {modulo}"
@@ -293,3 +291,50 @@ def test_the_forbidden_limits_cannot_be_turned_on():
                 "allow_extended_hours"):
         with pytest.raises(ConfigError, match=key):
             TradingConfig(raw={"risk": {key: True}})
+
+
+# ---------------------------------------------------------------------------
+# El bot de acciones esta retirado
+# ---------------------------------------------------------------------------
+def test_the_stock_bot_is_gone():
+    """Se retiro a peticion del usuario: operar en bolsa exigia permisos y
+    tramites que no compensaban para lo que usa, que es analisis.
+
+    El test existe para que no vuelva a medias. Un modulo huerfano que nadie
+    llama no molesta, pero uno que alguien vuelve a enchufar sin querer si:
+    tiene stops de 2,5x ATR, limite PDT y bloqueo por resultados trimestrales,
+    y nada de eso vale para lo que queda.
+    """
+    assert not (SRC / "trading" / "strategies" / "momentum_multifactor.py").exists()
+
+    from stocks_tracker.trading.run_bot import STRATEGY_BY_VENUE
+
+    assert set(STRATEGY_BY_VENUE) == {"kraken"}
+
+
+def test_there_is_no_default_market_to_fall_into():
+    """Sin estrategia por defecto no se puede operar un mercado que nadie
+    pidio. Es lo que convierte la retirada en algo comprobable."""
+    from stocks_tracker.trading.run_bot import strategy_for
+
+    with pytest.raises(ValueError, match="--venue"):
+        strategy_for(None)
+
+
+def test_the_analysis_layer_survived_untouched():
+    """Lo que se quito fue el bot, no los datos. El dashboard, los indicadores,
+    los factores y la validacion de senales no dependian de el y siguen ahi:
+    es justamente lo que el usuario usa."""
+    for modulo in ("compute/run_compute.py", "backtest/engine.py",
+                   "backtest/run_backtest.py", "app/pages/7_validacion.py",
+                   "app/pages/3_oportunidades.py", "app/pages/4_ficha_valor.py"):
+        assert (SRC / modulo).exists(), f"se ha llevado por delante {modulo}"
+
+
+def test_the_signals_page_is_only_about_signals_now():
+    """El veredicto del bot se movio a la pagina del bot. Mezclarlos hacia que
+    una pagina de analisis diario abriera con un asunto de operativa."""
+    pagina = (SRC / "app" / "pages" / "7_validacion.py").read_text("utf-8")
+    assert "trading import gate" not in pagina
+    bot = (SRC / "app" / "pages" / "10_bot.py").read_text("utf-8")
+    assert "trading import gate" in bot

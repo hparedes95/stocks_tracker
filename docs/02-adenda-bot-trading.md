@@ -1,3 +1,14 @@
+> **RETIRADO.** El bot de acciones que describe esta adenda ya no existe.
+> Operar en bolsa exigia permisos y tramites que no compensaban para el uso que
+> se le daba, que es analisis. Lo que se quito fue la estrategia y su
+> ejecucion; el dashboard, los indicadores, los factores, las senales y su
+> validacion siguen intactos porque nunca fueron parte del bot.
+>
+> El documento se conserva porque la mitad de su diseno —riesgo, kill switch,
+> intenciones acunadas, registro de auditoria— es la que sostiene el bot de
+> cripto. Leelo sabiendo que la estrategia y el broker de acciones que menciona
+> no estan en el codigo.
+
 # Adenda 2 — Capa de trading automatizado (Alpaca, papel → real)
 
 Amplía [`00-plan-general.md`](00-plan-general.md) y

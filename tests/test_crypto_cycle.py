@@ -137,7 +137,13 @@ def test_the_context_carries_the_indicators_the_strategy_needs(warehouse):
 # ---------------------------------------------------------------------------
 def test_the_venue_picks_the_crypto_strategy():
     assert run_bot.strategy_for("kraken").strategy_id == "crypto_momentum_v1"
-    assert run_bot.strategy_for(None).strategy_id == "momentum_multifactor_v1"
+
+
+def test_without_a_venue_there_is_no_default_strategy():
+    """Antes caia en la de acciones. Retirada esa, devolver cualquier otra por
+    defecto seria operar en un mercado que nadie pidio."""
+    with pytest.raises(ValueError, match="--venue"):
+        run_bot.strategy_for(None)
 
 
 def test_a_venue_without_a_strategy_says_so_instead_of_trading_stocks():

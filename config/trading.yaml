@@ -8,19 +8,26 @@
 # aqui y no tiene ningun numero escrito en el codigo: cambiar un limite se hace
 # aqui, queda en el historial de git y se ve en un diff.
 
+# EL BOT DE ACCIONES ESTA RETIRADO. Operar en bolsa exigia permisos y tramites
+# que no compensaban para el uso que se le daba, que es analisis. Lo que sigue
+# intacto —dashboard, indicadores, factores, senales y su validacion— nunca fue
+# el bot: son la capa de datos, y no necesitan ninguna cuenta de broker.
+#
+# Lo que queda debajo NO es el mandato de acciones: son los VALORES BASE que
+# hereda cualquier venue y que cada uno concreta en su bloque. No hay ninguna
+# estrategia que los use tal cual, y `strategy_for(None)` se niega a operar sin
+# que se diga en que mercado.
+
 mode: simulated                 # simulated | paper | live
-autonomy: semi                  # semi | auto  (fase 6: siempre semi)
-base_currency: USD
-capital_cap: 55.0               # tope duro de capital desplegable (~50 EUR)
-initial_equity: 55.0            # solo para el simulador: con que dinero arranca
+autonomy: semi                  # semi | guarded | auto
+base_currency: EUR
+capital_cap: 50.0               # tope duro de capital desplegable, entre venues
+initial_equity: 50.0
 
 universe:
-  source: universe_membership
-  allowed: [SP500, NASDAQ100]   # SOLO EE. UU.
-  require_fractionable: true
-  min_price: 5.0                # evita chicharros
-  min_dollar_volume_20d: 20000000
-  exclude_asset_classes: [crypto, commodity, fx]
+  # Vacio a proposito: el universo lo define cada venue. Antes decia
+  # [SP500, NASDAQ100], que era el del bot de acciones.
+  allowed: []
 
 risk:
   # --- dimensionamiento ---
@@ -86,16 +93,8 @@ kill_switch:
   rearm: manual_only            # NUNCA automatico
   cooldown_hours: 12
 
-strategies:
-  momentum_multifactor_v1:
-    enabled: true
-    preset: bot_core            # preset de pesos de factors.yaml
-    rebalance_weekday: 0        # 0 = lunes; primer dia habil de la semana
-    entry_max_rsi14: 75.0
-    exit_pctile: 0.60           # histeresis: se entra en el top N, se sale bajo p60
-    rebalance_band_pp: 5.0      # banda muerta de desviacion del peso objetivo
-    stop_atr_mult: 2.5
-    trailing: true
+# Las estrategias viven en el bloque de su venue. Aqui habia una de acciones y
+# se retiro con el bot.
 
 # ===========================================================================
 # VENUES

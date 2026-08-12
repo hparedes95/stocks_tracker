@@ -15,7 +15,7 @@
       autostart Programa la actualizacion diaria automatica
       ingest    Descarga el universo completo de Yahoo Finance
       universo  TODO de una vez: descarga, calcula, puntua y valida
-      puerta    Valida la estrategia del bot contra el historico
+      puerta    Valida la estrategia de cripto contra el historico
       claves    Muestra que credenciales faltan y como conseguirlas
       mercados  Estado de Kraken y Polymarket: que falta para operar
       polymarket Comprueba la lectura de Polymarket (no necesita wallet)
@@ -551,7 +551,7 @@ switch ($Task) {
         if ($LASTEXITCODE -ne 0) { exit 1 }
 
         Write-Step "[3/3] Backtest con costes y umbrales (10-20 min con robustez)"
-        & $Py -m stocks_tracker.trading.run_bot --gate --robustez
+        & $Py -m stocks_tracker.trading.run_bot --venue kraken --gate --robustez
         $veredicto = $LASTEXITCODE
 
         Write-Host ""
@@ -636,15 +636,14 @@ switch ($Task) {
         if ((Get-Date).DayOfWeek -eq 'Sunday' -or $sinInforme) {
             & $Py -m stocks_tracker.compute.run_compute --only indicators --full-history
             if ($LASTEXITCODE -eq 0) { & $Py -m stocks_tracker.compute.run_compute --history 10 }
-            if ($LASTEXITCODE -eq 0) {
-                Write-Step 'Validando la estrategia del bot (puerta 1)'
-                & $Py -m stocks_tracker.trading.run_bot --gate --robustez
-            }
-
-            # La puerta de CRIPTO y el estudio de Polymarket, por el mismo
-            # motivo y con la misma cadencia: son los dos examenes que deciden
-            # si cada mercado puede operar, y su resultado tiene que existir
-            # aunque nadie abra una consola nunca. Se leen en el dashboard.
+            # El calculo del historico de arriba NO es del bot: alimenta el
+            # ranking y las senales que se leen en el dashboard, y por eso se
+            # queda aunque el bot de acciones se haya retirado.
+            #
+            # La puerta de CRIPTO y el estudio de Polymarket son los dos
+            # examenes que deciden si cada mercado puede operar, y su resultado
+            # tiene que existir aunque nadie abra una consola nunca. Se leen en
+            # el dashboard.
             #
             # No detienen nada si fallan: un suspenso es un resultado, y que
             # Polymarket no responda un domingo no puede dejar sin ejecutar lo

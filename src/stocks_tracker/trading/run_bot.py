@@ -40,18 +40,30 @@ from .context import StrategyContext, build_context
 from .intents import Side
 from .risk import RiskManager
 from .strategies.crypto_momentum import CryptoMomentum
-from .strategies.momentum_multifactor import MomentumMultifactor
 
-# Que estrategia lleva cada mercado. Sin venue, la de acciones.
+# Que estrategia lleva cada mercado. Ya no hay ninguna "por defecto": la de
+# acciones se retiro a peticion del usuario, y operar en bolsa exigia permisos
+# y tramites que no compensaban para lo que la usaba, que es analisis. El
+# dashboard, los indicadores y la validacion de senales siguen intactos: eso
+# nunca fue el bot.
 STRATEGY_BY_VENUE = {
     "kraken": CryptoMomentum,
 }
 
 
 def strategy_for(venue: str | None):
-    """La estrategia del venue, o la de acciones si no se dice cual."""
+    """La estrategia del venue. Sin venue no hay estrategia: hay que decir cual.
+
+    Antes caia en la de acciones cuando no se decia nada. Ahora que no existe,
+    devolver cualquier otra por defecto seria operar en un mercado que nadie
+    pidio; es mejor negarse y decirlo.
+    """
     if venue is None:
-        return MomentumMultifactor()
+        conocidos = ", ".join(sorted(STRATEGY_BY_VENUE)) or "ninguno"
+        raise ValueError(
+            "Hay que decir en que mercado con --venue. El bot de acciones se "
+            f"retiro; mercados con estrategia: {conocidos}."
+        )
     builder = STRATEGY_BY_VENUE.get(venue)
     if builder is None:
         conocidos = ", ".join(sorted(STRATEGY_BY_VENUE)) or "ninguno"
@@ -317,7 +329,16 @@ def main(argv: list[str] | None = None) -> int:
     start = date.fromisoformat(args.start) if args.start else None
 
     try:
-        with single_writer(f"bot-{args.venue or 'equity'}"):
+        # Sin venue no hay nada que hacer: el bot de acciones se retiro y no
+        # existe estrategia por defecto. Se comprueba aqui para que salga una
+        # frase y no una traza de veinte lineas.
+        strategy_for(args.venue)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    try:
+        with single_writer(f"bot-{args.venue}"):
             if args.gate:
                 return _run_gate(start, robustez=args.robustez, venue=args.venue)
 
