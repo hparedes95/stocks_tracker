@@ -75,18 +75,42 @@ def _fmt(value) -> str:
 # ---------------------------------------------------------------------------
 # Bloqueos previos
 # ---------------------------------------------------------------------------
-def find_blockers(preset: str = "bot_core") -> list[str]:
-    """Motivos por los que el resultado del backtest no seria interpretable."""
+def venue_tickers(venue: str) -> list[str]:
+    """La lista blanca del venue, tal cual la escribe el mandato."""
+    vcfg = get_trading_config().venue(venue)
+    return [str(t) for t in ((vcfg.universe or {}).get("allowed") or [])]
+
+
+def find_blockers(preset: str = "bot_core", venue: str | None = None) -> list[str]:
+    """Motivos por los que el resultado del backtest no seria interpretable.
+
+    Con `venue` se comprueba SU serie, y se cambian los bloqueos que no
+    aplican: la contaminacion por fundamentales es de acciones —en cripto no
+    hay balances que mirar— y en su lugar entra el que si importa aqui, que es
+    tener la serie empalmada de dos fuentes.
+    """
     blockers: list[str] = []
+    tickers = venue_tickers(venue) if venue else []
 
     with connect(read_only=True) as conn:
-        sources = conn.execute(
-            "SELECT source, COUNT(*) AS n FROM prices_daily GROUP BY 1"
-        ).fetchdf()
-        n_scores = conn.execute(
-            "SELECT COUNT(DISTINCT date) AS n FROM factor_scores WHERE weights_hash = ?",
-            [weights_hash(get_factor_config().weights(preset))],
-        ).fetchone()[0]
+        if venue:
+            if not tickers:
+                return [f"El venue '{venue}' no tiene universo en trading.yaml."]
+            marcas = ", ".join("?" for _ in tickers)
+            sources = conn.execute(
+                f"SELECT source, COUNT(*) AS n FROM prices_daily "
+                f"WHERE ticker IN ({marcas}) GROUP BY 1", tickers,
+            ).fetchdf()
+            n_scores = None
+        else:
+            sources = conn.execute(
+                "SELECT source, COUNT(*) AS n FROM prices_daily GROUP BY 1"
+            ).fetchdf()
+            n_scores = conn.execute(
+                "SELECT COUNT(DISTINCT date) AS n FROM factor_scores "
+                "WHERE weights_hash = ?",
+                [weights_hash(get_factor_config().weights(preset))],
+            ).fetchone()[0]
 
     if not sources.empty:
         total = int(sources["n"].sum())
@@ -102,6 +126,40 @@ def find_blockers(preset: str = "bot_core") -> list[str]:
                 "Descarga el universo real antes de certificar nada."
             )
 
+    if venue:
+        # Empalmar dos fuentes deja un salto artificial en la fecha de union, y
+        # un salto es exactamente lo que una estrategia de momentum lee como
+        # senal: apareceria una operacion que nunca existio, contada como
+        # ganancia real. La ingesta lo impide, pero un almacen viejo puede
+        # traerlo ya hecho.
+        reales = [s for s in sources["source"].dropna().unique()
+                  if str(s) != "synthetic"] if not sources.empty else []
+        if len(reales) > 1:
+            blockers.append(
+                f"La serie de {venue} mezcla {sorted(map(str, reales))}. Dos "
+                "fuentes en la misma serie meten un salto en la fecha de union "
+                "que el momentum lee como senal. Rehazla de una sola:\n"
+                "    python -m stocks_tracker.ingest.ingest_crypto --full"
+            )
+
+        with connect(read_only=True) as conn:
+            marcas = ", ".join("?" for _ in tickers)
+            cobertura = conn.execute(
+                f"SELECT ticker, COUNT(*) FROM prices_daily "
+                f"WHERE ticker IN ({marcas}) GROUP BY ticker", tickers,
+            ).fetchall()
+        por_par = dict(cobertura)
+        faltan = [t for t in tickers if por_par.get(t, 0) < 400]
+        if faltan:
+            blockers.append(
+                f"Sin historico suficiente en {faltan}. Hacen falta al menos "
+                "400 velas por par: por debajo, la media de 200 sesiones no "
+                "existe durante media muestra y el filtro de regimen —que es "
+                "casi todo lo que protege de un -70 %— no se llega a probar.\n"
+                "    python -m stocks_tracker.ingest.ingest_crypto --full"
+            )
+        return blockers
+
     factores = {f for f, w in get_factor_config().weights(preset).items() if w}
     from ..compute.run_compute import PRICE_ONLY_FACTORS
 
@@ -113,7 +171,7 @@ def find_blockers(preset: str = "bot_core") -> list[str]:
             "ranking pasado incorpora informacion del futuro."
         )
 
-    if n_scores < 100:
+    if n_scores is not None and n_scores < 100:
         blockers.append(
             f"Solo hay {n_scores} sesiones con ranking del perfil '{preset}'. "
             "Calcula el historico primero:\n"
@@ -126,7 +184,7 @@ def find_blockers(preset: str = "bot_core") -> list[str]:
 # ---------------------------------------------------------------------------
 # Referencia
 # ---------------------------------------------------------------------------
-def benchmark_curve(start, end) -> pd.Series:
+def benchmark_curve(start, end, venue: str | None = None) -> pd.Series:
     """Indice equiponderado del universo, que es la referencia honesta.
 
     No se usa el S&P 500 a proposito: esta ponderado por capitalizacion, y una
@@ -134,8 +192,33 @@ def benchmark_curve(start, end) -> pd.Series:
     batir a "comprar todos por igual", no a "comprar sobre todo las siete
     grandes". Compararse con el indice haria pasar por habilidad lo que solo es
     una apuesta de tamano.
+
+    Con `venue`, la referencia es comprar sus monedas a partes iguales y no
+    tocarlas. Es la comparacion que decide si la estrategia sirve de algo:
+    en un tramo alcista de cripto, cualquier cosa gana dinero, y lo unico que
+    dice si el bot aporta algo es si gana MAS que no hacer nada. Compararlo
+    contra un indice de acciones seria medirlo contra otro mercado.
     """
     with connect(read_only=True) as conn:
+        if venue:
+            tickers = venue_tickers(venue)
+            if not tickers:
+                return pd.Series(dtype=float)
+            marcas = ", ".join("?" for _ in tickers)
+            rows = conn.execute(
+                f"""
+                SELECT i.date AS date, AVG(i.ret_1d) AS ret
+                FROM indicators_daily i
+                WHERE i.ticker IN ({marcas}) AND i.date BETWEEN ? AND ?
+                GROUP BY i.date ORDER BY i.date
+                """,
+                [*tickers, start, end],
+            ).fetchdf()
+            if rows.empty:
+                return pd.Series(dtype=float)
+            serie = rows.set_index("date")["ret"].fillna(0.0)
+            return (1.0 + serie).cumprod()
+
         rows = conn.execute(
             """
             SELECT p.date, AVG(i.ret_1d) AS ret
@@ -157,9 +240,16 @@ def benchmark_curve(start, end) -> pd.Series:
 # Evaluacion
 # ---------------------------------------------------------------------------
 def evaluate(summary: dict, robustness: dict | None = None,
-             preset: str = "bot_core") -> GateReport:
-    """Aplica los nueve umbrales de la adenda al resultado de un backtest."""
-    report = GateReport(blockers=find_blockers(preset))
+             preset: str = "bot_core", venue: str | None = None) -> GateReport:
+    """Aplica los nueve umbrales de la adenda al resultado de un backtest.
+
+    Los umbrales son los MISMOS para cripto. Bajarlos porque a la estrategia le
+    cuesta llegar seria forzar el aprobado, que es justo lo que este fichero
+    existe para impedir. Si la muestra disponible no da para superarlos, la
+    respuesta correcta es que no se puede validar todavia, no un aprobado con
+    la vara mas corta.
+    """
+    report = GateReport(blockers=find_blockers(preset, venue=venue))
 
     curva = pd.DataFrame(summary.get("curva") or [], columns=["date", "equity"])
     if curva.empty:
@@ -173,7 +263,10 @@ def evaluate(summary: dict, robustness: dict | None = None,
 
     # 1. Periodo cubierto
     report.add("Periodo cubierto", years >= 5.0, f"{years:.1f} anos", ">= 5 anos",
-               "Menos de cinco anos no cubre un ciclo completo de mercado.")
+               "Menos de cinco anos no cubre un ciclo completo de mercado."
+               + (" En cripto ademas hay monedas que no existian hace cinco "
+                  "anos: si no llega, es que la muestra no da, no que el "
+                  "umbral sobre." if venue else ""))
 
     # 2. Numero de operaciones
     trades = int(summary.get("operaciones", 0))
@@ -205,7 +298,8 @@ def evaluate(summary: dict, robustness: dict | None = None,
                f"{positive:.0f} %", ">= 55 %")
 
     # 7. Frente a la referencia equiponderada
-    bench = benchmark_curve(equity.index.min().date(), equity.index.max().date())
+    bench = benchmark_curve(equity.index.min().date(),
+                            equity.index.max().date(), venue=venue)
     if bench.empty:
         report.add("Frente al equiponderado", False, "sin referencia", "comparable",
                    "No se ha podido construir el indice equiponderado.")
@@ -292,20 +386,36 @@ def render(report: GateReport) -> str:
     return "\n".join(lines)
 
 
-def robustness_sharpes(run_backtest, start, base_params: dict) -> dict[str, float]:
+def robustness_sharpes(run_backtest, start, base_params: dict,
+                       venue: str | None = None) -> dict[str, float]:
     """Sharpe al variar los parametros clave un 25 % arriba y abajo.
 
     Si el resultado depende de que el stop sea 2,5 y no 2,0, lo que se ha
     encontrado es una casualidad del historico, no un comportamiento del
     mercado.
+
+    Los limites de partida salen del venue cuando se le pasa uno. Variar los de
+    acciones para juzgar una estrategia de cripto probaria un stop de 1,9x ATR
+    sobre un mandato que usa 4x: mediria la robustez de otra estrategia.
     """
     cfg = get_trading_config()
+    limites = cfg.venue(venue).risk if venue else cfg.risk
+
+    def limite(nombre: str, defecto: float) -> float:
+        valor = limites.get(nombre)
+        return float(valor) if valor is not None else defecto
+
+    stop = limite("atr_stop_mult", 2.5)
+    posiciones = limite("max_positions", 7)
+
     out: dict[str, float] = {}
     variaciones = {
-        "stop 1,9x": {"atr_stop_mult": cfg.limit("atr_stop_mult") * 0.75},
-        "stop 3,1x": {"atr_stop_mult": cfg.limit("atr_stop_mult") * 1.25},
-        "5 posiciones": {"max_positions": max(2, round(cfg.limit("max_positions") * 0.75))},
-        "9 posiciones": {"max_positions": round(cfg.limit("max_positions") * 1.25)},
+        f"stop {stop * 0.75:.1f}x": {"atr_stop_mult": stop * 0.75},
+        f"stop {stop * 1.25:.1f}x": {"atr_stop_mult": stop * 1.25},
+        f"{max(2, round(posiciones * 0.75))} posiciones":
+            {"max_positions": max(2, round(posiciones * 0.75))},
+        f"{round(posiciones * 1.25)} posiciones":
+            {"max_positions": round(posiciones * 1.25)},
     }
     for nombre, cambio in variaciones.items():
         summary = run_backtest(start, overrides=cambio)

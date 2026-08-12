@@ -298,7 +298,18 @@ class CryptoMomentum:
                             "Cotiza sobre su media de 50 sesiones.",
                             "Bitcoin esta sobre su media de 200: regimen alcista.",
                         ],
-                        "flags": ["entrada"], "signals": list(MOMENTUM_FIELDS),
+                        "flags": ["entrada"],
+                        # Vacio a proposito. `signals` es para el CATALOGO de
+                        # senales de acciones, cada una con su ficha de
+                        # evidencia validada contra el historico. `roc_3m` no
+                        # es una senal de ese catalogo sino un indicador de
+                        # ranking, y declararlo aqui hace que el riesgo exija
+                        # una evidencia que no existe ni puede existir: vetaria
+                        # todas las entradas por un motivo que suena correcto.
+                        #
+                        # Lo que valida esta estrategia es la puerta, no una
+                        # ficha por indicador.
+                        "signals": [],
                     },
                 )
             )

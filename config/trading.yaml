@@ -122,7 +122,12 @@ venues:
     # anade riesgo de liquidez sin diversificar nada.
     universe:
       allowed: [BTC/EUR, ETH/EUR, SOL/EUR, ADA/EUR, DOT/EUR, LINK/EUR]
-      min_daily_volume_eur: 1000000
+      # Mismo nombre de clave que en acciones a proposito: es la que lee la
+      # regla de liquidez de risk.py. Con un nombre propio, la regla no la
+      # encontraria y aplicaria el minimo de bolsa —20 millones al dia— a
+      # cripto, vetando todas las operaciones con un motivo que suena
+      # razonable y no tiene nada que ver. Aqui son euros, no dolares.
+      min_dollar_volume_20d: 1000000
     risk:
       risk_per_trade_pct: 2.0        # menos operaciones, cada una pesa mas
       atr_stop_mult: 4.0             # stop al ~15-20 %, fuera del ruido normal
@@ -233,4 +238,23 @@ venues:
 autonomy_policy:
   simulated: auto
   paper: auto
-  live: auto
+  live: guarded
+
+# Frenos del modo `guarded`. NO son limites de riesgo: los limites ya los
+# aplica risk.py y siguen aplicandose igual. Un freno solo decide si la orden
+# sale sola o espera a que la mires.
+#
+# Estan puestos donde puede equivocarse el PROGRAMA, no la estrategia. Una
+# estrategia mediocre pierde unos euros despacio; un fallo de dimensionamiento
+# o de duplicacion de ordenes se los lleva de golpe, y en automatico nadie lo
+# ve hasta despues.
+brakes:
+  # Un error de calculo del tamano se manifiesta como una orden mucho mayor de
+  # lo normal. Con posiciones objetivo de ~6 EUR, 10 EUR ya es anomalo.
+  confirm_above_eur: 10.0
+  # La primera vez que el codigo toca dinero de verdad. Ahi sale todo lo que
+  # las pruebas no vieron.
+  confirm_first_live_order: true
+  # Abrir posiciones nuevas mientras la cartera cae es doblar la apuesta justo
+  # cuando algo va mal, y eso incluye "hay un fallo que aun no hemos visto".
+  confirm_when_drawdown_over_pct: 8.0

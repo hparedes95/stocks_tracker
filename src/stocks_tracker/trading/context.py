@@ -131,17 +131,46 @@ def _universe_tickers(conn, allowed: list[str], as_of: date) -> set[str]:
     return {r[0] for r in rows}
 
 
+def scope(mode: str, venue: str | None = None) -> str:
+    """Clave de estado del bot: `live` o `live:kraken`.
+
+    El mandato dice dos carteras y nunca un bote comun. Todo el estado del bot
+    —posiciones, equity, maximo historico, kill switch, ordenes del dia— se
+    guarda por esta clave, asi que con `venue` puesto cada mercado lleva su
+    contabilidad aparte. Sin esto, una racha mala en cripto consumiria la cuota
+    de ordenes de Polymarket y su kill switch pararia los dos.
+    """
+    return f"{mode}:{venue}" if venue else mode
+
+
 def build_context(
     as_of: date | None = None,
     mode: str = "simulated",
     strategy_id: str = "momentum_multifactor_v1",
     broker=None,
+    venue: str | None = None,
 ) -> StrategyContext:
-    """Lee el almacen y el estado del broker y devuelve la foto del dia."""
+    """Lee el almacen y el estado del broker y devuelve la foto del dia.
+
+    Con `venue`, la foto es la de ESA cartera: su universo, su capital y su
+    estado, sin ver nada de las demas.
+    """
     cfg = get_trading_config()
-    preset = cfg.strategy(strategy_id).get("preset", "bot_core")
-    wanted_hash = preset_hash(preset)
-    allowed = list(cfg.universe.get("allowed") or [])
+    clave = scope(mode, venue)
+
+    if venue:
+        vcfg = cfg.venue(venue)
+        allowed = list((vcfg.universe or {}).get("allowed") or [])
+        capital = vcfg.initial_equity
+        # El ranking por factores es de acciones: mezcla fundamentales y no
+        # existe para cripto. La estrategia del venue ordena por su cuenta a
+        # partir de los indicadores, asi que aqui no se consulta.
+        wanted_hash = None
+    else:
+        preset = cfg.strategy(strategy_id).get("preset", "bot_core")
+        wanted_hash = preset_hash(preset)
+        allowed = list(cfg.universe.get("allowed") or [])
+        capital = cfg.initial_equity
 
     with connect(read_only=True) as conn:
         last_row = conn.execute("SELECT MAX(date) FROM prices_daily").fetchone()
@@ -151,24 +180,41 @@ def build_context(
         if as_of is None:
             raise ValueError("No hay precios en el almacen: nada que contextualizar")
 
-        universe = _universe_tickers(conn, allowed, as_of)
+        if venue:
+            # En un venue, `allowed` ya ES la lista de tickers del mandato
+            # ("BTC/EUR", ...), no nombres de universo. Pasarla por
+            # `_universe_tickers` buscaria un universo llamado "BTC/EUR" y
+            # devolveria el conjunto vacio: el bot se quedaria sin candidatos
+            # en silencio, con todos los datos descargados.
+            universe = set(allowed)
+        else:
+            universe = _universe_tickers(conn, allowed, as_of)
 
         # `factor_scores` guarda un ranking por preset. Leer sin filtrar por
         # weights_hash devolveria una fila por preset y multiplicaria el
         # universo candidato por cinco, con posiciones repetidas.
-        scores = conn.execute(
-            """
-            SELECT ticker, composite, composite_pctile, coverage,
-                   quality_z, lowvol_z, momentum_z, value_z
-            FROM factor_scores
-            WHERE date = ? AND weights_hash = ?
-            """,
-            [as_of, wanted_hash],
-        ).fetchdf()
+        if wanted_hash is None:
+            scores = pd.DataFrame(columns=["ticker"])
+        else:
+            scores = conn.execute(
+                """
+                SELECT ticker, composite, composite_pctile, coverage,
+                       quality_z, lowvol_z, momentum_z, value_z
+                FROM factor_scores
+                WHERE date = ? AND weights_hash = ?
+                """,
+                [as_of, wanted_hash],
+            ).fetchdf()
 
+        # `above_sma50`, `roc_3m` y `roc_6m` los usa la estrategia de cripto
+        # para su ranking. Se piden siempre: son dos columnas mas de una fila
+        # por ticker, y tenerlas ausentes en el contexto hace que la estrategia
+        # se quede en silencio sin candidatos, que es el fallo mas dificil de
+        # ver de todos.
         indicators = conn.execute(
             """
             SELECT ticker, close, atr14, atr_pct, rsi14, above_sma200, sma200,
+                   above_sma50, sma50, roc_3m, roc_6m,
                    rel_volume_20, ret_1d
             FROM indicators_daily WHERE date = ?
             """,
@@ -224,16 +270,16 @@ def build_context(
 
         state_row = conn.execute(
             "SELECT state, peak_equity, day_start_equity FROM bot_state WHERE mode = ?",
-            [mode],
+            [clave],
         ).fetchone()
 
         bot_positions = conn.execute(
-            "SELECT * FROM bot_positions WHERE mode = ?", [mode]
+            "SELECT * FROM bot_positions WHERE mode = ?", [clave]
         ).fetchdf()
 
         orders_today = conn.execute(
             "SELECT ticker FROM orders WHERE mode = ? AND submitted_at::DATE = ?",
-            [mode, as_of],
+            [clave, as_of],
         ).fetchall()
 
     if universe:
@@ -249,8 +295,8 @@ def build_context(
     for ticker, report_date in earnings_rows:
         earnings.setdefault(ticker, []).append(report_date)
 
-    equity = cfg.initial_equity
-    cash = cfg.initial_equity
+    equity = capital
+    cash = capital
     positions: dict[str, dict] = {}
     if broker is not None:
         account = broker.get_account()
@@ -265,7 +311,9 @@ def build_context(
 
     return StrategyContext(
         as_of=as_of,
-        mode=mode,
+        # El contexto lleva la clave con venue: es la que usan el riesgo, el
+        # kill switch y el registro para no mezclar carteras.
+        mode=clave,
         equity=equity,
         cash=cash,
         positions=positions,

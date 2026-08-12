@@ -259,10 +259,26 @@ class TradingConfig:
     """Mandato del bot. Unica fuente de los limites de riesgo."""
 
     raw: dict[str, Any]
+    # Puesto cuando este mandato es el de un venue con sus limites ya subidos
+    # al nivel raiz. Solo cambia una cosa —la exencion de horario de 24/7— y
+    # esta aqui para que sea explicito: sin el, un mandato de cripto seria
+    # indistinguible de alguien intentando operar acciones fuera de hora.
+    #
+    # Se llama `venue_key` y no `venue` porque `venue(key)` ya es el metodo que
+    # devuelve la configuracion de un mercado, y un campo con ese nombre lo
+    # tapa: las llamadas fallan con "missing 1 required positional argument",
+    # que no sugiere en absoluto que el problema sea un nombre repetido.
+    venue_key: str | None = None
 
     def __post_init__(self) -> None:
         risk = self.raw.get("risk") or {}
         for key in FORBIDDEN_ALWAYS:
+            # `allow_extended_hours` es legitimo en un venue 24/7: cripto y los
+            # mercados de prediccion no tienen "fuera de horario". Los otros
+            # tres siguen prohibidos en todas partes, venue o no. Misma regla
+            # que en `VenueConfig`, y por el mismo motivo.
+            if key == "allow_extended_hours" and self.venue_key:
+                continue
             if risk.get(key):
                 raise ConfigError(
                     f"'{key}' no se puede activar: es una prohibicion absoluta "
@@ -338,6 +354,11 @@ class TradingConfig:
         significa y lo que NO significa, porque es la diferencia entre
         automatico y sin frenos.
 
+        En real esta 'guarded': automatico salvo lo que cruce un freno. Los
+        frenos no vigilan a la estrategia —para eso esta la puerta— sino al
+        programa: importe anormal, primera orden con dinero real, y abrir
+        posiciones estando ya en perdidas. Ver `trading/autonomy.py`.
+
         Lo que quita 'auto': el paso en el que una persona lee la propuesta y
         pulsa aprobar. Nada mas.
 
@@ -354,9 +375,10 @@ class TradingConfig:
         """
         politica = dict(self.raw.get("autonomy_policy") or {})
         valor = str(politica.get(mode, "semi"))
-        if valor not in ("semi", "auto"):
+        if valor not in ("semi", "guarded", "auto"):
             raise ConfigError(
-                f"autonomy_policy.{mode} = '{valor}'. Solo 'semi' o 'auto'."
+                f"autonomy_policy.{mode} = '{valor}'. "
+                "Solo 'semi', 'guarded' o 'auto'."
             )
         return valor
 
