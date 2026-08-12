@@ -21,6 +21,7 @@
       polymarket Comprueba la lectura de Polymarket (no necesita wallet)
       calibracion ¿Se equivoca Polymarket lo bastante como para apostar?
       cripto    Historico de cripto (Yahoo) y comparacion con Kraken
+      pendientes Ordenes que el freno de mano dejo esperando tu visto bueno
       tiene-universo  Codigo 0 si el universo completo esta descargado
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
@@ -37,7 +38,8 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('setup', 'demo', 'ingest', 'universo', 'puerta', 'claves', 'mercados',
-                 'polymarket', 'calibracion', 'cripto', 'tiene-universo',
+                 'polymarket', 'calibracion', 'cripto', 'pendientes',
+                 'tiene-universo',
                  'compute', 'presets', 'validate',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
@@ -423,6 +425,18 @@ switch ($Task) {
         # Para rehacer los ocho anos enteros:
         #     .venv\Scripts\python.exe -m stocks_tracker.ingest.ingest_crypto --full
         & $Py -m stocks_tracker.ingest.ingest_crypto --comparar
+    }
+
+    'pendientes' {
+        # Lo que el freno de mano dejo esperando. En 'guarded' el bot opera
+        # solo salvo lo que cruce un freno —importe anormal, primera orden con
+        # dinero real, abrir estando en perdidas— y eso espera aqui.
+        #
+        # Aprobar NO se salta el riesgo: la orden ya paso por el mandato. Lo
+        # que estaba en pausa era el ultimo paso, y el precio se comprueba de
+        # nuevo antes de enviarla.
+        Assert-Venv
+        & $Py -m stocks_tracker.trading.confirm
     }
 
     'calibracion' {

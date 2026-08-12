@@ -30,11 +30,13 @@ class Journal:
     _decisions: list[tuple] = None  # type: ignore[assignment]
     _intents: list[tuple] = None    # type: ignore[assignment]
     _violations: list[tuple] = None  # type: ignore[assignment]
+    _holds: list[tuple] = None       # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         self._decisions = []
         self._intents = []
         self._violations = []
+        self._holds = []
 
     # ------------------------------------------------------------------
     def decision(self, ticker: str, decision: str, reason_code: str,
@@ -79,6 +81,16 @@ class Journal:
             "VETOED" if verdict.decision is Decision.VETO else "APPROVED",
             None, "auto", datetime.now(), verdict.reason_text,
         ))
+
+    def hold(self, intent_id: str, reason: str, expires_at) -> None:
+        """Marca una intencion como pendiente de confirmacion humana.
+
+        Se anota aparte y se aplica al volcar, despues del INSERT: la fila de
+        la intencion no existe hasta entonces, y un UPDATE antes no encontraria
+        nada que actualizar y fallaria en silencio dejando la orden como
+        aprobada —o sea, ejecutable sin que nadie la mire—.
+        """
+        self._holds.append((intent_id, reason, expires_at))
 
     def violation(self, entry: dict) -> None:
         self._violations.append((
@@ -134,12 +146,20 @@ class Journal:
                         self._violations,
                     )
                     counts["risk_violations"] = len(self._violations)
+                if self._holds:
+                    conn.executemany(
+                        "UPDATE intents SET status = 'PENDING_CONFIRMATION', "
+                        "decided_by = NULL, decided_at = NULL, "
+                        "decision_note = ?, expires_at = ? WHERE intent_id = ?",
+                        [(r, e, i) for i, r, e in self._holds],
+                    )
                 conn.execute("COMMIT")
             except Exception:
                 conn.execute("ROLLBACK")
                 raise
 
         self._decisions, self._intents, self._violations = [], [], []
+        self._holds = []
         return counts
 
 

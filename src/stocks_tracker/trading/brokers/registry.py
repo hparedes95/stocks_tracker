@@ -1,8 +1,13 @@
-"""Seleccion del broker segun el modo.
+"""Seleccion del broker segun el mercado y el modo.
 
-Punto unico donde se decide con que se opera. En la fase 6 solo existe el
-simulado: `paper` y `live` fallan con un mensaje que dice en que fase se
-habilitan, en lugar de con un `ImportError` de un modulo que no existe.
+Punto unico donde se decide con que se opera. Falla con un mensaje que dice
+que falta, no con un `ImportError` de un modulo que no existe.
+
+El broker real de un venue NO se entrega sin mas: pasa antes por
+`venues.require_tradeable`, que comprueba credenciales, que el venue este
+activado y que su estrategia haya superado la puerta. Construirlo aqui sin esa
+comprobacion seria un camino que llega al dinero saltandose la validacion, y
+en ese caso el resto de las barreras dan igual.
 """
 
 from __future__ import annotations
@@ -13,8 +18,13 @@ from ...core.config import ConfigError, get_trading_config
 from .base import BrokerAdapter, BrokerMode
 from .simulated import SimulatedBroker
 
+# Que adaptador lleva cada mercado. Solo cripto por ahora: en Polymarket cada
+# orden se firma con la clave privada de la wallet y esa parte no esta escrita.
+_LIVE_BROKERS = {"kraken"}
 
-def get_broker(mode: BrokerMode | str, prices: pd.DataFrame | None = None) -> BrokerAdapter:
+
+def get_broker(mode: BrokerMode | str, prices: pd.DataFrame | None = None,
+               venue: str | None = None) -> BrokerAdapter:
     mode = BrokerMode(mode)
     cfg = get_trading_config()
 
@@ -24,16 +34,45 @@ def get_broker(mode: BrokerMode | str, prices: pd.DataFrame | None = None) -> Br
                 "El broker simulado necesita el historico de precios: es su "
                 "unica fuente de ejecucion."
             )
-        execution = cfg.execution
+        execution = cfg.venue(venue).execution if venue else cfg.execution
+        equity = cfg.venue(venue).initial_equity if venue else cfg.initial_equity
         return SimulatedBroker(
             prices=prices,
-            initial_cash=cfg.initial_equity,
+            initial_cash=equity,
             slippage_bps=float(execution.get("slippage_bps_assumed", 15.0)),
             commission_bps=float(execution.get("commission_bps", 0.0)),
         )
 
-    raise ConfigError(
-        f"El modo '{mode}' todavia no esta implementado. La fase 6 es solo "
-        "simulacion: el broker real (Alpaca, en papel) llega en la fase 7, y "
-        "no antes de que el backtest con costes supere la puerta 1."
-    )
+    if venue is None:
+        raise ConfigError(
+            f"Para operar en '{mode}' hay que decir en que mercado. "
+            f"Con adaptador: {', '.join(sorted(_LIVE_BROKERS)) or 'ninguno'}."
+        )
+    if venue not in _LIVE_BROKERS:
+        raise ConfigError(
+            f"'{venue}' no tiene adaptador de ejecucion todavia. "
+            + ("En Polymarket cada orden se firma con la clave privada de la "
+               "wallet, y esa parte no esta escrita: por ahora solo se puede "
+               "leer y estudiar." if venue == "polymarket" else "")
+        )
+
+    return build_broker(venue, mode=mode)
+
+
+def build_broker(venue: str, mode: BrokerMode | str = BrokerMode.LIVE) -> BrokerAdapter:
+    """El adaptador real de un venue, previa comprobacion de que se puede usar.
+
+    La comprobacion no es opcional ni se puede saltar pasando un argumento:
+    este es el unico sitio del programa donde se construye algo capaz de
+    gastar dinero, asi que es donde tiene que estar.
+    """
+    from ..venues import require_tradeable
+
+    require_tradeable(venue, str(mode))
+
+    if venue == "kraken":
+        from .kraken import KrakenBroker
+
+        return KrakenBroker(mode=BrokerMode(mode))
+
+    raise ConfigError(f"'{venue}' no tiene adaptador de ejecucion.")

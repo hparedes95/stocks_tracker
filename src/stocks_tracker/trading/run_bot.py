@@ -25,7 +25,7 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 
@@ -117,7 +117,7 @@ def load_prices(start: date | None = None, tickers: list[str] | None = None
 def run_cycle(ctx: StrategyContext, strategy, risk: RiskManager,
               log: journal.Journal, broker=None,
               level: str = "auto", brake_settings: dict | None = None,
-              live_orders_so_far: int = 1) -> CycleResult:
+              live_orders_so_far: int = 1, ttl_hours: float = 18.0) -> CycleResult:
     """Un ciclo: proponer, evaluar el riesgo, registrar y (si hay broker) enviar.
 
     `level` por defecto es 'auto' porque quien llama sin decir nada es el
@@ -128,6 +128,9 @@ def run_cycle(ctx: StrategyContext, strategy, risk: RiskManager,
     """
     result = CycleResult(run_id=log.run_id, equity=ctx.equity)
     ordenes_previas = live_orders_so_far
+    # Una confirmacion sin caducidad es una orden que se ejecuta al precio de
+    # hace tres dias porque alguien la aprobo tarde.
+    caduca = datetime.now() + timedelta(hours=float(ttl_hours))
     drawdown_pct = (
         (ctx.peak_equity - ctx.equity) / ctx.peak_equity * 100.0
         if ctx.peak_equity > 0 else 0.0
@@ -170,13 +173,18 @@ def run_cycle(ctx: StrategyContext, strategy, risk: RiskManager,
             settings=brake_settings,
         )
         if frenos:
+            motivo = autonomy.explain(frenos)
             log.decision(
                 order.ticker, "PENDING_CONFIRMATION",
-                "_".join(f.code for f in frenos).upper(),
-                autonomy.explain(frenos),
+                "_".join(f.code for f in frenos).upper(), motivo,
                 {"notional": order.notional, "qty": order.qty,
                  "client_order_id": order.client_order_id},
             )
+            # Y en la tabla de intenciones, que es de donde las lee quien
+            # confirma. Dejarlo solo en el registro de auditoria daria una
+            # orden retenida que nadie puede aprobar ni rechazar: en la
+            # practica, una orden perdida.
+            log.hold(order.intent_id, motivo, caduca)
             result.n_pending += 1
             continue
 

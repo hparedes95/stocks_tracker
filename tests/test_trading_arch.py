@@ -201,13 +201,54 @@ def test_the_dashboard_never_shows_orders_or_intents():
     assert not offenders, f"el dashboard muestra operativa sin validar: {offenders}"
 
 
-def test_paper_and_live_are_refused_in_phase_six():
+def test_a_real_broker_needs_to_say_which_market():
+    """Sin venue no se sabe ni con que credenciales ni contra que cartera. Caer
+    en un mercado por defecto seria operar donde nadie pidio."""
     from stocks_tracker.core.config import ConfigError
     from stocks_tracker.trading.brokers.registry import get_broker
 
     for mode in ("paper", "live"):
-        with pytest.raises(ConfigError, match="fase 7"):
+        with pytest.raises(ConfigError, match="que mercado"):
             get_broker(mode)
+
+
+def test_a_venue_without_an_adapter_is_refused():
+    """En Polymarket cada orden se firma con la clave privada de la wallet y
+    esa parte no esta escrita. Devolver otro adaptador mandaria las ordenes al
+    mercado equivocado."""
+    from stocks_tracker.core.config import ConfigError
+    from stocks_tracker.trading.brokers.registry import get_broker
+
+    with pytest.raises(ConfigError, match="polymarket"):
+        get_broker("live", venue="polymarket")
+
+
+def test_the_only_path_to_a_live_broker_goes_through_the_venue_check():
+    """La comprobacion de credenciales, activacion y puerta superada no puede
+    saltarse con un argumento: este es el unico sitio del programa donde se
+    construye algo capaz de gastar dinero.
+
+    Kraken esta `enabled: false` en el mandato y sin credenciales, asi que
+    pedirlo tiene que fallar diciendo que falta, no devolver un adaptador.
+    """
+    from stocks_tracker.core.config import ConfigError
+    from stocks_tracker.trading.brokers.registry import build_broker
+
+    with pytest.raises(ConfigError):
+        build_broker("kraken", mode="live")
+
+
+def test_building_a_live_broker_calls_the_gate_itself():
+    """Comprobado sobre el codigo y no solo sobre el resultado: si alguien
+    quitara la llamada, el test de arriba podria seguir pasando por cualquier
+    otro motivo —una credencial ausente, por ejemplo— y la barrera habria
+    desaparecido sin que nada lo dijera."""
+    fuente = (SRC / "trading" / "brokers" / "registry.py").read_text(encoding="utf-8")
+    build = fuente[fuente.index("def build_broker"):]
+    assert "require_tradeable(venue, str(mode))" in build
+    assert build.index("require_tradeable") < build.index("KrakenBroker"), (
+        "se construye el adaptador antes de comprobar que se puede usar"
+    )
 
 
 def test_the_forbidden_limits_cannot_be_turned_on():
