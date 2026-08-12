@@ -275,7 +275,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Bot de trading. En la fase 6 solo simula: no toca dinero.",
     )
-    parser.add_argument("--mode", default="simulated",
+    # Por defecto, el modo que diga el mandato. Fijarlo a 'simulated' aqui
+    # significaria que poner `mode: live` en trading.yaml no hace nada y el
+    # bot programado propone para siempre sin ejecutar, con aspecto de estar
+    # operando.
+    parser.add_argument("--mode", default=get_trading_config().mode,
                         choices=["simulated", "paper", "live"])
     parser.add_argument("--phase", default="propose",
                         choices=["propose", "eod"])
@@ -329,7 +333,15 @@ def main(argv: list[str] | None = None) -> int:
                       "sobre el futuro.")
                 return 0
 
-            return _propose_once(args.mode, venue=args.venue)
+            broker = None
+            if args.mode != "simulated":
+                # Con dinero de por medio hace falta el adaptador real. Sin
+                # el, `run_cycle` se queda en proponer y el bot programado
+                # nunca ejecuta nada, pareciendo que si.
+                from .brokers.registry import build_broker
+
+                broker = build_broker(args.venue, mode=args.mode)
+            return _propose_once(args.mode, venue=args.venue, broker=broker)
     except AlreadyRunning as exc:
         print(f"No se ha ejecutado: {exc}", file=sys.stderr)
         return 1

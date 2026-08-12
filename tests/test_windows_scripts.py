@@ -737,6 +737,15 @@ def test_the_cycle_task_targets_the_crypto_venue():
     assert "--venue kraken" in ciclo
 
 
+def test_the_cycle_does_not_pin_the_mode():
+    """El modo sale del mandato. Fijarlo en el script significaria que
+    cambiar `mode:` en trading.yaml no hace nada, y el bot programado seguiria
+    simulando con aspecto de estar operando."""
+    src = text("scripts/windows/stocks.ps1")
+    ciclo = src[src.index("    'ciclo' {"):src.index("    'pendientes' {")]
+    assert "--mode" not in ciclo, "el ciclo fija el modo e ignora el mandato"
+
+
 def test_the_automation_warns_that_a_powered_off_computer_does_not_trade():
     """Es la limitacion mas importante de ejecutar esto en un ordenador
     personal, y quien lo activa tiene que saberla en ese momento, no

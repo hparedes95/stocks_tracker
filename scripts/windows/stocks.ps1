@@ -469,11 +469,16 @@ switch ($Task) {
         # que no cruce un freno. Lo llama el Programador de tareas cada seis
         # horas; a mano sirve para ver que haria ahora mismo.
         #
-        # El modo sale del mandato. Mientras la puerta de cripto no este
-        # superada, `venues.require_tradeable` lo para con una frase que dice
-        # que falta, y eso es lo correcto: sin validar no se opera.
+        # El modo sale del mandato (`mode:` en trading.yaml) y NO se fija
+        # aqui: escribirlo en el script significaria que cambiarlo en el
+        # mandato no hace nada, y el bot programado seguiria simulando con
+        # aspecto de estar operando.
+        #
+        # Mientras la puerta de cripto no este superada,
+        # `venues.require_tradeable` lo para con una frase que dice que falta.
+        # Eso es lo correcto: sin validar no se opera.
         Assert-Venv
-        & $Py -m stocks_tracker.trading.run_bot --venue kraken --mode simulated
+        & $Py -m stocks_tracker.trading.run_bot --venue kraken
         & $Py -m stocks_tracker.trading.confirm
     }
 
