@@ -13,6 +13,7 @@ import streamlit as st
 
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components import charts, tv_widgets
+from stocks_tracker.app.components.attribution_panel import render_attribution_panel
 from stocks_tracker.app.components.broker_import import (
     render_broker_import,
     render_manual_table,
@@ -150,6 +151,12 @@ with tab_portfolio:
                 ),
             },
         )
+
+        # -------------------------------------------------------------------
+        # Atribucion: marea o merito
+        # -------------------------------------------------------------------
+        st.divider()
+        render_attribution_panel(da.get_attribution_inputs())
 
         # -------------------------------------------------------------------
         # Diagnostico de concentracion

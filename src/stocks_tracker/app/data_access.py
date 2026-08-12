@@ -1019,6 +1019,90 @@ def get_position_health() -> pd.DataFrame:
     return hoy.merge(entonces, on="ticker", how="left")
 
 
+# Proxy del mercado. Es un ETF con precio real en el almacen, no un indice
+# teorico: se puede comprar, que es justo la alternativa contra la que tiene
+# sentido compararse ("¿habria ganado mas sin hacer nada?").
+MERCADO_TICKER = "SPY"
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_attribution_inputs() -> pd.DataFrame:
+    """Cada posicion con lo que hicieron el mercado y su sector MIENTRAS la tenias.
+
+    Las referencias se miden en la ventana de cada posicion, desde su
+    `opened_at` hasta hoy. Compararlas todas contra el mismo periodo —el ano
+    del indice, pongamos— daria un numero limpio y sin sentido: una compra de
+    hace un mes no compite contra doce meses de mercado.
+
+    El sector se aproxima con su ETF (`sector_etfs` en `universe.yaml`). Sin
+    ETF o sin sector asignado, `retorno_sector` sale nulo y quien lo use no
+    debe separar el efecto sector del de seleccion.
+    """
+    from ..core.config import get_sector_etfs
+
+    por_sector = {sector: etf for etf, sector in get_sector_etfs().items()}
+    if not por_sector:
+        return pd.DataFrame()
+
+    filas = ", ".join("(?, ?)" for _ in por_sector)
+    params: list = []
+    for sector, etf in por_sector.items():
+        params.extend([sector, etf])
+
+    return _fetch(
+        f"""
+        WITH etf_de_sector(sector, etf) AS (VALUES {filas}),
+        -- Una fila por COMPRA, no por valor. Dos lotes del mismo valor
+        -- comprados con seis meses de diferencia son dos decisiones distintas
+        -- con dos ventanas distintas; agruparlos obligaria a inventarse una
+        -- fecha de entrada comun y a comparar la segunda compra contra un
+        -- mercado que ya habia pasado.
+        abiertas AS (
+            SELECT p.id, p.ticker, p.opened_at, p.qty, p.qty * p.avg_cost AS coste,
+                   inst.gics_sector AS sector
+            FROM positions p
+            LEFT JOIN instruments inst ON inst.ticker = p.ticker
+            WHERE p.closed_at IS NULL AND p.qty > 0 AND p.avg_cost > 0
+        ),
+        -- Precio de cada referencia el dia de la compra. ASOF por la sesion
+        -- anterior mas cercana: una compra en fin de semana o festivo no puede
+        -- quedarse sin comparacion.
+        con_mercado AS (
+            SELECT a.*, m.adj_close AS mercado_entonces
+            FROM abiertas a
+            ASOF LEFT JOIN (
+                SELECT date, adj_close FROM prices_daily WHERE ticker = ?
+            ) m ON m.date <= a.opened_at
+        ),
+        con_etf AS (
+            SELECT c.*, e.etf
+            FROM con_mercado c LEFT JOIN etf_de_sector e ON e.sector = c.sector
+        ),
+        con_sector AS (
+            SELECT c.*, s.adj_close AS sector_entonces
+            FROM con_etf c
+            ASOF LEFT JOIN prices_daily s
+                 ON s.ticker = c.etf AND s.date <= c.opened_at
+        ),
+        ultimo AS (
+            SELECT ticker, LAST(adj_close ORDER BY date) AS cierre
+            FROM prices_daily GROUP BY ticker
+        )
+        SELECT c.id, c.ticker, c.sector, c.etf, c.opened_at, c.qty, c.coste,
+               date_diff('day', c.opened_at, CURRENT_DATE) AS dias,
+               p.cierre / (c.coste / c.qty) - 1.0 AS retorno,
+               m.cierre / NULLIF(c.mercado_entonces, 0) - 1.0 AS retorno_mercado,
+               s.cierre / NULLIF(c.sector_entonces, 0) - 1.0 AS retorno_sector
+        FROM con_sector c
+        LEFT JOIN ultimo p ON p.ticker = c.ticker
+        LEFT JOIN ultimo m ON m.ticker = ?
+        LEFT JOIN ultimo s ON s.ticker = c.etf
+        ORDER BY c.coste DESC
+        """,
+        [*params, MERCADO_TICKER, MERCADO_TICKER],
+    )
+
+
 @st.cache_data(ttl=TTL, show_spinner=False)
 def get_returns_matrix(tickers: tuple[str, ...], days: int = 250) -> pd.DataFrame:
     """Retornos diarios en formato ancho, para calcular correlaciones."""
