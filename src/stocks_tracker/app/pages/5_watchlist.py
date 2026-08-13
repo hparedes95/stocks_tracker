@@ -20,6 +20,7 @@ from stocks_tracker.app.components.broker_import import (
 )
 from stocks_tracker.app.components.common import render_disclaimer
 from stocks_tracker.app.components.health_panel import render_health_panel
+from stocks_tracker.app.components.stress_panel import render_stress_panel
 from stocks_tracker.app.components.theme import format_money, format_pct
 
 st.title("Cartera y watchlist")
@@ -243,43 +244,16 @@ with tab_portfolio:
                 st.caption("Sin puntuacion factorial suficiente para el perfil.")
 
         # -------------------------------------------------------------------
-        # Correlacion entre posiciones
+        # Stress test
         # -------------------------------------------------------------------
-        if len(positions) >= 3:
-            returns = da.get_returns_matrix(tuple(positions["ticker"]), days=250)
-            if not returns.empty and returns.shape[1] >= 3:
-                corr = returns.corr()
-                upper = corr.to_numpy()[np.triu_indices(len(corr), k=1)]
-                upper = upper[np.isfinite(upper)]
-                if len(upper):
-                    avg_corr = float(np.mean(upper))
-                    st.divider()
-                    st.subheader("Diversificacion real")
-                    corr_cols = st.columns([1, 3])
-                    corr_cols[0].metric("Correlacion media", f"{avg_corr:.2f}")
-                    with corr_cols[1]:
-                        if avg_corr > 0.7:
-                            st.warning(
-                                f"Tus posiciones se mueven casi al unisono "
-                                f"(correlacion media {avg_corr:.2f}). Tener "
-                                f"{len(positions)} valores no te diversifica si "
-                                "todos suben y bajan a la vez: en la practica es "
-                                "casi una sola apuesta.",
-                                icon=":material/warning:",
-                            )
-                        elif avg_corr > 0.45:
-                            st.info(
-                                f"Correlacion media de {avg_corr:.2f}: "
-                                "diversificacion moderada.",
-                                icon=":material/info:",
-                            )
-                        else:
-                            st.success(
-                                f"Correlacion media de {avg_corr:.2f}: tus "
-                                "posiciones se mueven de forma bastante "
-                                "independiente.",
-                                icon=":material/check:",
-                            )
+        # Sustituye a la vieja seccion de "Diversificacion real", que solo
+        # ensenaba la correlacion media de los ultimos meses. Ese numero se
+        # queda corto por construccion: describe un mercado tranquilo, y la
+        # diversificacion desaparece justo cuando deja de estarlo. Aqui esta la
+        # misma correlacion media, ademas de cuantas apuestas independientes
+        # hay de verdad y cuantas quedarian en una caida.
+        st.divider()
+        render_stress_panel(positions)
 
         # -------------------------------------------------------------------
         # Cerrar

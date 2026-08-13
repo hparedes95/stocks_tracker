@@ -1,0 +1,82 @@
+# Escenarios de estres: que le habria pasado a TU cartera en caidas que de
+# verdad ocurrieron.
+#
+# No son simulaciones ni modelos. Cada escenario es una ventana de fechas
+# reales, y lo que se aplica a cada posicion es lo que de verdad hizo ese valor
+# —o su sector, si el valor no cotizaba todavia— entre esas dos fechas.
+#
+# ESTO NO ES EL PEOR CASO. El peor caso siempre es peor que lo peor que ha
+# pasado: en 2007 nadie tenia 2008 en su lista de escenarios. Sirve para ver
+# donde esta concentrado el riesgo, no para poner un suelo a las perdidas.
+#
+# Los escenarios que no tengan datos suficientes NO se calculan: preferimos
+# decir "no llega el historico" a rellenar el hueco con una estimacion que se
+# leeria igual de convincente. El historico que se descarga lo fija
+# `ingest.backfill_years` en settings.yaml (por defecto 10 anos), asi que 2008
+# solo aparece si lo subes a 20 y vuelves a descargar.
+
+escenarios:
+  - id: covid_2020
+    nombre: "Covid (feb-mar 2020)"
+    desde: 2020-02-19
+    hasta: 2020-03-23
+    que_paso: >
+      La caida mas rapida de la historia moderna: un tercio del indice en
+      cinco semanas. Lo que ensena no es la magnitud sino la velocidad —no
+      hubo tiempo de reaccionar entre el maximo y el suelo—.
+
+  - id: oso_2022
+    nombre: "Ano de subidas de tipos (2022)"
+    desde: 2022-01-03
+    hasta: 2022-10-12
+    que_paso: >
+      Nueve meses cuesta abajo, sin ningun dia de panico. El unico escenario
+      de esta lista en el que los bonos NO amortiguaron nada: cayeron a la vez
+      que la bolsa. Castiga sobre todo a lo que cotizaba caro por crecimiento.
+
+  - id: q4_2018
+    nombre: "Ultimo trimestre de 2018"
+    desde: 2018-09-20
+    hasta: 2018-12-24
+    que_paso: >
+      Tres meses de goteo por miedo a subidas de tipos y a la guerra
+      comercial. Util porque es una caida "normal": ni crisis financiera ni
+      pandemia, del tipo que ocurre cada pocos anos.
+
+  - id: bancos_2023
+    nombre: "Banca regional (marzo 2023)"
+    desde: 2023-03-01
+    hasta: 2023-03-15
+    que_paso: >
+      Dos semanas. Un susto muy concentrado en un sector que apenas se noto
+      en el indice: sirve para ver si tu cartera esta mas expuesta a un sector
+      concreto de lo que parece.
+
+  - id: agosto_2024
+    nombre: "Susto de agosto (2024)"
+    desde: 2024-07-31
+    hasta: 2024-08-05
+    que_paso: >
+      Tres sesiones. Una sacudida breve y violenta por el cierre de posiciones
+      apalancadas en yenes. Ensena como se comporta lo que llevas cuando el
+      movimiento es demasiado rapido para vender.
+
+  - id: gran_crisis_2008
+    nombre: "Crisis financiera (2007-2009)"
+    desde: 2007-10-09
+    hasta: 2009-03-09
+    que_paso: >
+      Diecisiete meses y un 57 % desde maximos. Es el escenario que mas
+      ensena y el que casi nunca se puede calcular: hace falta subir
+      `backfill_years` a 20 en settings.yaml y volver a descargar.
+
+# Correlaciones en el momento malo. En una caida fuerte, lo que normalmente se
+# mueve por separado empieza a moverse junto: la diversificacion desaparece
+# justo el dia que hacia falta. 0,9 no es un numero inventado — es el orden de
+# magnitud que se ha visto en las caidas de arriba.
+correlacion_en_crisis: 0.90
+
+# Cobertura minima para fiarse del resultado. Por debajo, la mayoria de las
+# posiciones se estarian estimando con su sector o con el indice y el numero
+# dice mas del mercado que de tu cartera.
+cobertura_minima: 0.60

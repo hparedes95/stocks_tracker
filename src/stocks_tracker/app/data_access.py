@@ -1103,6 +1103,95 @@ def get_attribution_inputs() -> pd.DataFrame:
     )
 
 
+# Cuanto puede alejarse el precio disponible de la fecha pedida. Un puente
+# largo cabe; mas alla, el precio ya no es el de esa fecha y usarlo convertiria
+# el escenario en otro distinto sin decirlo.
+_MARGEN_ESCENARIO_DIAS = 10
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_window_returns(tickers: tuple[str, ...], desde: date,
+                       hasta: date) -> dict:
+    """Lo que hizo de verdad cada valor entre dos fechas.
+
+    Solo devuelve los que tienen precio a los DOS lados de la ventana. Un valor
+    que empezo a cotizar a mitad del escenario daria un retorno medido desde su
+    primer dia, que no es lo que paso: seria una caida recortada justo por
+    donde mas cayo.
+    """
+    if not tickers:
+        return {}
+    # Las fechas objetivo van como COLUMNA y no como parametro: un ASOF exige
+    # comparar dos columnas, y con `pr.date <= ?` DuckDB responde "Missing ASOF
+    # JOIN inequality" porque eso es un filtro, no una desigualdad de union.
+    df = _fetch(
+        f"""
+        WITH pedidos(ticker) AS (VALUES {', '.join('(?)' for _ in tickers)}),
+        objetivo AS (
+            SELECT p.ticker, CAST(? AS DATE) AS ini, CAST(? AS DATE) AS fin
+            FROM pedidos p
+        ),
+        inicio AS (
+            SELECT o.ticker, o.ini, o.fin,
+                   pr.adj_close AS precio, pr.date AS fecha
+            FROM objetivo o
+            ASOF LEFT JOIN prices_daily pr
+                 ON pr.ticker = o.ticker AND pr.date <= o.ini
+        ),
+        final AS (
+            SELECT o.ticker, pr.adj_close AS precio, pr.date AS fecha
+            FROM objetivo o
+            ASOF LEFT JOIN prices_daily pr
+                 ON pr.ticker = o.ticker AND pr.date <= o.fin
+        )
+        SELECT i.ticker, f.precio / NULLIF(i.precio, 0) - 1.0 AS retorno
+        FROM inicio i JOIN final f USING (ticker)
+        WHERE i.precio IS NOT NULL AND f.precio IS NOT NULL
+          AND i.fecha >= i.ini - INTERVAL {_MARGEN_ESCENARIO_DIAS} DAY
+          AND f.fecha >= i.fin - INTERVAL {_MARGEN_ESCENARIO_DIAS} DAY
+          AND i.fecha < f.fecha
+        """,
+        [*tickers, desde, hasta],
+    )
+    if df.empty:
+        return {}
+    return {str(r.ticker): float(r.retorno) for r in df.itertuples()
+            if r.retorno is not None and pd.notna(r.retorno)}
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_sector_window_returns(desde: date, hasta: date) -> dict:
+    """Lo mismo por sector, usando su ETF. Indexado por nombre de sector."""
+    from ..core.config import get_sector_etfs
+
+    etfs = get_sector_etfs()
+    if not etfs:
+        return {}
+    por_etf = get_window_returns(tuple(sorted(etfs)), desde, hasta)
+    return {sector: por_etf[etf] for etf, sector in etfs.items()
+            if etf in por_etf}
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_realized_vol(tickers: tuple[str, ...]) -> dict:
+    """Volatilidad anual de cada valor, para pesar el riesgo de cada apuesta."""
+    if not tickers:
+        return {}
+    huecos = ", ".join("?" for _ in tickers)
+    df = _fetch(
+        f"""
+        SELECT ticker, realized_vol_252 AS vol FROM indicators_daily
+        WHERE ticker IN ({huecos})
+          AND date = (SELECT date FROM current_session)
+        """,
+        list(tickers),
+    )
+    if df.empty:
+        return {}
+    return {str(r.ticker): float(r.vol) for r in df.itertuples()
+            if r.vol is not None and pd.notna(r.vol) and r.vol > 0}
+
+
 @st.cache_data(ttl=TTL, show_spinner=False)
 def get_returns_matrix(tickers: tuple[str, ...], days: int = 250) -> pd.DataFrame:
     """Retornos diarios en formato ancho, para calcular correlaciones."""
