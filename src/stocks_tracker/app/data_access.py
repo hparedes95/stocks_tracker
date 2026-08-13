@@ -1193,6 +1193,158 @@ def get_realized_vol(tickers: tuple[str, ...]) -> dict:
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
+def get_fundamentals_pair(ticker: str) -> tuple:
+    """La foto de fundamentales mas reciente y la anterior.
+
+    Las dos hacen falta para el contraste temporal: un ratio que se multiplica
+    por diez de una descarga a la siguiente casi nunca es la empresa. Existe
+    desde que se guarda el historico punto-en-el-tiempo; antes solo habia una
+    foto y esta comprobacion no se podia hacer.
+    """
+    df = _fetch(
+        "SELECT * FROM fundamentals_snapshot WHERE ticker = ? "
+        "ORDER BY as_of DESC LIMIT 2",
+        [ticker],
+    )
+    if df.empty:
+        return None, None
+    ultima = df.iloc[0]
+    anterior = df.iloc[1] if len(df) > 1 else None
+    return ultima, anterior
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_beta_from_prices(ticker: str, days: int = 400) -> float | None:
+    """Beta calculada con NUESTRAS cotizaciones, no con la que declaran.
+
+    Es el unico contraste de verdad independiente que se puede hacer sin pagar
+    una segunda fuente de fundamentales: el proveedor dice un numero y aqui se
+    calcula por separado con datos que no vienen de el.
+    """
+    from ..core.consistency import beta_desde_precios
+
+    if ticker == MERCADO_TICKER:
+        return None
+    df = _fetch(
+        """
+        SELECT ticker, date, ret_1d FROM indicators_daily
+        WHERE ticker IN (?, ?)
+          AND date >= (SELECT date FROM current_session) - INTERVAL (?) DAY
+        """,
+        [ticker, MERCADO_TICKER, days],
+    )
+    if df.empty:
+        return None
+    ancho = df.pivot_table(index="date", columns="ticker", values="ret_1d")
+    if ticker not in ancho or MERCADO_TICKER not in ancho:
+        return None
+    juntos = ancho[[ticker, MERCADO_TICKER]].dropna()
+    if juntos.empty:
+        return None
+    return beta_desde_precios(juntos[ticker].to_numpy(),
+                              juntos[MERCADO_TICKER].to_numpy())
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def review_fundamentals(ticker: str):
+    """Todo lo que contradice a los fundamentales de un valor."""
+    from ..core.consistency import revisar
+
+    ultima, anterior = get_fundamentals_pair(ticker)
+    if ultima is None:
+        return revisar(ticker, None)
+
+    # `close` y NO `adj_close`: el ajustado corrige splits y dividendos, asi que
+    # no es el precio al que cotiza hoy y multiplicado por las acciones NO da la
+    # capitalizacion. Con el ajustado, cualquier valor con historia de
+    # dividendos salia marcado —el 100 % del universo—, que es la forma de
+    # fallar mas inutil: un aviso que sale siempre no distingue nada.
+    if data_origin().get("synthetic"):
+        cierre = None          # precios inventados: no contrastan nada
+    else:
+        precio = _fetch(
+            "SELECT LAST(close ORDER BY date) AS cierre FROM prices_daily "
+            "WHERE ticker = ?", [ticker],
+        )
+        cierre = (float(precio.iloc[0]["cierre"])
+                  if not precio.empty and pd.notna(precio.iloc[0]["cierre"])
+                  else None)
+
+    return revisar(ticker, ultima, precio=cierre,
+                   beta_calculada=get_beta_from_prices(ticker),
+                   anterior=anterior)
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def review_all_fundamentals(limit: int = 2000) -> pd.DataFrame:
+    """Los valores cuyos fundamentales se contradicen, los peores primero.
+
+    Se recorre el universo entero y no solo la cartera: un dato roto importa
+    sobre todo en los valores que TODAVIA no tienes, porque es ahi donde un PER
+    inventado de 3 te hace comprar.
+
+    Tres consultas en total y no tres por valor. Con una consulta por ticker
+    esto tardaba minuto y medio con 600 instrumentos y la pagina se quedaba en
+    blanco mientras tanto — que es indistinguible de estar rota.
+
+    La beta se deja fuera del barrido a proposito: exige cruzar los retornos de
+    cada valor con los del mercado uno a uno, y es lo que hacia lento el
+    recorrido. Ese contraste esta en la ficha de cada valor, donde se calcula
+    solo el que se esta mirando.
+    """
+    from ..core.consistency import revisar
+
+    fotos = _fetch(
+        f"""
+        SELECT * FROM fundamentals_snapshot
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY as_of DESC) <= 2
+        LIMIT {int(limit) * 2}
+        """
+    )
+    if fotos.empty:
+        return pd.DataFrame(columns=["ticker", "rotos", "avisos", "campos",
+                                     "detalle"])
+
+    # Con precios sinteticos no se contrasta la capitalizacion. El simulador
+    # inventa los precios y los fundamentales por separado, asi que no cuadran
+    # nunca: el aviso saltaria en el 95 % del universo y lo unico que ensenaria
+    # es a ignorar los avisos antes incluso de tener datos reales.
+    if data_origin().get("synthetic"):
+        por_ticker: dict = {}
+    else:
+        # `close` y no `adj_close`: el ajustado corrige splits y dividendos y
+        # no sirve para contrastar la capitalizacion.
+        precios = _fetch(
+            "SELECT ticker, LAST(close ORDER BY date) AS cierre "
+            "FROM prices_daily GROUP BY ticker"
+        )
+        por_ticker = {str(r.ticker): float(r.cierre)
+                      for r in precios.itertuples()
+                      if r.cierre is not None and pd.notna(r.cierre)}
+
+    fotos = fotos.sort_values(["ticker", "as_of"], ascending=[True, False])
+    filas = []
+    for ticker, grupo in fotos.groupby("ticker", sort=False):
+        ultima = grupo.iloc[0]
+        anterior = grupo.iloc[1] if len(grupo) > 1 else None
+        rev = revisar(str(ticker), ultima, precio=por_ticker.get(str(ticker)),
+                      anterior=anterior)
+        if rev.avisos:
+            filas.append({
+                "ticker": str(ticker),
+                "rotos": len(rev.rotos),
+                "avisos": len(rev.avisos),
+                "campos": ", ".join(sorted(rev.campos_sospechosos)),
+                "detalle": " · ".join(a.texto for a in rev.avisos),
+            })
+    if not filas:
+        return pd.DataFrame(columns=["ticker", "rotos", "avisos", "campos",
+                                     "detalle"])
+    return pd.DataFrame(filas).sort_values(["rotos", "avisos"],
+                                           ascending=False, ignore_index=True)
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
 def get_returns_matrix(tickers: tuple[str, ...], days: int = 250) -> pd.DataFrame:
     """Retornos diarios en formato ancho, para calcular correlaciones."""
     if not tickers:

@@ -145,6 +145,48 @@ else:
     )
 
 st.divider()
+st.subheader("Fundamentales que se contradicen")
+st.caption(
+    "Los ratios vienen de un **unico proveedor gratuito**, y un proveedor "
+    "gratuito se equivoca. Ninguno de esos errores da un fallo: entran en el "
+    "ranking, suben al valor a los primeros puestos y ahi se quedan con la "
+    "misma pinta que los datos buenos. Aqui se contrastan de tres formas: "
+    "contra nuestros propios precios, contra las identidades contables que "
+    "tienen que cumplir entre si, y contra la descarga anterior."
+)
+
+sospechosos = da.review_all_fundamentals()
+if sospechosos.empty:
+    st.success(
+        "Ningun valor tiene fundamentales que se contradigan. No garantiza que "
+        "sean correctos: garantiza que no se ha encontrado nada que los "
+        "contradiga, que es otra cosa.",
+        icon=":material/check_circle:",
+    )
+else:
+    rotos = int((sospechosos["rotos"] > 0).sum())
+    resumen_cols = st.columns(2)
+    resumen_cols[0].metric("Valores con algun dato imposible", rotos)
+    resumen_cols[1].metric("Valores con datos que no cuadran",
+                           len(sospechosos) - rotos)
+    st.dataframe(
+        sospechosos[["ticker", "rotos", "avisos", "campos"]],
+        hide_index=True, height=min(420, 42 + 35 * len(sospechosos)),
+        column_config={
+            "ticker": "Valor",
+            "rotos": st.column_config.NumberColumn("Imposibles", format="%d"),
+            "avisos": st.column_config.NumberColumn("Avisos", format="%d"),
+            "campos": st.column_config.TextColumn("Campos", width="large"),
+        },
+    )
+    st.caption(
+        "**No se corrige nada automaticamente.** Cuando dos datos se "
+        "contradicen no se sabe cual es el equivocado, y elegir uno seria peor "
+        "que avisar de los dos. El detalle de cada uno esta en la pestana "
+        "Fundamentales de su ficha."
+    )
+
+st.divider()
 st.subheader("Registro de ingesta")
 with connect(read_only=True) as conn:
     log = conn.execute(

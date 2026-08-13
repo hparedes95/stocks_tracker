@@ -179,6 +179,21 @@ with tab_fund:
     if fundamentals is None:
         st.caption("Sin datos fundamentales para este valor.")
     else:
+        # Antes de la tabla y no despues: un PER de 3 se lee como una ganga en
+        # cuanto aparece en pantalla, y el aviso llega tarde debajo.
+        revision = da.review_fundamentals(ticker)
+        if not revision.fiable:
+            escribir = st.error if revision.rotos else st.warning
+            escribir(
+                "**Estos numeros no cuadran.** " + " ".join(
+                    a.texto for a in revision.avisos
+                ) + "\n\nVienen de un unico proveedor gratuito y no hay una "
+                "segunda fuente con la que compararlos: contrastalos con las "
+                "cuentas de la empresa antes de decidir nada con ellos.",
+                icon=":material/report:" if revision.rotos
+                else ":material/help:",
+            )
+
         medians = da.get_sector_medians(sector)
         rows = [
             ("PER", "trailing_pe", "{:.1f}"),
