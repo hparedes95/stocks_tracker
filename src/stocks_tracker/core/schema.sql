@@ -568,3 +568,40 @@ CREATE TABLE IF NOT EXISTS gate_reports (
   data_from   DATE,
   data_to     DATE
 );
+
+-- ============ DIARIO DE DECISIONES ============
+-- Por que compraste, ESCRITO ANTES de saber si salio bien.
+--
+-- Existe para corregir el sesgo retrospectivo, que no se corrige con buena
+-- intencion: cuando algo sale bien, el recuerdo del motivo se reescribe solo
+-- para que encaje, y se aprende una leccion que nunca ocurrio. La unica defensa
+-- conocida es dejarlo por escrito antes y releerlo despues sin retocarlo.
+--
+-- La foto del momento (precio, percentil, RSI, regimen) se guarda AUTOMATICA y
+-- no se teclea: es lo que de verdad se sabia ese dia, no lo que se recuerda
+-- haber sabido.
+--
+-- Se registran tambien las decisiones de NO comprar y de esperar. Son la mitad
+-- de las decisiones que se toman y no dejan rastro en ningun sitio: sin ellas
+-- el diario solo guarda los aciertos posibles.
+CREATE TABLE IF NOT EXISTS decision_journal (
+  id                VARCHAR PRIMARY KEY,
+  created_at        TIMESTAMP,
+  ticker            VARCHAR,
+  accion            VARCHAR,        -- comprar | vender | no_comprar | esperar
+  tesis             VARCHAR,        -- por que, con tus palabras
+  que_me_haria_salir VARCHAR,       -- que tendria que pasar para cambiar de idea
+  horizonte_dias    INTEGER,
+  conviccion        INTEGER,        -- 1 a 5
+  -- Foto del momento, automatica
+  precio            DOUBLE,
+  precio_mercado    DOUBLE,         -- el proxy de mercado ese dia
+  composite_pctile  DOUBLE,
+  rsi14             DOUBLE,
+  drawdown          DOUBLE,
+  above_sma200      BOOLEAN,
+  -- Revision posterior
+  revisado_at       TIMESTAMP,
+  veredicto         VARCHAR,        -- acierto | suerte | mala_suerte | error
+  nota_revision     VARCHAR
+);

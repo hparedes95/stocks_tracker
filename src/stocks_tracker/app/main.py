@@ -63,6 +63,8 @@ pages = {
     "Mi cartera": [
         st.Page("pages/5_watchlist.py", title="Cartera y watchlist",
                 icon=":material/bookmark:", url_path="watchlist"),
+        st.Page("pages/11_diario.py", title="Diario de decisiones",
+                icon=":material/history_edu:", url_path="diario"),
         alerts_page,
     ],
     "El bot": [
