@@ -160,7 +160,13 @@ def render_stress_panel(positions: pd.DataFrame) -> None:
 
     # --- La diversificacion que desaparece ---------------------------------
     st.markdown("**¿Cuantas apuestas tienes de verdad?**")
-    pesos = {p["ticker"]: p["valor"] for p in cartera}
+    # Se SUMAN los lotes del mismo valor. Con un diccionario por comprension,
+    # la segunda compra de un valor pisaba a la primera y la cartera parecia
+    # menos concentrada de lo que es — justo lo contrario de lo que este panel
+    # existe para ensenar.
+    pesos: dict = {}
+    for p in cartera:
+        pesos[p["ticker"]] = pesos.get(p["ticker"], 0.0) + p["valor"]
     corr = da.get_returns_matrix(tickers)
     div = (diversificacion(pesos, corr.corr(), da.get_realized_vol(tickers))
            if not corr.empty and corr.shape[1] >= 2 else None)

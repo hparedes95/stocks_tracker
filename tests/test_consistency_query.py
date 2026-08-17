@@ -218,12 +218,12 @@ def test_the_worst_come_first(warehouse):
     dejaria lo urgente en mitad de la lista."""
     from stocks_tracker.app import data_access as da
 
-    foto(HOY, profit_margin=9.0)
+    foto(HOY, profit_margin=9.0)                      # imposible
     with db.connect() as conn:
-        conn.execute(
+        conn.execute(                                  # solo se contradice
             "INSERT INTO fundamentals_snapshot "
-            "(ticker, as_of, trailing_pe, earnings_yield) "
-            "VALUES ('BBB', ?, 20.0, 0.25)", [HOY])
+            "(ticker, as_of, roe, roa, debt_to_equity) "
+            "VALUES ('BBB', ?, 0.04, 0.09, 150.0)", [HOY])
 
     assert list(da.review_all_fundamentals()["ticker"]) == ["AAA", "BBB"]
 
@@ -311,3 +311,27 @@ def test_the_sweep_does_not_query_once_per_ticker(warehouse, monkeypatch):
 
     assert len(tabla) == 60
     assert consultas <= 4, f"{consultas} consultas para 60 valores"
+
+
+def test_the_sweep_never_splits_a_tickers_pair_of_snapshots(warehouse,
+                                                            monkeypatch):
+    """`LIMIT` sin `ORDER BY` puede quedarse con una sola de las dos fotos de un
+    valor, y ese valor pierde el contraste temporal en silencio."""
+    from stocks_tracker.app import data_access as da
+
+    monkeypatch.setattr(da, "data_origin", lambda: {"synthetic": False})
+    with db.connect() as conn:
+        for i in range(6):
+            for dias, margen in ((7, 0.20), (0, 0.90)):
+                conn.execute(
+                    "INSERT INTO fundamentals_snapshot "
+                    "(ticker, as_of, profit_margin) VALUES (?, ?, ?)",
+                    [f"T{i}", HOY - timedelta(days=dias), margen])
+
+    # Con el corte justo por la mitad de las parejas.
+    tabla = da.review_all_fundamentals(limit=3)
+    assert not tabla.empty
+    for campos in tabla["campos"]:
+        assert "profit_margin" in campos, (
+            "un valor se ha quedado sin su foto anterior y sin contraste"
+        )

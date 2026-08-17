@@ -125,6 +125,10 @@ class Diagnostico:
     senales: list[Senal]
     comparado_con: Any = None       # fecha de referencia, o None
     hay_datos: bool = True
+    # Si habia datos del DIA DE LA COMPRA con los que comparar. Sin ellos solo
+    # se ejecutan las comprobaciones que miran el presente —payout, caida desde
+    # maximos— y las de "ha cambiado a peor" no llegan a correr.
+    comparado: bool = True
 
     @property
     def puntos(self) -> int:
@@ -138,6 +142,14 @@ class Diagnostico:
             return Nivel.ROJO
         if self.puntos >= PUNTOS_AMBAR:
             return Nivel.AMBAR
+        # Sin nada del dia de la compra, las comprobaciones que comparan no han
+        # llegado a ejecutarse: decir "sin cambios a peor" seria afirmar que no
+        # ha cambiado nada cuando lo unico cierto es que no se ha podido mirar.
+        # Es el mismo verde por falta de datos que este modulo existe para
+        # evitar, colado por la puerta de atras. Pasa con toda posicion
+        # comprada antes de que empezara a guardarse el historico.
+        if not self.comparado:
+            return Nivel.GRIS
         return Nivel.VERDE
 
     @property
@@ -336,9 +348,11 @@ def diagnosticar(ticker: str, *, fund_hoy: Any = None, fund_entonces: Any = None
     verde. Se obtienen con la union punto-en-el-tiempo, la misma que evita que
     el ranking historico se sepa el futuro.
 
-    Sin datos de hoy no se diagnostica: el nivel sale GRIS. Sin datos de
-    entonces se puede diagnosticar a medias —lo que solo mira el presente, como
-    el payout o la caida desde maximos— y se dice comparando con nada.
+    Sin datos de hoy no se diagnostica: el nivel sale GRIS. Sin datos del dia
+    de la compra se ejecuta lo que solo mira el presente —payout, caida desde
+    maximos— y, si eso no encuentra nada, el nivel tambien sale GRIS: las
+    comprobaciones que comparan no han llegado a correr, asi que "sin cambios a
+    peor" seria afirmar algo que nadie ha comprobado.
     """
     senales = _fundamentales(fund_hoy, fund_entonces) + _precio(ind_hoy, ind_entonces)
     # Haber encontrado algo ya demuestra que habia datos. Sin esa salida
@@ -350,5 +364,13 @@ def diagnosticar(ticker: str, *, fund_hoy: Any = None, fund_entonces: Any = None
         _num(ind_hoy, campo) is not None or _bool(ind_hoy, campo) is not None
         for campo in CAMPOS_PRECIO
     )
+    comparado = any(
+        _num(fund_entonces, campo) is not None for campo in CAMPOS_FUNDAMENTALES
+    ) or any(
+        _num(ind_entonces, campo) is not None
+        or _bool(ind_entonces, campo) is not None
+        for campo in CAMPOS_PRECIO
+    )
     return Diagnostico(ticker=ticker, senales=senales,
-                       comparado_con=comparado_con, hay_datos=hay_datos)
+                       comparado_con=comparado_con, hay_datos=hay_datos,
+                       comparado=comparado)

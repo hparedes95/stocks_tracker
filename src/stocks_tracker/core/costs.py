@@ -216,8 +216,15 @@ class AvisoDosMeses:
 
     @property
     def libre_el(self) -> date:
+        """El primer dia en que recomprar ya no arrastra la perdida.
+
+        Un dia MAS que la ventana. El articulo habla de los dos meses
+        anteriores o posteriores, asi que el dia 60 todavia esta dentro:
+        diciendo que el 60 ya se puede, el aviso salia el mismo dia en que se
+        anunciaba que dejaba de aplicar, contradiciendose solo.
+        """
         return self.vendido_el + timedelta(days=self.dias_desde_venta
-                                           + self.dias_que_faltan)
+                                           + self.dias_que_faltan + 1)
 
 
 @dataclass(frozen=True)

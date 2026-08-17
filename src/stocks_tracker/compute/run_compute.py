@@ -338,15 +338,22 @@ def pit_coverage(conn, dates: list) -> dict:
     marcas = ", ".join(["(?)"] * len(dates))
     filas = conn.execute(
         f"""
+        -- Las dos mitades tienen que contar la MISMA poblacion. Antes el
+        -- denominador incluia los ETF —que no publican fundamentales y por
+        -- tanto nunca tienen foto— y el numerador contaba cualquier ticker con
+        -- foto, estuviera o no en `instruments`. La cobertura salia baja de
+        -- forma sistematica y podia bloquear el ranking sin motivo, o pasar de
+        -- 1,0 y dejar pasar justo lo que la puerta existe para frenar.
         WITH universo AS (
-            SELECT COUNT(*) AS n FROM instruments
-            WHERE asset_class IN ('equity', 'etf')
+            SELECT ticker FROM instruments WHERE asset_class = 'equity'
         )
         SELECT d.fecha,
                COUNT(DISTINCT f.ticker) AS con_foto,
-               (SELECT n FROM universo) AS total
+               (SELECT COUNT(*) FROM universo) AS total
         FROM (VALUES {marcas}) AS d(fecha)
-        LEFT JOIN fundamentals_snapshot f ON f.as_of <= d.fecha
+        LEFT JOIN fundamentals_snapshot f
+               ON f.as_of <= d.fecha
+              AND f.ticker IN (SELECT ticker FROM universo)
         GROUP BY d.fecha ORDER BY d.fecha
         """,
         list(dates),

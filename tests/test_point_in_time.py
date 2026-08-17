@@ -204,3 +204,26 @@ def test_with_enough_history_the_fundamentals_actually_reach_the_scoring(warehou
         traidos = fundamentals_as_of(conn, [pd.Timestamp(f).date() for f in fechas])
     assert not traidos.empty
     assert set(traidos["ticker"]) == {"AAA", "BBB"}
+
+
+def test_coverage_counts_the_same_population_on_both_sides(warehouse):
+    """El denominador incluia los ETF, que no publican fundamentales y por
+    tanto NUNCA tienen foto: la cobertura salia baja de forma sistematica y
+    podia bloquear el ranking sin motivo. Y el numerador contaba cualquier
+    ticker con foto, estuviera o no en el universo, con lo que podia pasar de
+    1,0 y dejar pasar justo lo que la puerta existe para frenar.
+    """
+    with db.connect() as conn:
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": "AAA", "asset_class": "equity"},
+            {"ticker": "SPY", "asset_class": "etf"},        # nunca tendra foto
+        ]), keys=["ticker"])
+        db.upsert_df(conn, "fundamentals_snapshot", pd.DataFrame([
+            {"ticker": "AAA", "as_of": date(2026, 1, 1), "roe": 0.2},
+            # Foto de un ticker que no esta en el universo: no puede contar.
+            {"ticker": "FUERA", "as_of": date(2026, 1, 1), "roe": 0.3},
+        ]), keys=["ticker", "as_of"])
+
+    with db.connect(read_only=True) as conn:
+        cob = pit_coverage(conn, [date(2026, 6, 1)])
+    assert cob[date(2026, 6, 1)] == pytest.approx(1.0)

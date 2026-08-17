@@ -329,3 +329,42 @@ def test_a_signal_is_worth_more_when_it_is_grave():
 def test_no_fundamental_check_crashes_on_a_missing_field(campo):
     """Barrido: cada comprobacion con su campo y sin ningun otro."""
     diagnosticar("AAA", fund_hoy={campo: 0.1}, fund_entonces={campo: 0.5})
+
+
+def test_no_data_from_the_purchase_day_is_grey_not_green():
+    """El verde por falta de datos, colado por la puerta de atras.
+
+    Con datos de HOY pero ninguno del dia de la compra, las comprobaciones que
+    comparan no llegan a ejecutarse: solo corren las que miran el presente. Si
+    esas no encuentran nada, decir "sin cambios a peor" afirma que no ha
+    cambiado nada cuando lo unico cierto es que no se ha podido mirar.
+
+    Le pasa a TODA posicion comprada antes de que el programa empezara a
+    guardar el historico, o sea a la cartera entera de cualquiera que lo
+    instale hoy.
+    """
+    d = diagnosticar("AAA", fund_hoy={"profit_margin": 0.22, "payout_ratio": 0.4},
+                     fund_entonces={}, ind_hoy={"drawdown": -0.05},
+                     ind_entonces={})
+    assert d.hay_datos and not d.comparado
+    assert d.senales == []
+    assert d.nivel is Nivel.GRIS
+
+
+def test_with_data_from_the_purchase_day_a_clean_position_is_green():
+    """El contrario, para que el de arriba no pase por el motivo equivocado."""
+    d = diagnosticar("AAA", fund_hoy={"profit_margin": 0.22},
+                     fund_entonces={"profit_margin": 0.21},
+                     ind_hoy={"drawdown": -0.05, "above_sma200": True},
+                     ind_entonces={"above_sma200": True})
+    assert d.comparado
+    assert d.nivel is Nivel.VERDE
+
+
+def test_a_real_signal_still_shows_even_without_the_purchase_snapshot():
+    """Lo que si se puede comprobar con el presente no se pierde por no poder
+    comparar: un dividendo sin cubrir sigue saliendo."""
+    d = diagnosticar("AAA", fund_hoy={"payout_ratio": 1.4}, fund_entonces={})
+    assert not d.comparado
+    assert d.nivel is Nivel.ROJO or d.nivel is Nivel.AMBAR
+    assert "payout" in claves(d)

@@ -96,14 +96,25 @@ def render_health_panel(salud: pd.DataFrame, nombres: dict | None = None) -> Non
         with st.expander(cabecera, expanded=d.nivel is Nivel.ROJO,
                          icon=ICONO[d.nivel]):
             if d.nivel is Nivel.GRIS:
-                st.info(
-                    "No hay datos para comprobar esta posicion. No es que este "
-                    "bien: es que no se ha podido mirar. Suele pasar con "
-                    "indices, ETF y cripto, que no publican fundamentales, y "
-                    "con valores recien anadidos. Se rellena con "
-                    "`stocks.ps1 update`.",
-                    icon=":material/help:",
-                )
+                if d.hay_datos and not d.comparado:
+                    st.info(
+                        "Hay datos de hoy pero ninguno del dia en que "
+                        "compraste, asi que **no se ha podido comparar**. No "
+                        "es que no haya cambiado nada: es que no se sabe. Pasa "
+                        "con las posiciones compradas antes de que el programa "
+                        "empezara a guardar el historico, y se arregla solo con "
+                        "el tiempo.",
+                        icon=":material/help:",
+                    )
+                else:
+                    st.info(
+                        "No hay datos para comprobar esta posicion. No es que "
+                        "este bien: es que no se ha podido mirar. Suele pasar "
+                        "con indices, ETF y cripto, que no publican "
+                        "fundamentales, y con valores recien anadidos. Se "
+                        "rellena con `stocks.ps1 update`.",
+                        icon=":material/help:",
+                    )
                 continue
 
             if not d.senales:

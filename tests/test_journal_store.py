@@ -218,3 +218,29 @@ def test_the_market_price_is_always_fetched_even_if_nobody_journals_it(warehouse
         "sin el precio del mercado, 'Descontando el mercado' no se ensena jamas"
     )
     assert "AAA" in precios
+
+
+def test_the_snapshot_takes_the_percentile_of_the_active_style(warehouse):
+    """`factor_scores` guarda un score por ESTILO. Sin filtrar por el hash del
+    estilo activo, `LIMIT 1` se quedaba con uno cualquiera: la decision quedaba
+    anotada con un percentil que no era el que se estaba mirando en pantalla.
+    """
+    from datetime import date
+
+    from stocks_tracker.core.scoring import preset_hash
+
+    hoy = date.today()
+    with db.connect() as conn:
+        conn.execute("INSERT INTO instruments (ticker, asset_class) "
+                     "VALUES ('AAA', 'equity')")
+        conn.execute(
+            "INSERT INTO indicators_daily (ticker, date, close, rsi14) "
+            "VALUES ('AAA', ?, 100.0, 55.0)", [hoy])
+        for estilo, pctile in (("balanced", 0.90), ("momentum", 0.10)):
+            conn.execute(
+                "INSERT INTO factor_scores (ticker, date, weights_hash, "
+                "composite, composite_pctile, coverage) "
+                "VALUES ('AAA', ?, ?, 1.0, ?, 0.9)",
+                [hoy, preset_hash(estilo), pctile])
+
+    assert store.foto_de("AAA")["composite_pctile"] == pytest.approx(0.90)

@@ -287,3 +287,30 @@ def test_even_a_gain_does_not_end_on_a_reassuring_note():
     decirlo tambien —sobre todo— cuando el numero sale bien."""
     r = impacto(ESCENARIO, [posicion()], {"AAA": 0.10}, {})
     assert "peor que lo peor que ha pasado" in stress.frase_peor(r)
+
+
+def test_a_missing_volatility_does_not_get_mixed_with_the_real_ones():
+    """Rellenar la que falta con 1,0 la mezcla con las de verdad —del orden de
+    0,25— y esa posicion pasa a pesar cuatro veces el riesgo que tiene: el
+    numero de apuestas efectivas describe una cartera que no existe.
+
+    Con todas iguales se mide co-movimiento puro, que es informacion honesta.
+    """
+    pesos = {f"T{i}": 1.0 for i in range(3)}
+    reales = {"T0": 0.25, "T1": 0.25, "T2": 0.25}
+    falta_una = {"T0": 0.25, "T1": 0.25}
+
+    completo = diversificacion(pesos, independientes(3), reales)
+    incompleto = diversificacion(pesos, independientes(3), falta_una)
+    assert incompleto.efectivas_hoy == pytest.approx(completo.efectivas_hoy)
+
+
+def test_real_volatilities_do_change_the_result_when_they_are_all_there():
+    """Si no cambiaran nada, el test de arriba pasaria con las volatilidades
+    ignoradas por completo."""
+    pesos = {f"T{i}": 1.0 for i in range(3)}
+    iguales = diversificacion(pesos, independientes(3),
+                              {"T0": 0.2, "T1": 0.2, "T2": 0.2})
+    dispares = diversificacion(pesos, independientes(3),
+                               {"T0": 0.9, "T1": 0.1, "T2": 0.1})
+    assert dispares.efectivas_hoy < iguales.efectivas_hoy

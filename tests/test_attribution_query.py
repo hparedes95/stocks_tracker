@@ -268,3 +268,35 @@ def test_the_holding_period_reaches_the_summary(warehouse):
     r = resumir(posiciones_desde(entradas()))
     assert r.dias_mediana == 45
     assert not r.hay_bastante
+
+
+def test_all_legs_are_measured_with_the_same_kind_of_price(warehouse):
+    """Tu retorno se mide desde `avg_cost`, que es el precio BRUTO que pagaste.
+    Midiendo el indice con el precio ajustado se le regalaban los dividendos
+    reinvertidos: el mercado salia por delante en la rentabilidad por dividendo
+    del indice —cerca de dos puntos al ano— sin que nada fallara.
+
+    Aqui el ajustado del mercado es mucho menor que su cierre, asi que usar uno
+    u otro da retornos muy distintos.
+    """
+    comprada = HOY - timedelta(days=300)
+    with db.connect() as conn:
+        conn.execute("INSERT INTO instruments (ticker, asset_class, gics_sector) "
+                     "VALUES ('AAA', 'equity', 'Information Technology')")
+        conn.execute("INSERT INTO positions VALUES ('p', 'AAA', 10, 100.0, "
+                     "'EUR', ?, NULL, '', NULL)", [comprada])
+        for cuando, precio in ((comprada, 100.0), (HOY, 120.0)):
+            conn.execute(
+                "INSERT INTO prices_daily (ticker, date, close, adj_close) "
+                "VALUES ('AAA', ?, ?, ?)", [cuando, precio, precio])
+        # El mercado sube un 10 % en precio; su serie ajustada sube un 25 %.
+        for cuando, cierre, ajustado in ((comprada, 200.0, 160.0),
+                                         (HOY, 220.0, 200.0)):
+            conn.execute(
+                "INSERT INTO prices_daily (ticker, date, close, adj_close) "
+                "VALUES ('SPY', ?, ?, ?)", [cuando, cierre, ajustado])
+
+    fila = entradas().iloc[0]
+    assert fila["retorno_mercado"] == pytest.approx(0.10), (
+        "el mercado se esta midiendo con el precio ajustado y el tuyo no"
+    )

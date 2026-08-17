@@ -1071,7 +1071,7 @@ def get_attribution_inputs() -> pd.DataFrame:
             SELECT a.*, m.adj_close AS mercado_entonces
             FROM abiertas a
             ASOF LEFT JOIN (
-                SELECT date, adj_close FROM prices_daily WHERE ticker = ?
+                SELECT date, close AS adj_close FROM prices_daily WHERE ticker = ?
             ) m ON m.date <= a.opened_at
         ),
         con_etf AS (
@@ -1081,11 +1081,19 @@ def get_attribution_inputs() -> pd.DataFrame:
         con_sector AS (
             SELECT c.*, s.adj_close AS sector_entonces
             FROM con_etf c
-            ASOF LEFT JOIN prices_daily s
-                 ON s.ticker = c.etf AND s.date <= c.opened_at
+            ASOF LEFT JOIN (
+                SELECT ticker, date, close AS adj_close FROM prices_daily
+            ) s ON s.ticker = c.etf AND s.date <= c.opened_at
         ),
+        -- `close` y no `adj_close` en TODAS las patas. Tu retorno se mide
+        -- desde `avg_cost`, que es el precio bruto que pagaste; midiendo las
+        -- referencias con el ajustado se les regalaban los dividendos
+        -- reinvertidos y el mercado salia por delante en la rentabilidad por
+        -- dividendo del indice —cerca de dos puntos al ano— sin que nada
+        -- fallara. La pantalla ya avisa de que esto ignora dividendos: ahora
+        -- los ignora en los dos lados.
         ultimo AS (
-            SELECT ticker, LAST(adj_close ORDER BY date) AS cierre
+            SELECT ticker, LAST(close ORDER BY date) AS cierre
             FROM prices_daily GROUP BY ticker
         )
         SELECT c.id, c.ticker, c.sector, c.etf, c.opened_at, c.qty, c.coste,
@@ -1298,6 +1306,10 @@ def review_all_fundamentals(limit: int = 2000) -> pd.DataFrame:
         f"""
         SELECT * FROM fundamentals_snapshot
         QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY as_of DESC) <= 2
+        -- Ordenado antes de cortar: sin esto el LIMIT puede quedarse con una
+        -- sola de las dos fotos de un valor, y ese valor pierde el contraste
+        -- temporal en silencio. Ademas se corta por PAREJAS, no por filas.
+        ORDER BY ticker, as_of DESC
         LIMIT {int(limit) * 2}
         """
     )

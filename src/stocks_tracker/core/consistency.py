@@ -14,9 +14,14 @@ Tres formas de contrastar, en orden de lo independiente que es cada una:
    contraste de verdad independiente que se puede hacer sin pagar otra fuente.
 
 2. **Contra si mismos.** Los ratios de una misma foto tienen que cumplir
-   identidades contables: el margen neto no puede superar al bruto, el PER y el
-   earnings yield son uno el inverso del otro, el ROE de una empresa con deuda
-   no puede quedar por debajo del ROA.
+   identidades contables: el margen neto no puede superar al bruto, el ROE de
+   una empresa con deuda no puede quedar por debajo del ROA, el dividendo tiene
+   que salir de repartir el payout del beneficio.
+
+   Solo valen las identidades entre datos que el proveedor calcula por
+   SEPARADO. El PER contra el earnings yield parecia una de ellas y no lo era:
+   el segundo se obtiene dividiendo uno entre el primero, asi que se cumplia
+   siempre y un PER equivocado se validaba a si mismo.
 
 3. **Contra el pasado.** Un ratio que se multiplica por diez de un dia para
    otro casi nunca es la empresa: es el dato. Se compara con las fotos
@@ -40,7 +45,6 @@ from typing import Any
 # redondeo: los proveedores calculan sobre periodos ligeramente distintos y una
 # tolerancia fina llenaria la pantalla de avisos que no son de nadie.
 
-TOLERANCIA_IDENTIDAD = 0.25       # 25 % de desviacion entre dos formas de lo mismo
 TOLERANCIA_CAPITALIZACION = 0.20  # precio x acciones frente a lo que declaran
 TOLERANCIA_BETA = 0.60            # la beta declarada frente a la calculada
 DISCREPANCIA_BETA = 0.50          # ...y ademas la mitad de diferencia relativa
@@ -56,15 +60,26 @@ TOLERANCIA_DIVIDENDO = 0.75
 # cadena justo en los valores recien anadidos.
 MIN_SESIONES_BETA = 60
 
+# `debt_to_equity` llega del proveedor en PORCENTAJE, no en veces: una empresa
+# con deuda igual a sus fondos propios sale como 100, no como 1. Con el umbral
+# en 0,5 —leyendolo como si fueran veces— la puerta estaba abierta para
+# cualquier empresa con la mas minima deuda, y el aviso de ROE por debajo del
+# ROA saltaba en empresas practicamente sin deuda.
+DEUDA_SOBRE_FONDOS_PCT = 50.0
+
 # Rangos fuera de los cuales el dato no describe ninguna empresa real.
 IMPOSIBLES = {
     "profit_margin": (-10.0, 1.0),          # ganar mas del 100 % de lo que vendes
     "gross_margin": (-10.0, 1.0),
     "operating_margin": (-10.0, 1.0),
-    "payout_ratio": (0.0, 10.0),            # repartir 10 veces lo que ganas
+    # Puede ser NEGATIVO de forma legitima: una empresa que pierde dinero y
+    # mantiene el dividendo. Es una senal para mirar, no un dato roto.
+    "payout_ratio": (-10.0, 10.0),          # repartir 10 veces lo que ganas
     "dividend_yield": (0.0, 0.50),          # un 50 % suele ser precio hundido
     "trailing_pe": (0.0, 5000.0),
-    "price_to_book": (0.0, 500.0),
+    # Negativo cuando los fondos propios lo son (deuda por encima de activos).
+    # Ocurre de verdad y no es un error del proveedor.
+    "price_to_book": (-500.0, 500.0),
     "roe": (-50.0, 50.0),
     "beta": (-5.0, 10.0),
 }
@@ -193,17 +208,13 @@ def _contra_si_mismos(f: Any) -> list[Aviso]:
                 "extremo: es un dato roto.",
             ))
 
-    per = _num(f, "trailing_pe")
+    # NO se contrasta el PER contra el earnings yield. Parece una identidad
+    # contable util, pero nuestro proveedor calcula el segundo como `1 /
+    # trailingPE`: son el mismo dato dos veces, la comprobacion se cumple
+    # siempre por construccion y un PER equivocado se validaria a si mismo.
+    # Dejarla puesta era peor que no tenerla, porque daba la impresion de que
+    # ese numero estaba contrastado.
     rendimiento = _num(f, "earnings_yield")
-    if per and rendimiento and per > 0 and rendimiento != 0:
-        esperado = 1.0 / per
-        if _discrepancia(esperado, rendimiento) > TOLERANCIA_IDENTIDAD:
-            fuera.append(Aviso(
-                "trailing_pe", Gravedad.DUDOSO,
-                f"El PER ({per:.1f}) y el earnings yield ({rendimiento:.2%}) "
-                "son uno el inverso del otro y aqui no lo son. Uno de los dos "
-                "esta mal y no se puede saber cual.",
-            ))
 
     bruto = _num(f, "gross_margin")
     operativo = _num(f, "operating_margin")
@@ -225,7 +236,8 @@ def _contra_si_mismos(f: Any) -> list[Aviso]:
     roe = _num(f, "roe")
     roa = _num(f, "roa")
     deuda = _num(f, "debt_to_equity")
-    if roe is not None and roa is not None and deuda and deuda > 0.5 and roe < roa:
+    if (roe is not None and roa is not None and deuda
+            and deuda > DEUDA_SOBRE_FONDOS_PCT and roe < roa):
         fuera.append(Aviso(
             "roe", Gravedad.DUDOSO,
             f"El ROE ({roe:.1%}) queda por debajo del ROA ({roa:.1%}) en una "

@@ -182,6 +182,20 @@ def precios_hoy(tickers: tuple[str, ...]) -> dict:
     return {t: float(c) for t, c in filas if c is not None}
 
 
+def _hash_estilo() -> str:
+    """El estilo de puntuacion vigente.
+
+    Toda consulta a `factor_scores` tiene que filtrar por el: los scores de
+    todos los estilos conviven en la misma tabla y sin el filtro cada valor
+    aparece una vez por estilo. Con `LIMIT 1` no se duplicaban filas, que es
+    peor: se guardaba el percentil de un estilo cualquiera y la decision
+    quedaba anotada con un dato que no era el que se estaba mirando.
+    """
+    from . import data_access as da
+
+    return da._preset_hash(None)
+
+
 def foto_de(ticker: str, mercado: str = "SPY") -> dict:
     """Lo que se sabe hoy de un valor, para guardarlo con la decision."""
     try:
@@ -193,10 +207,11 @@ def foto_de(ticker: str, mercado: str = "SPY") -> dict:
                 FROM indicators_daily i
                 LEFT JOIN factor_scores f
                        ON f.ticker = i.ticker AND f.date = i.date
+                      AND f.weights_hash = ?
                 WHERE i.ticker = ?
                 ORDER BY i.date DESC LIMIT 1
                 """,
-                [ticker],
+                [_hash_estilo(), ticker],
             ).fetchdf()
             bench = conn.execute(
                 "SELECT LAST(adj_close ORDER BY date) FROM prices_daily "

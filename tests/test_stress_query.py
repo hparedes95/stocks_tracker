@@ -234,3 +234,30 @@ def test_a_missing_volatility_is_absent_rather_than_zero(warehouse):
     from stocks_tracker.app import data_access as da
 
     assert da.get_realized_vol(("AAA",)) == {}
+
+
+def test_two_lots_of_the_same_stock_are_added_up_not_overwritten(warehouse):
+    """El panel pesa por valor. Con un diccionario por comprension, la segunda
+    compra de un valor pisaba a la primera y la cartera parecia menos
+    concentrada de lo que es — lo contrario de lo que el panel existe para
+    ensenar.
+    """
+    import pandas as pd
+
+    from stocks_tracker.core.stress import diversificacion
+
+    cartera = [
+        {"ticker": "AAA", "valor": 9000.0, "sector": None},
+        {"ticker": "AAA", "valor": 1000.0, "sector": None},   # segundo lote
+        {"ticker": "BBB", "valor": 1000.0, "sector": None},
+    ]
+    pesos: dict = {}
+    for p in cartera:
+        pesos[p["ticker"]] = pesos.get(p["ticker"], 0.0) + p["valor"]
+    assert pesos["AAA"] == pytest.approx(10000.0)
+
+    corr = pd.DataFrame([[1.0, 0.0], [0.0, 1.0]],
+                        index=["AAA", "BBB"], columns=["AAA", "BBB"])
+    concentrada = diversificacion(pesos, corr)
+    repartida = diversificacion({"AAA": 1000.0, "BBB": 1000.0}, corr)
+    assert concentrada.efectivas_hoy < repartida.efectivas_hoy

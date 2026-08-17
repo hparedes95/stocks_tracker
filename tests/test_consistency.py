@@ -17,7 +17,10 @@ import numpy as np
 import pytest
 
 from stocks_tracker.core import consistency as c
+from stocks_tracker.core.config import project_root
 from stocks_tracker.core.consistency import Gravedad, beta_desde_precios, revisar
+
+RAIZ = project_root()
 
 
 def campos(rev) -> set[str]:
@@ -115,15 +118,23 @@ def test_a_normal_margin_ladder_passes():
     assert campos(rev) == set()
 
 
-def test_the_pe_and_the_earnings_yield_must_be_inverses():
-    """Si no lo son, uno de los dos esta mal — y no se puede saber cual."""
-    rev = revisar("AAA", {"trailing_pe": 20.0, "earnings_yield": 0.25})
-    assert "trailing_pe" in campos(rev)
+def test_the_pe_is_not_checked_against_the_earnings_yield():
+    """Parecia una identidad contable util y no lo es: nuestro proveedor obtiene
+    el earnings yield dividiendo uno entre el PER.
 
+    Son el mismo dato dos veces, asi que la comprobacion se cumplia siempre por
+    construccion y un PER equivocado se validaba a si mismo. Peor que no
+    tenerla: daba la impresion de que ese numero estaba contrastado.
+    """
+    incoherentes = revisar("AAA", {"trailing_pe": 20.0, "earnings_yield": 0.25})
+    assert "trailing_pe" not in campos(incoherentes)
 
-def test_consistent_pe_and_earnings_yield_pass():
-    rev = revisar("AAA", {"trailing_pe": 20.0, "earnings_yield": 0.05})
-    assert campos(rev) == set()
+    fuente = (RAIZ / "src/stocks_tracker/providers/yfinance_provider.py").read_text(
+        encoding="utf-8")
+    assert '1.0 / info["trailingPE"]' in fuente, (
+        "si el proveedor pasa a dar el earnings yield por su cuenta, vuelve a "
+        "ser una identidad que si puede detectar algo"
+    )
 
 
 def test_the_check_does_not_depend_on_which_value_comes_first():
@@ -133,8 +144,18 @@ def test_the_check_does_not_depend_on_which_value_comes_first():
 
 
 def test_a_leveraged_company_with_roe_below_roa_is_suspicious():
-    rev = revisar("AAA", {"roe": 0.04, "roa": 0.09, "debt_to_equity": 1.5})
+    """`debt_to_equity` llega en PORCENTAJE: 150 son 1,5 veces los fondos
+    propios. El escenario usaba 1,5 —o sea un 1,5 %, casi sin deuda— y pasaba
+    igual porque el umbral tambien estaba leido como veces."""
+    rev = revisar("AAA", {"roe": 0.04, "roa": 0.09, "debt_to_equity": 150.0})
     assert "roe" in campos(rev)
+
+
+def test_a_barely_indebted_company_is_not_compared(warehouse_free=None):
+    """Un 1,5 % de deuda sobre fondos propios no explica nada de la diferencia
+    entre ROE y ROA. Con el umbral leido como veces, esta empresa entraba."""
+    rev = revisar("AAA", {"roe": 0.04, "roa": 0.09, "debt_to_equity": 1.5})
+    assert "roe" not in campos(rev)
 
 
 def test_a_debt_free_company_can_have_roe_close_to_roa():
@@ -312,7 +333,7 @@ def test_a_broken_value_is_graded_worse_than_a_contradiction():
     """Un margen del 900 % no puede ser cierto; un PER que no cuadra con el
     earnings yield significa que uno de los dos falla, sin saber cual."""
     roto = revisar("AAA", {"profit_margin": 9.0})
-    dudoso = revisar("AAA", {"trailing_pe": 20.0, "earnings_yield": 0.25})
+    dudoso = revisar("AAA", {"roe": 0.04, "roa": 0.09, "debt_to_equity": 150.0})
     assert roto.rotos and not dudoso.rotos
     assert not dudoso.fiable
 
@@ -336,7 +357,7 @@ def test_no_threshold_is_set_so_high_that_it_can_never_fire():
     una vez con el del dividendo.
     """
     assert c._discrepancia(0.001, 1000.0) < 1.0
-    for nombre in ("TOLERANCIA_IDENTIDAD", "TOLERANCIA_CAPITALIZACION",
-                   "DISCREPANCIA_BETA", "TOLERANCIA_DIVIDENDO"):
+    for nombre in ("TOLERANCIA_CAPITALIZACION", "DISCREPANCIA_BETA",
+                   "TOLERANCIA_DIVIDENDO"):
         umbral = getattr(c, nombre)
         assert 0 < umbral < 1.0, f"{nombre} = {umbral} no puede saltar nunca"

@@ -177,11 +177,29 @@ def test_after_two_months_you_are_free():
 
 def test_the_warning_says_when_you_can_buy_again():
     """Decir "no compres" sin decir hasta cuando obliga a echar cuentas a mano
-    justo cuando se quiere decidir rapido."""
+    justo cuando se quiere decidir rapido.
+
+    Un dia MAS que la ventana: el articulo habla de los dos meses anteriores o
+    posteriores, asi que el dia 60 todavia esta dentro. Diciendo que el 60 ya
+    se puede, el aviso salia el mismo dia en que anunciaba que dejaba de
+    aplicar y se contradecia solo.
+    """
     r = costs.comprobar_dos_meses("AAPL", [venta(10)])
     aviso = r.avisos[0]
     assert aviso.libre_el > date.today()
-    assert (aviso.libre_el - aviso.vendido_el).days == 60
+    assert (aviso.libre_el - aviso.vendido_el).days == 61
+
+
+def test_the_last_day_of_the_window_still_warns_and_does_not_say_it_is_over():
+    """El dia 60 exacto. Antes el aviso salia diciendo "a partir de hoy ya no
+    aplica", que es justo lo contrario de lo que el propio aviso hace."""
+    r = costs.comprobar_dos_meses("AAPL", [venta(60)])
+    assert r.bloquea
+    assert r.avisos[0].libre_el > date.today()
+
+
+def test_the_day_after_the_window_no_longer_warns():
+    assert not costs.comprobar_dos_meses("AAPL", [venta(61)]).bloquea
 
 
 def test_a_sale_with_no_date_is_ignored_instead_of_crashing():

@@ -269,10 +269,18 @@ def diversificacion(pesos: dict, correlaciones, volatilidades: dict | None = Non
         return None
     w = w / w.sum()
 
-    vols = np.array([float((volatilidades or {}).get(t, 1.0) or 1.0)
-                     for t in tickers], dtype=float)
-    if not np.all(np.isfinite(vols)) or np.any(vols <= 0):
-        vols = np.ones(len(tickers))
+    # O todas las volatilidades son reales, o ninguna. Rellenar las que faltan
+    # con un 1,0 las mezclaba con las de verdad —del orden de 0,25—, y esa
+    # posicion pasaba a pesar cuatro veces mas riesgo del que tiene: el numero
+    # de apuestas efectivas describia una cartera que no existe. Con todas
+    # iguales, lo que se mide es co-movimiento puro, que es informacion honesta.
+    dadas = volatilidades or {}
+    crudas = [dadas.get(t) for t in tickers]
+    completas = all(
+        v is not None and np.isfinite(float(v)) and float(v) > 0 for v in crudas
+    )
+    vols = (np.array([float(v) for v in crudas], dtype=float) if completas
+            else np.ones(len(tickers)))
 
     corr = correlaciones.loc[tickers, tickers].to_numpy(dtype=float)
     corr = np.nan_to_num(corr, nan=0.0)

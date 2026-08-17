@@ -59,6 +59,11 @@ retencion_origen_pct:
 # declaracion espanola. Lo retenido POR ENCIMA de este tipo no se deduce; se
 # reclama al pais de origen, que es un tramite que casi nadie hace.
 limite_convenio_pct:
+  # Espana no es una retencion "en origen" extranjera: es un pago a cuenta de
+  # tu propio IRPF y se descuenta entero en la declaracion. Sin esta linea se
+  # usaba el 15 % de `desconocido` y la pantalla decia que 4 puntos de cada
+  # dividendo espanol no volvian nunca. Volvian todos.
+  ES: 19.0
   US: 15.0
   DE: 15.0
   FR: 15.0
