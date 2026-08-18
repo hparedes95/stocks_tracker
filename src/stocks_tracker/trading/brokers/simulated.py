@@ -94,16 +94,12 @@ class SimulatedBroker:
         self.fills: list[Fill] = []
         self.peak_equity = float(initial_cash)
 
-        # Un day trade es abrir y cerrar el mismo valor en la misma sesion. Se
-        # cuenta aqui porque la regla PDT de FINRA (3 en 5 dias habiles por
-        # debajo de 25.000 $) es una restriccion dura con 50 EUR, y hay que
-        # poder probarla en el backtest y no solo descubrirla en produccion.
+        # Un day trade es abrir y cerrar el mismo valor en la misma sesion.
+        # Una compra seguida de varias ventas parciales del mismo valor cuenta
+        # como UN solo day trade, no como una entrada por cada fill.
         self._opened_today: dict[date, set[str]] = {}
-        self._daytrades: list[date] = []
+        self._daytraded_today: dict[date, set[str]] = {}
 
-    # ------------------------------------------------------------------
-    # Calendario
-    # ------------------------------------------------------------------
     @property
     def current_date(self) -> date:
         return self.sessions[self._cursor]
@@ -113,7 +109,6 @@ class SimulatedBroker:
         return self._cursor + 1 < len(self.sessions)
 
     def seek(self, when: date) -> None:
-        """Situa el cursor en la primera sesion >= `when`."""
         for i, session in enumerate(self.sessions):
             if session >= when:
                 self._cursor = i
@@ -121,7 +116,6 @@ class SimulatedBroker:
         self._cursor = len(self.sessions) - 1
 
     def advance(self) -> date:
-        """Pasa a la sesion siguiente y ejecuta ahi lo que estuviera pendiente."""
         if not self.has_next_session:
             raise IndexError("No quedan sesiones en el historico simulado")
         self._cursor += 1
@@ -134,14 +128,9 @@ class SimulatedBroker:
         session = self.current_date
         open_at = datetime.combine(session, time(9, 30))
         close_at = datetime.combine(session, time(16, 0))
-        return Clock(
-            timestamp=close_at, is_open=False,
-            next_open=open_at, next_close=close_at, session_date=session,
-        )
+        return Clock(timestamp=close_at, is_open=False, next_open=open_at,
+                     next_close=close_at, session_date=session)
 
-    # ------------------------------------------------------------------
-    # Precios
-    # ------------------------------------------------------------------
     def _bar(self, ticker: str, when: date | None = None) -> pd.Series | None:
         try:
             return self._prices.loc[(when or self.current_date, ticker)]
@@ -157,23 +146,13 @@ class SimulatedBroker:
         return out
 
     def is_fractionable(self, symbol: str) -> bool:
-        # Sin lista explicita se asume que si: en el universo del bot (S&P 500 y
-        # Nasdaq 100) Alpaca ofrece fraccionadas en practicamente todo, y
-        # asumir lo contrario apagaria la simulacion entera.
         if self._fractionable is None:
             return True
         return symbol in self._fractionable
 
     def supports(self, feature: str) -> bool:
-        # Ni bracket ni OCO: Alpaca los rechaza en ordenes fraccionadas y
-        # notional (error 42210000), asi que los stops los lleva nuestro bot.
-        # El simulador miente si dice que si, y esa mentira solo se descubriria
-        # al pasar a papel.
         return feature in {"fractional", "notional", "stop"}
 
-    # ------------------------------------------------------------------
-    # Cuenta y posiciones
-    # ------------------------------------------------------------------
     def long_market_value(self) -> float:
         total = 0.0
         for ticker, holding in self._holdings.items():
@@ -186,18 +165,15 @@ class SimulatedBroker:
 
     def get_account(self) -> Account:
         equity = self.cash + self.long_market_value()
-        return Account(
-            account_id="SIM", currency="USD", cash=self.cash, equity=equity,
-            buying_power=self.cash, last_equity=equity,
-            daytrade_count=self.daytrade_count(),
-            pattern_day_trader=False, trading_blocked=False,
-            account_blocked=False, shorting_enabled=False,
-        )
+        return Account(account_id="SIM", currency="USD", cash=self.cash,
+                       equity=equity, buying_power=self.cash, last_equity=equity,
+                       daytrade_count=self.daytrade_count(), pattern_day_trader=False,
+                       trading_blocked=False, account_blocked=False,
+                       shorting_enabled=False)
 
     def daytrade_count(self, window: int = 5) -> int:
-        """Day trades en las ultimas `window` sesiones."""
         recent = set(self.sessions[max(0, self._cursor - window + 1):self._cursor + 1])
-        return sum(1 for d in self._daytrades if d in recent)
+        return sum(1 for d in recent if self._daytraded_today.get(d))
 
     def get_positions(self) -> list[Position]:
         out = []
@@ -208,23 +184,16 @@ class SimulatedBroker:
             price = float(bar["close"]) if bar is not None else holding.avg_entry_price
             value = holding.qty * price
             cost = holding.qty * holding.avg_entry_price
-            out.append(
-                Position(
-                    symbol=ticker, qty=holding.qty,
-                    avg_entry_price=holding.avg_entry_price,
-                    market_value=value, unrealized_pl=value - cost,
-                    unrealized_plpc=(value / cost - 1.0) if cost else 0.0,
-                    current_price=price,
-                )
-            )
+            out.append(Position(symbol=ticker, qty=holding.qty,
+                                avg_entry_price=holding.avg_entry_price,
+                                market_value=value, unrealized_pl=value - cost,
+                                unrealized_plpc=(value / cost - 1.0) if cost else 0.0,
+                                current_price=price))
         return out
 
     def get_position(self, symbol: str) -> Position | None:
         return next((p for p in self.get_positions() if p.symbol == symbol), None)
 
-    # ------------------------------------------------------------------
-    # Ordenes
-    # ------------------------------------------------------------------
     def get_orders(self, status: str = "open") -> list[Order]:
         if status == "open":
             return [p.order for p in self._pending]
@@ -234,35 +203,30 @@ class SimulatedBroker:
         return self._orders.get(client_order_id)
 
     def submit_order(self, req: OrderRequest, stop_price: float | None = None) -> Order:
-        """Encola la orden. Se ejecuta en la sesion siguiente, no en esta.
-
-        Idempotente por `client_order_id`: reenviar la misma orden devuelve la
-        que ya existe en lugar de duplicarla. Es lo que hace seguro reintentar
-        tras una caida a medio camino.
-        """
         existing = self._orders.get(req.client_order_id)
         if existing is not None:
             return existing
-
         if req.side not in ("buy", "sell"):
             raise BrokerRejectedError(f"Lado desconocido: {req.side}")
         if req.side == "sell":
             held = self._holdings.get(req.symbol, _Holding()).qty
             wanted = req.qty if req.qty is not None else 0.0
-            if wanted - held > 1e-9:
-                # Vender mas de lo que se tiene es ponerse corto, y el mandato
-                # lo prohibe. Que el broker simulado lo permitiera dejaria
-                # pasar en el backtest algo que el broker real rechazaria.
+            # Las ventas pendientes pueden coexistir; el limite real se vuelve
+            # a comprobar al ejecutar para evitar sobre-vender la posicion.
+            pending_sell = sum(
+                (p.order.qty or 0.0) for p in self._pending
+                if p.order.symbol == req.symbol and p.order.side == "sell"
+            )
+            if wanted + pending_sell - held > 1e-9:
                 raise BrokerRejectedError(
-                    f"{req.symbol}: venta de {wanted} con {held} en cartera"
+                    f"{req.symbol}: venta de {wanted} con {held} disponibles "
+                    f"({pending_sell} ya reservadas)"
                 )
-
-        order = Order(
-            broker_order_id=ulid(), client_order_id=req.client_order_id,
-            symbol=req.symbol, side=req.side, order_type=req.order_type,
-            tif=req.tif, status="accepted", submitted_at=self.get_clock().timestamp,
-            qty=req.qty, notional=req.notional,
-        )
+        order = Order(broker_order_id=ulid(), client_order_id=req.client_order_id,
+                      symbol=req.symbol, side=req.side, order_type=req.order_type,
+                      tif=req.tif, status="accepted",
+                      submitted_at=self.get_clock().timestamp, qty=req.qty,
+                      notional=req.notional)
         self._orders[order.client_order_id] = order
         self._pending.append(_Pending(order=order, stop_price=stop_price))
         return order
@@ -285,19 +249,14 @@ class SimulatedBroker:
         if holding is None or holding.qty <= 0:
             raise BrokerRejectedError(f"{symbol}: no hay posicion que cerrar")
         amount = holding.qty if qty is None else min(qty, holding.qty)
-        return self.submit_order(
-            OrderRequest(symbol=symbol, side="sell", qty=amount,
-                         client_order_id=f"close-{symbol}-{ulid()}")
-        )
+        return self.submit_order(OrderRequest(symbol=symbol, side="sell", qty=amount,
+                                              client_order_id=f"close-{symbol}-{ulid()}"))
 
     def close_all_positions(self, cancel_orders: bool = True) -> list[Order]:
         if cancel_orders:
             self.cancel_all_orders()
         return [self.close_position(p.symbol) for p in self.get_positions()]
 
-    # ------------------------------------------------------------------
-    # Ejecucion
-    # ------------------------------------------------------------------
     def _replace(self, order: Order, **changes) -> Order:
         updated = Order(**{**order.__dict__, **changes})
         self._orders[order.client_order_id] = updated
@@ -309,18 +268,13 @@ class SimulatedBroker:
             order = pending.order
             bar = self._bar(order.symbol, session)
             if bar is None or pd.isna(bar["open"]):
-                # Sin cotizacion ese dia la orden sigue pendiente. Inventar un
-                # precio seria peor: produciria operaciones que no ocurrieron.
                 continue
-
             if pending.stop_price is not None:
                 if float(bar["low"]) > pending.stop_price:
-                    continue  # el stop no se ha tocado; sigue vigilando
-                # Si abre por debajo del stop, se ejecuta a la apertura real.
+                    continue
                 price = min(float(bar["open"]), pending.stop_price)
             else:
                 price = float(bar["open"])
-
             self._pending.remove(pending)
             self._fill(order, price, session)
 
@@ -330,7 +284,6 @@ class SimulatedBroker:
         if price <= 0:
             self._replace(order, status="rejected", reject_reason="precio no positivo")
             return
-
         qty = order.qty
         if qty is None:
             qty = (order.notional or 0.0) / price
@@ -339,11 +292,9 @@ class SimulatedBroker:
 
         if order.side == "buy":
             if gross + commission > self.cash + 1e-9:
-                self._replace(order, status="rejected",
-                              reject_reason="efectivo insuficiente")
+                self._replace(order, status="rejected", reject_reason="efectivo insuficiente")
                 raise InsufficientFundsError(
-                    f"{order.symbol}: hacen falta {gross + commission:.2f} y hay "
-                    f"{self.cash:.2f}"
+                    f"{order.symbol}: hacen falta {gross + commission:.2f} y hay {self.cash:.2f}"
                 )
             self.cash -= gross + commission
             holding = self._holdings.setdefault(order.symbol, _Holding())
@@ -353,34 +304,35 @@ class SimulatedBroker:
             self._opened_today.setdefault(session, set()).add(order.symbol)
         else:
             holding = self._holdings.get(order.symbol, _Holding())
-            qty = min(qty, holding.qty)
+            available = holding.qty
+            if qty > available + 1e-9:
+                self._replace(order, status="rejected",
+                              reject_reason=f"posicion insuficiente: {available}")
+                return
             gross = qty * price
             commission = gross * self.commission_bps * _BPS
             self.cash += gross - commission
             holding.qty -= qty
             if holding.qty <= 1e-9:
                 self._holdings.pop(order.symbol, None)
-            if order.symbol in self._opened_today.get(session, set()):
-                self._daytrades.append(session)
+                if order.symbol in self._opened_today.get(session, set()):
+                    self._daytraded_today.setdefault(session, set()).add(order.symbol)
 
         filled_at = datetime.combine(session, time(9, 30))
         self._replace(order, status="filled", filled_qty=qty,
                       filled_avg_price=price, filled_at=filled_at)
-        self.fills.append(
-            Fill(
-                fill_id=ulid(), client_order_id=order.client_order_id,
-                ticker=order.symbol, side=order.side, qty=qty, price=price,
-                filled_at=filled_at, commission=commission,
-                slippage_bps=self.slippage_bps * direction,
-                extra={"raw_price": raw_price, "session": str(session)},
-            )
-        )
+        self.fills.append(Fill(
+            fill_id=ulid(), client_order_id=order.client_order_id,
+            ticker=order.symbol, side=order.side, qty=qty, price=price,
+            filled_at=filled_at, commission=commission,
+            slippage_bps=self.slippage_bps * direction,
+            extra={"raw_price": raw_price, "session": str(session)},
+        ))
 
 
 @dataclass
 class SimulatedState:
     """Foto de la cartera simulada, para volcarla a `portfolio_snapshots`."""
-
     snapshot_at: datetime
     cash: float
     equity: float
