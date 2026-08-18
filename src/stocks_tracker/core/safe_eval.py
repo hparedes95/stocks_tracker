@@ -5,7 +5,8 @@ usuario en texto. Usar `eval()` sobre eso seria una puerta abierta a ejecutar
 codigo arbitrario, asi que se recorre el AST y solo se permite una lista blanca
 de nodos: comparaciones, booleanos, aritmetica simple y nombres de variables.
 
-Nada de llamadas a funciones, atributos, indices, imports ni lambdas.
+Nada de llamadas a funciones, atributos, indices, imports, lambdas ni
+exponenciacion.
 """
 
 from __future__ import annotations
@@ -32,7 +33,6 @@ _ALLOWED_NODES = (
     ast.Mult,
     ast.Div,
     ast.Mod,
-    ast.Pow,
     ast.Eq,
     ast.NotEq,
     ast.Lt,
@@ -65,19 +65,12 @@ def compile_condition(expression: str) -> ast.Expression:
 
 
 def evaluate(expression: str, variables: dict[str, Any]) -> bool:
-    """Evalua la expresion contra un diccionario de variables.
-
-    Devuelve False ante cualquier problema (variable ausente, NaN, tipos
-    incompatibles). Fallar en silencio es correcto aqui: una frase explicativa
-    que no se puede evaluar simplemente no se muestra, y eso es preferible a
-    romper la pagina entera del dashboard.
-    """
+    """Evalua la expresion contra un diccionario de variables."""
     try:
         tree = compile_condition(expression)
     except (SyntaxError, UnsafeExpressionError):
         return False
 
-    # `__builtins__` vacio: sin acceso a print, open, __import__, etc.
     safe_globals: dict[str, Any] = {"__builtins__": {}}
     try:
         return bool(eval(compile(tree, "<condicion>", "eval"), safe_globals, dict(variables)))
