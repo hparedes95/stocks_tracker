@@ -110,3 +110,35 @@ def test_compute_all_produces_expected_columns(ohlcv):
 
 def test_compute_all_handles_empty_frame():
     assert ind.compute_all(pd.DataFrame()).empty
+
+
+def test_the_yearly_high_needs_a_full_year_of_sessions():
+    """Con media ventana, el numero se llama "distancia al maximo anual" y es
+    la distancia al maximo de seis meses: siempre MAS CERCA de cero que la
+    verdad. Un valor que se hundio hace ocho meses aparecia "en maximos".
+
+    No se queda en la ficha: alimenta la lista de rupturas de maximo anual y el
+    porcentaje de valores cerca de maximos, que es una pieza del semaforo de
+    riesgo. Un valor recien anadido inflaba los tres.
+    """
+    # Cae desde 200 hasta 100 y se queda plano: al cabo de medio ano el maximo
+    # de la media ventana es 100 y parece que esta en maximos.
+    serie = pd.Series([200.0] * 20 + [100.0] * 200)
+    dist = ind.distance_to_high(serie, window=252)
+
+    assert dist.notna().sum() == 0, (
+        "con menos de un ano de sesiones no hay maximo anual que valga"
+    )
+
+    largo = pd.Series([200.0] * 20 + [100.0] * 240)
+    completo = ind.distance_to_high(largo, window=252)
+    assert completo.dropna().iloc[-1] == pytest.approx(-0.5), (
+        "con el ano completo el maximo real sigue siendo 200"
+    )
+
+
+def test_the_max_drawdown_also_needs_the_whole_window():
+    """Medida sobre medio periodo la caida maxima sale menor que la real, que
+    es el error que tranquiliza."""
+    serie = pd.Series([100.0] * 130)
+    assert ind.max_drawdown(serie, window=252).notna().sum() == 0

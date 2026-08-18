@@ -331,3 +331,64 @@ def test_broker_symbol_outside_our_universe_falls_back_to_isin():
     )
     result = brokers.parse_positions(frame, known_tickers={"AAPL", "MSFT"})
     assert result.positions["ticker"].tolist() == ["AAPL"]
+
+
+# ---------------------------------------------------------------------------
+# El mapa de ISIN no puede fabricar posiciones fantasma
+# ---------------------------------------------------------------------------
+def test_an_isin_entry_with_no_ticker_is_discarded(tmp_path, monkeypatch):
+    """`US0378331005:` sin valor lo lee YAML como `None`, y `str(None)` es la
+    cadena "None": el ISIN acababa apuntando a un ticker llamado literalmente
+    "None", que es una cadena no vacia y por tanto pasaba por resuelto. La
+    posicion entraba en la cartera apuntando a nada y sin ningun aviso.
+    """
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "isin_map.yaml").write_text(
+        "isin_to_ticker:\n"
+        "  US0378331005:\n"            # sin ticker
+        "  US5949181045: '  '\n"       # solo espacios
+        "  US02079K3059: GOOGL\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("STOCKS_TRACKER_ROOT", str(tmp_path))
+    from stocks_tracker.core import config as cfg
+
+    cfg._load_yaml.cache_clear() if hasattr(cfg._load_yaml, "cache_clear") else None
+    assert brokers.isin_map() == {"US02079K3059": "GOOGL"}
+
+
+def test_an_isin_that_maps_outside_our_universe_is_left_unresolved(monkeypatch):
+    """Una entrada equivocada en `isin_map.yaml` colaba en la cartera un ticker
+    que no existe en el universo: no da error, y la posicion aparece sin precio
+    ni puntuacion para siempre. Sin resolver al menos sale en la lista de
+    pendientes, con instrucciones.
+    """
+    monkeypatch.setattr(brokers, "isin_map",
+                        lambda: {"US0000000001": "INVENTADO"})
+    frame = pd.DataFrame([{"ticker": "", "isin": "US0000000001",
+                           "qty": 10.0, "avg_cost": 5.0, "currency": "EUR"}])
+    resultado = brokers.ImportResult()
+    salida = brokers._resolve_tickers(frame, {"AAPL", "MSFT"}, resultado)
+
+    assert salida.iloc[0]["ticker"] == ""
+    assert resultado.warnings
+
+
+def test_an_isin_that_maps_into_our_universe_is_resolved(monkeypatch):
+    """El contrario, para que el de arriba no pase por el motivo equivocado."""
+    monkeypatch.setattr(brokers, "isin_map", lambda: {"US0000000001": "AAPL"})
+    frame = pd.DataFrame([{"ticker": "", "isin": "US0000000001",
+                           "qty": 10.0, "avg_cost": 5.0, "currency": "EUR"}])
+    salida = brokers._resolve_tickers(frame, {"AAPL", "MSFT"},
+                                      brokers.ImportResult())
+    assert salida.iloc[0]["ticker"] == "AAPL"
+
+
+def test_without_a_universe_the_broker_symbol_is_trusted(monkeypatch):
+    """Sin universo cargado no hay con que validar: aceptar lo que diga el
+    broker es mejor que descartarlo todo."""
+    monkeypatch.setattr(brokers, "isin_map", lambda: {})
+    frame = pd.DataFrame([{"ticker": "RARO", "isin": "", "qty": 1.0,
+                           "avg_cost": 5.0, "currency": "EUR"}])
+    salida = brokers._resolve_tickers(frame, set(), brokers.ImportResult())
+    assert salida.iloc[0]["ticker"] == "RARO"

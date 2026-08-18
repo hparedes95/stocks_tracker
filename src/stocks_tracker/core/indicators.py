@@ -173,13 +173,23 @@ def realized_volatility(series: pd.Series, window: int) -> pd.Series:
 
 
 def distance_to_high(series: pd.Series, window: int = SESSIONS_YEAR) -> pd.Series:
-    """Distancia relativa al maximo de la ventana. 0 = en maximos."""
-    rolling_max = series.rolling(window=window, min_periods=window // 2).max()
+    """Distancia relativa al maximo de la ventana. 0 = en maximos.
+
+    `min_periods=window` como en el resto del modulo, y no la mitad. Con media
+    ventana el numero se llama "distancia al maximo anual" y en realidad es la
+    distancia al maximo de seis meses: siempre MAS CERCA de cero que la verdad,
+    o sea que un valor que se hundio hace ocho meses aparece "en maximos".
+
+    Y no se queda ahi: ese dato alimenta la lista de rupturas de maximo anual y
+    el porcentaje de valores cerca de maximos, que a su vez es una pieza del
+    semaforo de riesgo. Un valor recien anadido inflaba los tres.
+    """
+    rolling_max = series.rolling(window=window, min_periods=window).max()
     return series / rolling_max.replace(0.0, np.nan) - 1.0
 
 
 def distance_to_low(series: pd.Series, window: int = SESSIONS_YEAR) -> pd.Series:
-    rolling_min = series.rolling(window=window, min_periods=window // 2).min()
+    rolling_min = series.rolling(window=window, min_periods=window).min()
     return series / rolling_min.replace(0.0, np.nan) - 1.0
 
 
@@ -195,7 +205,9 @@ def max_drawdown(series: pd.Series, window: int = SESSIONS_YEAR) -> pd.Series:
         peak = np.maximum.accumulate(values)
         return float(np.min(values / peak - 1.0))
 
-    return series.rolling(window=window, min_periods=window // 2).apply(_mdd, raw=True)
+    # Media ventana daria una caida maxima medida sobre medio periodo:
+    # siempre menor que la real, que es el error que tranquiliza.
+    return series.rolling(window=window, min_periods=window).apply(_mdd, raw=True)
 
 
 def consecutive_true(flags: pd.Series) -> pd.Series:

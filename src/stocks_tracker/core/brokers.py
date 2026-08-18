@@ -174,13 +174,26 @@ def read_table(data: bytes, filename: str = "") -> pd.DataFrame:
 
 
 def isin_map() -> dict[str, str]:
-    """ISIN -> ticker, desde `config/isin_map.yaml`."""
+    """ISIN -> ticker, desde `config/isin_map.yaml`.
+
+    Las entradas sin ticker se descartan. Un `US0378331005:` sin valor lo lee
+    YAML como `None`, y `str(None)` es la cadena "None": el ISIN acababa
+    apuntando a un ticker literalmente llamado "None", que es una cadena no
+    vacia y por tanto pasaba por resuelto. La posicion entraba en la cartera
+    apuntando a nada, sin ningun aviso.
+    """
     path = project_root() / "config" / "isin_map.yaml"
     if not path.exists():
         return {}
     raw = _load_yaml("isin_map.yaml") or {}
-    return {str(k).strip().upper(): str(v).strip()
-            for k, v in (raw.get("isin_to_ticker") or {}).items()}
+    fuera: dict[str, str] = {}
+    for isin, ticker in (raw.get("isin_to_ticker") or {}).items():
+        if isin is None or ticker is None:
+            continue
+        clave, valor = str(isin).strip().upper(), str(ticker).strip()
+        if clave and valor:
+            fuera[clave] = valor
+    return fuera
 
 
 def _to_number(value: Any) -> float | None:
@@ -334,17 +347,32 @@ def _resolve_tickers(parsed: pd.DataFrame, known: set[str],
     mapping = isin_map()
     out = parsed.copy()
 
+    def por_isin(isin: str) -> str:
+        """El ticker del mapa, pero solo si de verdad lo seguimos.
+
+        Sin esta comprobacion, una entrada equivocada en `isin_map.yaml`
+        colaba en la cartera un ticker que no existe en el universo: no da
+        error, y la posicion aparece sin precio ni puntuacion para siempre.
+        Preferimos dejarla sin resolver, que al menos sale en la lista de
+        pendientes con instrucciones.
+        """
+        if not isin:
+            return ""
+        candidato = mapping.get(isin, "")
+        if candidato and known and candidato not in known:
+            return ""
+        return candidato
+
     for i, row in out.iterrows():
         ticker = row["ticker"]
+        # Sin universo cargado no hay con que validar, asi que se acepta lo que
+        # diga el broker: es mejor que descartarlo todo.
         if ticker and (not known or ticker in known):
             continue
-        if ticker and known and ticker not in known:
-            # El simbolo del broker no existe en nuestro universo: puede ser un
-            # CFD, una fraccion o un nombre propio del broker.
-            out.at[i, "ticker"] = mapping.get(row["isin"], "") if row["isin"] else ""
-            continue
-        if row["isin"]:
-            out.at[i, "ticker"] = mapping.get(row["isin"], "")
+        # Queda el resto: o no hay ticker, o el simbolo del broker no existe en
+        # nuestro universo —un CFD, una fraccion, un nombre propio suyo—. En
+        # los dos casos la unica via es el ISIN.
+        out.at[i, "ticker"] = por_isin(row["isin"])
 
     pending = int((out["ticker"] == "").sum())
     if pending:

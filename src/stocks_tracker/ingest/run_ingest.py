@@ -120,7 +120,16 @@ def ingest_universe(provider_name: str | None = None) -> int:
         if is_missing(row.get("exchange")) or is_missing(row.get("gics_sector")):
             return True
         updated = row.get("updated_at")
-        return updated is None or pd.isna(updated) or pd.Timestamp(updated) < cutoff
+        if updated is None or pd.isna(updated):
+            return True
+        try:
+            return pd.Timestamp(updated) < cutoff
+        except (ValueError, TypeError):
+            # Una marca de tiempo ilegible tumbaba la ingesta ENTERA con una
+            # excepcion sin capturar, y la ingesta corre de madrugada sin nadie
+            # delante. Se trata como caducada: volver a consultar el metadato
+            # cuesta una peticion y ademas repara la fila.
+            return True
 
     pendientes = [t for t in tickers if needs_metadata(t)]
     if pendientes:
