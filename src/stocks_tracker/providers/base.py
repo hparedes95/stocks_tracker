@@ -17,14 +17,10 @@ import pandas as pd
 
 from ..core.timeutils import utcnow
 
-# Esquema fijo que TODO PriceProvider debe devolver, en este orden.
 OHLCV_COLUMNS = [
     "ticker", "date", "open", "high", "low", "close", "adj_close", "volume",
 ]
 
-# Cotizacion intradia. `previous_close` es el cierre de la sesion ANTERIOR, no
-# el ultimo precio: es contra el que se mide la caida del dia, y es lo que usan
-# los cortacircuitos del mercado.
 QUOTE_COLUMNS = [
     "ticker", "as_of", "price", "previous_close", "change_pct",
     "day_high", "day_low", "volume", "currency",
@@ -92,12 +88,7 @@ def empty_quotes() -> pd.DataFrame:
 
 
 def normalize_quotes(df: pd.DataFrame, source: str) -> pd.DataFrame:
-    """Esquema canonico de cotizaciones y descarte de filas inservibles.
-
-    `change_pct` se recalcula SIEMPRE aqui en vez de fiarse del que traiga el
-    proveedor: es el numero con el que se decide si hay un desplome, y no puede
-    depender de que cada fuente lo redondee o lo defina a su manera.
-    """
+    """Esquema canonico de cotizaciones y descarte de filas inservibles."""
     if df is None or df.empty:
         return empty_quotes()
 
@@ -130,7 +121,12 @@ def empty_fundamentals() -> pd.DataFrame:
 
 
 def normalize_ohlcv(df: pd.DataFrame, source: str) -> pd.DataFrame:
-    """Deja el DataFrame en el esquema canonico y descarta filas inservibles."""
+    """Deja el DataFrame en el esquema canonico y descarta filas inservibles.
+
+    Las fechas corruptas de un proveedor no deben tumbar todo el lote: se
+    convierten en NaT, se descartan junto con las filas sin precio util y el
+    resto del universo continua la ingesta.
+    """
     if df is None or df.empty:
         return empty_ohlcv()
 
@@ -140,13 +136,14 @@ def normalize_ohlcv(df: pd.DataFrame, source: str) -> pd.DataFrame:
             out[col] = pd.NA
 
     out = out[OHLCV_COLUMNS]
-    out["date"] = pd.to_datetime(out["date"]).dt.date
+    out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.date
     for col in ("open", "high", "low", "close", "adj_close"):
         out[col] = pd.to_numeric(out[col], errors="coerce")
     out["volume"] = pd.to_numeric(out["volume"], errors="coerce").fillna(0).astype("int64")
 
-    # Sin precio de cierre ajustado la fila no sirve para nada aguas abajo.
-    out = out[out["adj_close"].notna() & (out["adj_close"] > 0)]
+    out = out[out["date"].notna() & out["adj_close"].notna() & (out["adj_close"] > 0)]
+    if out.empty:
+        return empty_ohlcv()
 
     out["source"] = source
     out["ingested_at"] = utcnow()
@@ -154,12 +151,7 @@ def normalize_ohlcv(df: pd.DataFrame, source: str) -> pd.DataFrame:
 
 
 def completeness(row: pd.Series, fields: list[str]) -> float:
-    """Fraccion de campos con dato. Es el termometro de fiabilidad del scoring.
-
-    Importa especialmente en Europa, donde Yahoo deja muchos campos vacios: sin
-    esta metrica, un valor del IBEX con la mitad de los datos competiria de tu a
-    tu con uno del S&P que los tiene todos.
-    """
+    """Fraccion de campos con dato."""
     if not fields:
         return 0.0
     present = sum(1 for f in fields if f in row.index and pd.notna(row[f]))
