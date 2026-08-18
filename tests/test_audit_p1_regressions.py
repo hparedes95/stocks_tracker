@@ -1,7 +1,10 @@
 import duckdb
+
+import numpy as np
 import pandas as pd
 import pytest
 
+from stocks_tracker.backtest import metrics as mx
 from stocks_tracker.core.db import upsert_df
 from stocks_tracker.core.safe_eval import UnsafeExpressionError, compile_condition, evaluate
 from stocks_tracker.providers.base import normalize_ohlcv
@@ -44,3 +47,17 @@ def test_upsert_rejects_duplicate_keys_before_writing():
         assert conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 0
     finally:
         conn.close()
+
+
+def test_hac_t_statistic_is_lower_than_iid_t_for_autocorrelated_returns():
+    rng = np.random.default_rng(7)
+    shocks = rng.normal(0.0005, 0.01, 600)
+    values = np.empty_like(shocks)
+    values[0] = shocks[0]
+    for i in range(1, len(values)):
+        values[i] = 0.75 * values[i - 1] + shocks[i]
+
+    iid_t = values.mean() / (values.std(ddof=1) / np.sqrt(len(values)))
+    hac_t = mx.hac_t_statistic(values)
+    assert np.isfinite(hac_t)
+    assert abs(hac_t) < abs(iid_t)
