@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 SESSIONS_YEAR = 252
 MIN_OBSERVATIONS = 100
@@ -26,14 +27,15 @@ class EventMetrics:
     avg_excess: float
     std_return: float
     t_stat: float
+    p_value: float
     best: float
     worst: float
     benchmark_avg: float
 
     @property
     def is_significant(self) -> bool:
-        """Muestra suficiente y exceso con significancia HAC."""
-        return self.n_obs >= MIN_OBSERVATIONS and abs(self.t_stat) > 2.0
+        """Significancia individual sin correccion por multiples hipotesis."""
+        return self.n_obs >= MIN_OBSERVATIONS and np.isfinite(self.p_value) and self.p_value < 0.05
 
     def to_dict(self) -> dict:
         out = asdict(self)
@@ -52,14 +54,7 @@ def hit_rate(returns) -> float:
 
 
 def hac_t_statistic(returns, max_lag: int | None = None) -> float:
-    """t de la media con error estandar Newey-West/HAC.
-
-    Los estudios de eventos usan horizontes solapados (5/10/21/63 sesiones),
-    por lo que asumir independencia subestima el error estandar. El ancho de
-    banda se elige automaticamente con la regla de Andrews y queda limitado a
-    n-1. La estimacion se hace sobre la media, que es el contraste que necesita
-    el estudio de eventos.
-    """
+    """t de la media con error estandar Newey-West/HAC."""
     values = _clean(returns)
     n = len(values)
     if n < 3:
@@ -80,15 +75,50 @@ def hac_t_statistic(returns, max_lag: int | None = None) -> float:
         weight = 1.0 - lag / (max_lag + 1.0)
         long_run_var += 2.0 * weight * gamma
 
-    # La estimacion de varianza de la media es LRV / n.
     if not np.isfinite(long_run_var) or long_run_var <= 1e-24:
         return float("nan")
     se = np.sqrt(long_run_var / n)
     return float(values.mean() / se) if se > 0 else float("nan")
 
 
+def mean_p_value(returns, max_lag: int | None = None) -> float:
+    """p bilateral del contraste de media usando el t HAC.
+
+    El estadistico HAC no tiene exactamente una distribucion t finita bajo
+    dependencia. Usamos la aproximacion normal para no fingir grados de
+    libertad que el estimador HAC no proporciona.
+    """
+    t_stat = hac_t_statistic(returns, max_lag=max_lag)
+    if not np.isfinite(t_stat):
+        return float("nan")
+    return float(2.0 * stats.norm.sf(abs(t_stat)))
+
+
+def benjamini_hochberg(p_values) -> np.ndarray:
+    """q-values BH/FDR, conservando la posicion original de cada hipotesis.
+
+    NaN permanece NaN. Los valores devueltos son monotonicamente no decrecientes
+    al ordenar por p y nunca menores que el p-value original.
+    """
+    p = np.asarray(p_values, dtype=float)
+    out = np.full(p.shape, np.nan, dtype=float)
+    valid = np.isfinite(p)
+    if not valid.any():
+        return out
+    pv = p[valid]
+    m = len(pv)
+    order = np.argsort(pv)
+    ranked = pv[order]
+    q_ranked = ranked * m / np.arange(1, m + 1)
+    q_ranked = np.minimum.accumulate(q_ranked[::-1])[::-1]
+    q_ranked = np.clip(q_ranked, 0.0, 1.0)
+    restored = np.empty(m, dtype=float)
+    restored[order] = q_ranked
+    out[valid] = restored
+    return out
+
+
 def t_statistic(returns) -> float:
-    """t de la media con correccion HAC para dependencia temporal."""
     return hac_t_statistic(returns)
 
 
@@ -161,7 +191,7 @@ def summarize_event(returns, benchmark_returns=None) -> EventMetrics:
     values = _clean(returns)
     if len(values) == 0:
         nan = float("nan")
-        return EventMetrics(0, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan)
+        return EventMetrics(0, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan)
 
     if benchmark_returns is None:
         bench = np.zeros_like(values)
@@ -172,6 +202,7 @@ def summarize_event(returns, benchmark_returns=None) -> EventMetrics:
         bench = bench[mask]
 
     excess = values - bench
+    t_stat = hac_t_statistic(excess)
     return EventMetrics(
         n_obs=int(len(values)),
         hit_rate=float((values > 0).mean()),
@@ -180,7 +211,8 @@ def summarize_event(returns, benchmark_returns=None) -> EventMetrics:
         median_return=float(np.median(values)),
         avg_excess=float(excess.mean()),
         std_return=float(values.std(ddof=1)) if len(values) > 1 else float("nan"),
-        t_stat=hac_t_statistic(excess),
+        t_stat=t_stat,
+        p_value=mean_p_value(excess),
         best=float(values.max()),
         worst=float(values.min()),
         benchmark_avg=float(bench.mean()),
