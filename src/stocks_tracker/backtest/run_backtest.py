@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
 
 import pandas as pd
 from rich.console import Console
@@ -31,15 +33,10 @@ def scope_of(ticker: str) -> str:
 
 def load_data(scope: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     with connect(read_only=True) as conn:
-        prices = conn.execute(
-            """SELECT p.ticker, p.date, p.adj_close FROM prices_daily p
-               JOIN instruments i USING (ticker)
-               WHERE i.asset_class IN ('equity', 'etf')
-               ORDER BY p.ticker, p.date"""
-        ).fetchdf()
-        signals = conn.execute(
-            "SELECT ticker, date, signal_id, direction, strength FROM signals"
-        ).fetchdf()
+        prices = conn.execute("""SELECT p.ticker, p.date, p.adj_close FROM prices_daily p
+            JOIN instruments i USING (ticker) WHERE i.asset_class IN ('equity', 'etf')
+            ORDER BY p.ticker, p.date""").fetchdf()
+        signals = conn.execute("SELECT ticker, date, signal_id, direction, strength FROM signals").fetchdf()
     if prices.empty:
         return prices, signals
     prices["date"] = pd.to_datetime(prices["date"])
@@ -60,7 +57,6 @@ def run(scope: str = eng.SCOPE_EQUITY_US, horizons: tuple[int, ...] = eng.DEFAUL
     if prices.empty or signals.empty:
         console.print("[yellow]Sin datos suficientes. Ejecuta la ingesta y el calculo.[/]")
         return pd.DataFrame()
-
     console.print(f"[cyan]Validando[/] ambito '{scope}': {prices['ticker'].nunique()} valores, "
                   f"{len(signals)} eventos, coste {cost_bps:.0f} pb por pata")
     fwd = eng.forward_returns(prices, horizons)
@@ -82,32 +78,31 @@ def run(scope: str = eng.SCOPE_EQUITY_US, horizons: tuple[int, ...] = eng.DEFAUL
                 "_p_value": result.event.p_value,
                 "_ventanas_positivas": result.positive_folds, "_ventanas": len(result.folds),
             })
-
     table = pd.DataFrame(rows)
     if table.empty:
         return table
 
-    # Familia completa de hipotesis del estudio actual: una entrada por senal y
-    # horizonte dentro del ambito solicitado. BH controla la tasa esperada de
-    # falsos descubrimientos sin castigar tanto como Bonferroni.
     table["adjusted_p_value"] = mx.benjamini_hochberg(table["_p_value"].to_numpy())
     table["multiple_testing_method"] = "Benjamini-Hochberg FDR"
     table["data_quality_status"] = "technical_only;survivorship_bias_present"
     table["fundamentals_point_in_time"] = False
 
-    # Las senales discretas no tienen IC-IR utilizable: su evidencia estadistica
-    # debe sobrevivir al ajuste FDR. Si no, nunca se etiqueta como validada.
+    # El estudio actual usa senales discretas: no hay IC-IR que pueda sustituir
+    # la significancia. Solo sobrevive "validada" si el q-value es < 5%.
     for idx, row in table.iterrows():
         q = row["adjusted_p_value"]
         if row["evidence"] == eng.VALIDATED and (pd.isna(q) or q >= 0.05):
             table.at[idx, "evidence"] = eng.WEAK
-            table.at[idx, "_motivo"] = (
-                "Exceso y estabilidad positivos, pero el p-value no sobrevive "
-                f"la correccion FDR (q={q:.3f})."
-            )
+            table.at[idx, "_motivo"] = f"No supera FDR: q={q:.3f}."
+
+    config_material = f"scope={scope}|horizons={horizons}|cost_bps={cost_bps}|min_obs={mx.MIN_OBSERVATIONS}"
+    config_hash = hashlib.sha256(config_material.encode()).hexdigest()
+    table["config_hash"] = config_hash
+    table["git_commit"] = os.getenv("GITHUB_SHA", os.getenv("GIT_COMMIT", "unknown"))
+    table["data_from"] = prices["date"].min().date()
+    table["data_to"] = prices["date"].max().date()
 
     _print_report(table, horizons)
-
     if tag:
         payload = table.drop(columns=[c for c in table.columns if c.startswith("_")])
         payload["p_value"] = table["_p_value"]
@@ -126,15 +121,13 @@ def _print_report(table: pd.DataFrame, horizons: tuple[int, ...]) -> None:
         report.add_column(name, justify="right" if name != "Senal" else "left")
     colors = {eng.VALIDATED: "green", eng.WEAK: "yellow", eng.NOT_VALIDATED: "red", eng.NO_DATA: "dim"}
     for row in subset.to_dict("records"):
-        report.add_row(
-            row["signal_id"], str(row["n_obs"]),
-            f"{row['hit_rate']:.0%}" if pd.notna(row["hit_rate"]) else "—",
-            f"{row['avg_excess_ret']:+.2%}" if pd.notna(row["avg_excess_ret"]) else "—",
-            f"{row['_t_stat']:.1f}" if pd.notna(row["_t_stat"]) else "—",
-            f"{row['_p_value']:.3g}" if pd.notna(row["_p_value"]) else "—",
-            f"{row['adjusted_p_value']:.3g}" if pd.notna(row["adjusted_p_value"]) else "—",
-            f"[{colors.get(row['evidence'], 'white')}]{row['evidence']}[/]",
-        )
+        report.add_row(row["signal_id"], str(row["n_obs"]),
+                       f"{row['hit_rate']:.0%}" if pd.notna(row["hit_rate"]) else "—",
+                       f"{row['avg_excess_ret']:+.2%}" if pd.notna(row["avg_excess_ret"]) else "—",
+                       f"{row['_t_stat']:.1f}" if pd.notna(row["_t_stat"]) else "—",
+                       f"{row['_p_value']:.3g}" if pd.notna(row["_p_value"]) else "—",
+                       f"{row['adjusted_p_value']:.3g}" if pd.notna(row["adjusted_p_value"]) else "—",
+                       f"[{colors.get(row['evidence'], 'white')}]{row['evidence']}[/]")
     console.print(report)
     validated = (subset["evidence"] == eng.VALIDATED).sum()
     console.print(f"\n[bold]{validated} de {len(subset)} senales superan la validacion[/] a {reference} sesiones.")
