@@ -18,9 +18,11 @@ from rich.console import Console
 from rich.table import Table
 
 from ..core import lineage, membership
+from ..core.config import get_settings
 from ..core.db import connect, migrate, upsert_df
 from ..core.timeutils import utcnow
 from . import engine as eng
+from . import experiments as exp
 from . import multiple_testing as mt
 
 console = Console()
@@ -107,12 +109,49 @@ def load_data(scope: str | None = None,
     return prices, signals
 
 
+def frontera() -> pd.Timestamp:
+    """La fecha que separa descubrimiento de confirmacion.
+
+    Sale de `settings.yaml` y es FIJA a proposito: con una fraccion del
+    historico, la frontera se desplazaria sola segun entran datos y el tramo que
+    hoy esta reservado formaria parte del descubrimiento el mes que viene, sin
+    que nadie se entere.
+    """
+    valor = get_settings().backtest.get("confirmation_from")
+    if not valor:
+        raise ValueError(
+            "Falta `backtest.confirmation_from` en settings.yaml. Sin frontera "
+            "no hay tramo reservado, y sin tramo reservado no hay confirmacion "
+            "posible: solo descubrimiento contandose a si mismo."
+        )
+    return pd.Timestamp(valor)
+
+
+def recortar(prices: pd.DataFrame, signals: pd.DataFrame, fase: str,
+             corte: pd.Timestamp) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Deja solo el tramo que le corresponde a la fase.
+
+    Los PRECIOS se recortan igual que las senales y no se dejan enteros: si en
+    descubrimiento se dejaran los precios completos, `forward_returns` mediria
+    el resultado de una senal de diciembre de 2022 con los precios de 2023, o
+    sea con el tramo reservado. El recorte tiene que llegar hasta el final del
+    horizonte, no solo hasta la senal.
+    """
+    if fase == exp.CONFIRMACION:
+        return (prices[prices["date"] >= corte],
+                signals[signals["date"] >= corte] if not signals.empty else signals)
+    return (prices[prices["date"] < corte],
+            signals[signals["date"] < corte] if not signals.empty else signals)
+
+
 def run(
     scope: str = eng.SCOPE_EQUITY_US,
     horizons: tuple[int, ...] = eng.DEFAULT_HORIZONS,
     cost_bps: float = DEFAULT_COST_BPS,
     tag: bool = False,
     pit: bool = False,
+    fase: str = exp.DESCUBRIMIENTO,
+    congelar: bool = False,
 ) -> pd.DataFrame:
     """Valida todas las senales del ambito y devuelve la tabla de resultados."""
     migrate()
@@ -122,9 +161,26 @@ def run(
         console.print("[yellow]Sin datos suficientes. Ejecuta la ingesta y el calculo.[/]")
         return pd.DataFrame()
 
+    corte = frontera()
+    prices, signals = recortar(prices, signals, fase, corte)
+    if prices.empty or signals.empty:
+        console.print(
+            f"[yellow]No hay datos en el tramo de {fase} (frontera "
+            f"{corte:%d/%m/%Y}).[/]"
+        )
+        return pd.DataFrame()
+
     console.print(
-        f"[cyan]Validando[/] ambito '{scope}': {prices['ticker'].nunique()} valores, "
-        f"{len(signals)} eventos, coste {cost_bps:.0f} pb por pata"
+        f"[cyan]Validando[/] ambito '{scope}' · fase [bold]{fase}[/]: "
+        f"{prices['ticker'].nunique()} valores, {len(signals)} eventos, "
+        f"coste {cost_bps:.0f} pb por pata"
+    )
+    console.print(
+        f"[dim]Frontera {corte:%d/%m/%Y}: "
+        + ("se usa SOLO lo anterior; lo posterior queda reservado y sin mirar."
+           if fase == exp.DESCUBRIMIENTO
+           else "se usa SOLO lo posterior, que no intervino en el descubrimiento.")
+        + "[/]"
     )
 
     _avisar_del_sesgo(prices, pit)
@@ -148,6 +204,31 @@ def run(
     # hicieron, no de la senal que se este mirando.
     results = eng.apply_multiple_testing(results)
 
+    # La confirmacion solo se deja correr si la especificacion estaba congelada
+    # antes, y si no habia fallado ya. Se comprueba TODA la familia de golpe y
+    # antes de tocar nada: dejar pasar la mitad seria dejar pasar la mitad de la
+    # muestra reservada.
+    especificaciones = {
+        (r.signal_id, r.horizon_days): exp.Spec(
+            signal_id=r.signal_id, scope=scope, horizon_days=r.horizon_days,
+            cost_bps=cost_bps, universe="pit" if pit else "todos",
+        )
+        for r in results
+    }
+    if fase == exp.CONFIRMACION:
+        results, especificaciones = _solo_las_candidatas(
+            results, especificaciones, scope)
+        if not results:
+            console.print(
+                "[yellow]Ninguna senal llego a `estable` en descubrimiento, asi "
+                "que no hay nada que confirmar. El tramo reservado sigue "
+                "intacto.[/]"
+            )
+            return pd.DataFrame()
+        _exigir_congelacion(especificaciones.values())
+    elif congelar:
+        _congelar_todas(results, especificaciones)
+
     # El sello se construye AQUI y no al guardar: el rango de datos y el numero
     # de filas son los de esta ejecucion, y despues ya no se pueden reconstruir.
     sello = lineage.sellar(
@@ -159,6 +240,9 @@ def run(
         n_rows=len(prices),
     )
     console.print(f"[dim]{lineage.describir(sello)}[/]")
+
+    registro = _registrar_experimentos(results, especificaciones, fase=fase,
+                                       corte=corte, prices=prices, scope=scope)
 
     rows = [
         {
@@ -181,6 +265,10 @@ def run(
             "oos_to": r.oos_to.date() if r.oos_to is not None else None,
             "costs_bps_assumed": cost_bps,
             "updated_at": utcnow(),
+            "estado": registro["estados"][(r.signal_id, r.horizon_days)],
+            "fase": fase,
+            "spec_hash": especificaciones[(r.signal_id, r.horizon_days)].spec_hash,
+            "intentos": registro["intentos"][r.signal_id],
             **sello.as_dict(),
             "_motivo": r.reason,
             "_ventanas_positivas": r.positive_folds,
@@ -205,6 +293,124 @@ def run(
         console.print(f"[green]Etiquetadas {n} combinaciones senal/horizonte.[/]")
 
     return table
+
+
+def _congelar_todas(results, especificaciones) -> None:
+    """Fija SOLO las que llegaron a `estable`.
+
+    Congelar todo seria ruido: una especificacion congelada es una candidata a
+    gastar muestra reservada, y las que no fueron ni significativas no lo son.
+    """
+    candidatas = [
+        especificaciones[(r.signal_id, r.horizon_days)]
+        for r in results
+        if len(r.folds) >= 2 and r.positive_folds >= 2
+        and r.event.is_significant and r.survives_fdr is not False
+        and r.event.avg_excess > 0
+    ]
+    if not candidatas:
+        console.print(
+            "[yellow]Ninguna senal llega a `estable`, asi que no hay nada que "
+            "congelar. El tramo reservado sigue sin tocarse.[/]"
+        )
+        return
+    with connect() as conn:
+        for s in candidatas:
+            exp.congelar(conn, s, "congelado tras el descubrimiento")
+    console.print(
+        f"[green]Congeladas {len(candidatas)} especificaciones.[/] A partir de "
+        "ahora, cambiar la senal, el horizonte, el universo, la referencia o "
+        "el coste produce un experimento DISTINTO, y quedara anotado como tal."
+    )
+
+
+def _solo_las_candidatas(results, especificaciones, scope):
+    """Deja pasar a confirmacion solo lo que llego a `estable`.
+
+    Llevar al tramo reservado una senal que ni siquiera fue significativa
+    gastaria muestra —que no se repone— para contestar algo que ya tenia
+    respuesta.
+    """
+    with connect(read_only=True) as conn:
+        elegibles = exp.candidatas(conn, scope)
+    filtrados = [
+        r for r in results
+        if especificaciones[(r.signal_id, r.horizon_days)].spec_hash in elegibles
+    ]
+    descartados = len(results) - len(filtrados)
+    if descartados:
+        console.print(
+            f"[dim]{descartados} combinaciones no llegaron a `estable` en "
+            "descubrimiento y no entran en la confirmacion.[/]"
+        )
+    return filtrados, {
+        (r.signal_id, r.horizon_days): especificaciones[(r.signal_id, r.horizon_days)]
+        for r in filtrados
+    }
+
+
+def _exigir_congelacion(specs) -> None:
+    """Las dos negativas que hacen que el tramo reservado siga siendo reservado.
+
+    Se comprueban todas antes de seguir. Parar a la mitad habria gastado media
+    muestra de confirmacion, y esa no se recupera.
+    """
+    problemas: list[str] = []
+    with connect(read_only=True) as conn:
+        for s in specs:
+            try:
+                exp.comprobar_confirmacion(conn, s)
+            except exp.ContaminacionError as fallo:
+                problemas.append(str(fallo))
+    if problemas:
+        for p in problemas[:5]:
+            console.print(f"[red]  {p}[/]")
+        raise exp.ContaminacionError(
+            f"{len(problemas)} especificaciones no pueden confirmarse. "
+            "No se ha mirado el tramo reservado."
+        )
+
+
+def _registrar_experimentos(results, especificaciones, *, fase, corte,
+                            prices, scope) -> dict:
+    """Anota TODOS los experimentos y devuelve el estado de cada uno.
+
+    Tambien los que no llegan a ninguna parte. Un registro que solo guarda los
+    que funcionaron es un album de aciertos, y para lo unico que existe es para
+    contar cuantas veces se miro.
+    """
+    estados: dict = {}
+    with connect() as conn:
+        for r in results:
+            spec = especificaciones[(r.signal_id, r.horizon_days)]
+            # En confirmacion, "repite" es la misma exigencia que en
+            # descubrimiento pero sobre datos que no intervinieron en elegir la
+            # senal: exceso positivo y significativo. Si aqui se relajara el
+            # criterio, la confirmacion aprobaria cosas que el descubrimiento
+            # habria rechazado.
+            repite = (r.event.avg_excess > 0 and r.event.is_significant
+                      if fase == exp.CONFIRMACION else None)
+            estado = exp.peldano(
+                hay_datos=r.event.n_obs > 0 and r.event.n_dates > 0,
+                significativa=(r.event.is_significant
+                               and r.survives_fdr is not False
+                               and r.event.avg_excess > 0),
+                estable=len(r.folds) >= 2 and r.positive_folds >= 2,
+                fase=fase, repite_fuera_de_muestra=repite,
+            )
+            exp.registrar(
+                conn, spec, fase=fase, estado=estado, split_at=corte.date(),
+                data_from=prices["date"].min().date(),
+                data_to=prices["date"].max().date(),
+                n_obs=r.event.n_obs, n_dates=r.event.n_dates,
+                avg_excess=r.event.avg_excess, t_stat=r.event.t_stat,
+                p_value=r.event.p_value, q_value=r.q_value, motivo=r.reason,
+            )
+            estados[(r.signal_id, r.horizon_days)] = estado
+        intentos = {
+            r.signal_id: exp.intentos(conn, r.signal_id, scope) for r in results
+        }
+    return {"estados": estados, "intentos": intentos}
 
 
 def _avisar_del_sesgo(prices: pd.DataFrame, pit: bool) -> None:
@@ -248,11 +454,13 @@ def _print_report(table: pd.DataFrame, horizons: tuple[int, ...]) -> None:
     report.add_column("t", justify="right")
     report.add_column("q", justify="right")
     report.add_column("Ventanas +", justify="right")
-    report.add_column("Evidencia")
+    report.add_column("Estado")
+    report.add_column("Intentos", justify="right")
 
-    colors = {
-        eng.VALIDATED: "green", eng.WEAK: "yellow",
-        eng.NOT_VALIDATED: "red", eng.NO_DATA: "dim",
+    colores_estado = {
+        exp.CONFIRMADA: "bold green", exp.ESTABLE: "green",
+        exp.SIGNIFICATIVA: "yellow", exp.DESCUBIERTA: "dim",
+        exp.REFUTADA: "red", exp.SIN_DATOS: "dim",
     }
     def intervalo(row) -> str:
         if pd.isna(row["ci_low"]) or pd.isna(row["ci_high"]):
@@ -273,16 +481,25 @@ def _print_report(table: pd.DataFrame, horizons: tuple[int, ...]) -> None:
             f"{row['t_stat']:.1f}" if pd.notna(row["t_stat"]) else "—",
             f"{row['q_value']:.3f}" if pd.notna(row["q_value"]) else "—",
             f"{row['_ventanas_positivas']}/{row['_ventanas']}",
-            f"[{colors.get(row['evidence'], 'white')}]{row['evidence']}[/]",
+            f"[{colores_estado.get(row['estado'], 'white')}]{row['estado']}[/]",
+            str(row.get("intentos", 0)),
         )
 
     console.print(report)
 
-    validated = (subset["evidence"] == eng.VALIDATED).sum()
+    confirmadas = (subset["estado"] == exp.CONFIRMADA).sum()
+    estables = (subset["estado"] == exp.ESTABLE).sum()
     console.print(
-        f"\n[bold]{validated} de {len(subset)} senales superan la validacion[/] "
-        f"a {reference} sesiones."
+        f"\n[bold]{confirmadas} confirmadas y {estables} estables[/] de "
+        f"{len(subset)} senales a {reference} sesiones."
     )
+    if estables and not confirmadas:
+        console.print(
+            "[dim]`estable` es el techo del descubrimiento: por bueno que salga "
+            "el numero, sale sobre los mismos datos con los que se eligio la "
+            "senal. Para llegar a `confirmada` hace falta congelar y ejecutar "
+            "`--fase confirmacion`.[/]"
+        )
 
     pruebas = int(table["n_tests"].max()) if "n_tests" in table else 0
     if pruebas:
@@ -312,6 +529,17 @@ def main() -> None:
     parser.add_argument("--cost-bps", type=float, default=DEFAULT_COST_BPS)
     parser.add_argument("--horizons", type=str, default="5,10,21,63")
     parser.add_argument(
+        "--fase", default=exp.DESCUBRIMIENTO,
+        choices=[exp.DESCUBRIMIENTO, exp.CONFIRMACION],
+        help="descubrimiento usa el tramo anterior a la frontera; confirmacion "
+             "usa el reservado, y solo si la especificacion estaba congelada.",
+    )
+    parser.add_argument(
+        "--congelar", action="store_true",
+        help="Fija las especificaciones tras el descubrimiento. A partir de ahi, "
+             "cambiar cualquier cosa produce un experimento distinto.",
+    )
+    parser.add_argument(
         "--universo-historico", action="store_true", dest="pit",
         help="Restringe cada fecha a los valores que pertenecian al universo "
              "ESE DIA. Reduce el sesgo de supervivencia, pero solo funciona "
@@ -321,7 +549,8 @@ def main() -> None:
 
     horizons = tuple(int(h) for h in args.horizons.split(",") if h.strip())
     run(scope=args.scope, horizons=horizons, cost_bps=args.cost_bps,
-        tag=args.tag_signals, pit=args.pit)
+        tag=args.tag_signals, pit=args.pit, fase=args.fase,
+        congelar=args.congelar)
 
 
 if __name__ == "__main__":

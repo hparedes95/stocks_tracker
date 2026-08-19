@@ -63,8 +63,22 @@ repair:
 	$(PY) -m stocks_tracker.ingest.run_ingest --repair-mixed
 
 # Decide que senales se quedan en el dashboard. Ejecutar tras `make compute`.
+#
+# Los tres pasos van en este orden y no se pueden saltar. El tramo posterior a
+# `backtest.confirmation_from` NO se toca durante el descubrimiento: es lo unico
+# que permite distinguir una senal de una casualidad bien contada.
 validate:
 	$(PY) -m stocks_tracker.backtest.run_backtest --tag-signals
+
+# Congela lo que llego a `estable`. A partir de aqui, cambiar la senal, el
+# horizonte, el universo, la referencia o el coste es OTRO experimento.
+validate-freeze:
+	$(PY) -m stocks_tracker.backtest.run_backtest --congelar
+
+# Gasta el tramo reservado. Solo se puede una vez por especificacion: si falla,
+# queda refutada y no se puede reintentar sin cambiar algo (y eso se anota).
+validate-confirm:
+	$(PY) -m stocks_tracker.backtest.run_backtest --fase confirmacion --tag-signals
 
 alerts:
 	$(PY) -m stocks_tracker.alerts.run_alerts

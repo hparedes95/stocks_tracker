@@ -96,6 +96,10 @@ class Settings:
         return self.raw.get("ingest", {})
 
     @property
+    def backtest(self) -> dict[str, Any]:
+        return self.raw.get("backtest", {})
+
+    @property
     def compute(self) -> dict[str, Any]:
         return self.raw.get("compute", {})
 

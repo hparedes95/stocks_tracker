@@ -625,6 +625,46 @@ CREATE TABLE IF NOT EXISTS decision_journal (
   nota_revision     VARCHAR
 );
 
+-- ============ REGISTRO DE EXPERIMENTOS ============
+-- Que se probo, no solo lo que acabo funcionando. Ver backtest/experiments.py:
+-- la correccion por multiples hipotesis solo cuenta las pruebas que se
+-- REGISTRAN, asi que sin esta tabla el contador dice lo que uno recuerde.
+CREATE TABLE IF NOT EXISTS experiments (
+  experiment_id VARCHAR PRIMARY KEY,   -- ULID de ESTA ejecucion
+  spec_hash     VARCHAR,               -- identidad de la ESTRATEGIA
+  created_at    TIMESTAMP,
+  fase          VARCHAR,               -- descubrimiento | confirmacion
+  signal_id     VARCHAR,
+  scope         VARCHAR,
+  horizon_days  INTEGER,
+  benchmark     VARCHAR,
+  cost_bps      DOUBLE,
+  universe      VARCHAR,
+  params        VARCHAR,               -- JSON
+  split_at      DATE,                  -- frontera descubrimiento/confirmacion
+  data_from     DATE,
+  data_to       DATE,
+  n_obs         INTEGER,
+  n_dates       INTEGER,
+  avg_excess    DOUBLE,
+  t_stat        DOUBLE,
+  p_value       DOUBLE,
+  q_value       DOUBLE,
+  estado        VARCHAR,               -- la escalera
+  motivo        VARCHAR
+);
+
+-- Congelar una especificacion ANTES de mirar el tramo reservado. Sin esto se
+-- podria mirar primero y decidir despues, y entonces ese tramo deja de estar
+-- fuera de muestra en el mismo momento en que se mira.
+CREATE TABLE IF NOT EXISTS strategy_freezes (
+  spec_hash  VARCHAR PRIMARY KEY,
+  frozen_at  TIMESTAMP,
+  spec       VARCHAR,                  -- JSON congelado: que se fijo exactamente
+  git_commit VARCHAR,
+  note       VARCHAR
+);
+
 -- ============ MIGRACIONES DE COLUMNAS ============
 -- `CREATE TABLE IF NOT EXISTS` no anade columnas a una tabla que ya existe, asi
 -- que un almacen creado con una version anterior se quedaria sin ellas. Y no
@@ -654,3 +694,7 @@ ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS n_rows INTEGER;
 ALTER TABLE gate_reports ADD COLUMN IF NOT EXISTS git_commit VARCHAR;
 ALTER TABLE gate_reports ADD COLUMN IF NOT EXISTS config_hash VARCHAR;
 ALTER TABLE gate_reports ADD COLUMN IF NOT EXISTS n_rows INTEGER;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS estado VARCHAR;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS spec_hash VARCHAR;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS fase VARCHAR;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS intentos INTEGER;

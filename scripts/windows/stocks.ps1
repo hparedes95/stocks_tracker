@@ -26,7 +26,9 @@
       tiene-universo  Codigo 0 si el universo completo esta descargado
       compute   Recalcula indicadores, factores, senales y scores
       presets   Puntua el universo con los cinco estilos de inversion
-      validate  Valida las senales contra su historico
+      validate  Valida las senales contra su historico (descubrimiento)
+      validate-freeze   Congela lo que llego a estable
+      validate-confirm  Lo comprueba en el tramo reservado
       alerts    Evalua las reglas de aviso
       watch     Vigila el mercado en vivo
       watchtest Simula un desplome del 8% para probar los avisos
@@ -42,6 +44,7 @@ param(
                  'polymarket', 'calibracion', 'cripto', 'pendientes', 'ciclo',
                  'tiene-universo',
                  'compute', 'presets', 'validate',
+                 'validate-freeze', 'validate-confirm',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
@@ -578,6 +581,20 @@ switch ($Task) {
     'validate' {
         Assert-Venv
         & $Py -m stocks_tracker.backtest.run_backtest --tag-signals
+    }
+
+    # Los tres pasos van en este orden y no se pueden saltar. El tramo
+    # posterior a backtest.confirmation_from NO se toca en el descubrimiento:
+    # es lo unico que distingue una senal de una casualidad bien contada.
+    'validate-freeze' {
+        Assert-Venv
+        & $Py -m stocks_tracker.backtest.run_backtest --congelar
+    }
+
+    'validate-confirm' {
+        Assert-Venv
+        Write-Step "Gasta el tramo reservado. Solo se puede una vez por senal."
+        & $Py -m stocks_tracker.backtest.run_backtest --fase confirmacion --tag-signals
     }
 
     'alerts' {

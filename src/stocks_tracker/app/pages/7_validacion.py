@@ -19,6 +19,7 @@ from stocks_tracker.app.components.theme import (
     series_color,
 )
 from stocks_tracker.backtest import engine as eng
+from stocks_tracker.backtest import experiments as exp
 from stocks_tracker.backtest import metrics as mx
 from stocks_tracker.backtest import multiple_testing as mt
 from stocks_tracker.backtest import run_backtest as runner
@@ -40,6 +41,23 @@ labels = get_explanations().get("signal_labels", {})
 EVIDENCE_LABEL = {
     eng.VALIDATED: "Validada", eng.WEAK: "Debil",
     eng.NOT_VALIDATED: "No validada", eng.NO_DATA: "Sin datos suficientes",
+}
+
+# La escalera. Lo que importa de estas etiquetas es el TECHO del
+# descubrimiento: por bueno que salga un numero calculado sobre los mismos
+# datos con los que se eligio la señal, no pasa de "estable".
+ESTADO_LABEL = {
+    exp.SIN_DATOS: "Sin datos",
+    exp.DESCUBIERTA: "Descubierta",
+    exp.SIGNIFICATIVA: "Significativa",
+    exp.ESTABLE: "Estable",
+    exp.CONFIRMADA: "Confirmada",
+    exp.REFUTADA: "Refutada fuera de muestra",
+}
+ESTADO_COLOR = {
+    exp.CONFIRMADA: STATUS["good"], exp.ESTABLE: STATUS["good"],
+    exp.SIGNIFICATIVA: STATUS["warning"], exp.DESCUBIERTA: palette()["muted"],
+    exp.REFUTADA: STATUS["critical"], exp.SIN_DATOS: palette()["muted"],
 }
 EVIDENCE_COLOR = {
     eng.VALIDATED: STATUS["good"], eng.WEAK: STATUS["warning"],
@@ -134,18 +152,49 @@ subset = subset.sort_values("avg_excess_ret", ascending=False)
 # ---------------------------------------------------------------------------
 # Resumen
 # ---------------------------------------------------------------------------
-counts = subset["evidence"].value_counts()
-summary = st.columns(4)
-for i, key in enumerate([eng.VALIDATED, eng.WEAK, eng.NOT_VALIDATED, eng.NO_DATA]):
-    summary[i].metric(EVIDENCE_LABEL[key], int(counts.get(key, 0)))
+# El resumen usa la escalera y no la etiqueta antigua. Tener los dos
+# vocabularios a la vez —"Validada" arriba y "Estable" en la tabla— obliga a
+# traducir mentalmente entre ellos y hace pensar que son cosas distintas.
+counts = subset.get("estado", pd.Series(dtype=str)).value_counts()
+peldanos = [exp.CONFIRMADA, exp.ESTABLE, exp.SIGNIFICATIVA, exp.DESCUBIERTA]
+summary = st.columns(len(peldanos) + 1)
+for i, key in enumerate(peldanos):
+    summary[i].metric(ESTADO_LABEL[key], int(counts.get(key, 0)))
+summary[-1].metric(ESTADO_LABEL[exp.REFUTADA].split(" ")[0],
+                   int(counts.get(exp.REFUTADA, 0)))
 
-if int(counts.get(eng.VALIDATED, 0)) == 0:
+confirmadas = int(counts.get(exp.CONFIRMADA, 0))
+estables = int(counts.get(exp.ESTABLE, 0))
+
+if confirmadas == 0 and estables > 0:
     st.info(
-        "Ninguna señal supera la validación en este ámbito y horizonte. **Es un "
+        f"**{estables} señales llegan a «estable» y ninguna a «confirmada».** "
+        "No es lo mismo, y la diferencia es lo único que separa una señal de "
+        "una casualidad bien contada: *estable* es el techo de lo que se puede "
+        "saber con los mismos datos que se usaron para elegirla. Para llegar a "
+        "*confirmada* hay que congelar la definición y comprobarla en el tramo "
+        "reservado, que no intervino en el descubrimiento:\n\n"
+        "```\nmake validate            # descubrimiento\n"
+        "make validate-freeze     # congela lo que llegó a estable\n"
+        "make validate-confirm    # gasta el tramo reservado\n```",
+        icon=":material/science:",
+    )
+elif confirmadas == 0 and estables == 0:
+    st.info(
+        "Ninguna señal pasa de «descubierta» en este ámbito y horizonte. **Es un "
         "resultado, no un fallo**: significa que, con los datos disponibles, "
         "ninguna se distingue del azar después de costes. Operar cualquiera de "
         "ellas sería apostar.",
         icon=":material/info:",
+    )
+
+if int(counts.get(exp.REFUTADA, 0)):
+    st.warning(
+        f"**{int(counts.get(exp.REFUTADA, 0))} señales se refutaron fuera de "
+        "muestra**: parecían estables con los datos con los que se eligieron y "
+        "no repitieron en el tramo reservado. Es el resultado más útil de "
+        "todos, porque es el único que no se podía saber de antemano.",
+        icon=":material/science:",
     )
 
 # ---------------------------------------------------------------------------
@@ -167,7 +216,9 @@ table = pd.DataFrame(
         "Acierto": subset["hit_rate"] * 100,
         "Exceso medio": subset["avg_excess_ret"] * 100,
         "Intervalo 95 %": subset.apply(_intervalo, axis=1),
-        "Evidencia": subset["evidence"].map(EVIDENCE_LABEL),
+        "Estado": subset.get("estado", pd.Series(dtype=str)).map(
+            lambda e: ESTADO_LABEL.get(e, e or "—")),
+        "Intentos": subset.get("intentos"),
     }
 )
 st.dataframe(
@@ -193,6 +244,18 @@ st.dataframe(
         "Intervalo 95 %": st.column_config.TextColumn(
             help="Dónde puede estar el exceso de verdad. Si cruza el cero, el dato "
                  "es compatible con que la señal no aporte nada.",
+        ),
+        "Estado": st.column_config.TextColumn(
+            help="Descubierta → Significativa → Estable → Confirmada. "
+                 "«Estable» es el techo de lo que se puede saber con los datos "
+                 "que se usaron para elegir la señal; «Confirmada» exige que "
+                 "repita en el tramo reservado que no intervino.",
+        ),
+        "Intentos": st.column_config.NumberColumn(
+            format="%d",
+            help="Cuántas especificaciones distintas se han probado sobre esta "
+                 "señal. Un resultado que aparece al catorceavo intento no es "
+                 "lo mismo que uno que aparece al primero.",
         ),
     },
 )

@@ -32,6 +32,21 @@ ingest:
   fundamentals_ttl_days: 7
   fundamentals_shard_count: 7         # 1/7 del universo por noche
 
+backtest:
+  # Frontera entre la muestra con la que se DESCUBRE y la que se reserva para
+  # CONFIRMAR. Ver src/stocks_tracker/backtest/experiments.py.
+  #
+  # Tiene que ser una fecha FIJA y escrita a mano, no una fraccion del historico:
+  # con una fraccion, la frontera se desplazaria sola segun entran datos y el
+  # tramo que ayer estaba reservado formaria parte del descubrimiento manana.
+  # Ese es justo el error que este mecanismo existe para impedir, y ademas seria
+  # invisible.
+  #
+  # Cambiar esta fecha invalida las confirmaciones anteriores. Si la cambias,
+  # descongela y vuelve a empezar: no es una preferencia, es parte de la
+  # definicion del experimento.
+  confirmation_from: "2023-01-01"
+
 compute:
   # Ventana de historico que se recalcula en cada pasada. Recalcular todo el
   # historico cada noche es innecesario; 400 sesiones cubren la MM200 con margen.
