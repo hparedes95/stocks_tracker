@@ -124,16 +124,68 @@ def compute_indicators(lookback: int | None = None, full: bool = False) -> int:
 
     with connect() as conn:
         n = upsert_df(conn, "indicators_daily", all_ind, keys=["ticker", "date"])
+        sigs = pd.DataFrame()
         if signal_frames:
             sigs = pd.concat(signal_frames, ignore_index=True)
             sigs["date"] = pd.to_datetime(sigs["date"]).dt.date
             if cutoff:
                 sigs = sigs[sigs["date"].isin(set(cutoff))]
-            if not sigs.empty:
-                upsert_df(conn, "signals", sigs, keys=["ticker", "date", "signal_id"])
+        _prune_stale_signals(conn, all_ind, sigs)
+        if not sigs.empty:
+            upsert_df(conn, "signals", sigs, keys=["ticker", "date", "signal_id"])
 
     console.print(f"[green]Indicadores: {n} filas[/]")
     return n
+
+
+def _prune_stale_signals(conn, indicadores: pd.DataFrame,
+                         nuevas: pd.DataFrame) -> int:
+    """Borra las senales que ya NO se disparan en el tramo recalculado.
+
+    El upsert actualiza y anade, pero nunca quita. Una senal que deja de
+    dispararse —porque se arregla un indicador, porque llega un precio
+    corregido o porque cambia un umbral— se quedaba en la tabla para siempre, y
+    la validacion la seguia contando como si nada.
+
+    No es teorico: al cambiar `dist_52w_high` de la serie ajustada al precio
+    cotizado, las rupturas de maximos falsas que ese fallo habia generado se
+    habrian quedado ahi, y el arreglo no habria servido de nada sobre un
+    almacen ya existente.
+
+    Se borra SOLO dentro de la ventana recalculada —esas fechas y esos
+    tickers—, porque fuera de ella no se ha calculado nada y no hay con que
+    comparar. Barrer mas seria borrar historico que sigue siendo bueno.
+    """
+    if indicadores.empty:
+        return 0
+    ventana = pd.DataFrame({
+        "ticker": indicadores["ticker"], "date": indicadores["date"],
+    }).drop_duplicates()
+
+    conn.register("_ventana", ventana)
+    try:
+        if nuevas.empty:
+            borradas = conn.execute(
+                "DELETE FROM signals WHERE (ticker, date) IN "
+                "(SELECT ticker, date FROM _ventana) RETURNING 1"
+            ).fetchall()
+            return len(borradas)
+        conn.register("_nuevas", nuevas[["ticker", "date", "signal_id"]])
+        try:
+            borradas = conn.execute(
+                """
+                DELETE FROM signals
+                WHERE (ticker, date) IN (SELECT ticker, date FROM _ventana)
+                  AND (ticker, date, signal_id) NOT IN
+                      (SELECT ticker, date, signal_id FROM _nuevas)
+                RETURNING 1
+                """
+            ).fetchall()
+        finally:
+            conn.unregister("_nuevas")
+        return len(borradas)
+    finally:
+        conn.unregister("_ventana")
 
 
 def _prune_stale_scores(conn, day, whash: str, scored: list[str]) -> int:

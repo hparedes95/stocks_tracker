@@ -230,8 +230,31 @@ def compute_all(df: pd.DataFrame, benchmark_close: pd.Series | None = None) -> p
     `df` debe venir ordenado por fecha e indexado por ella, con columnas
     open/high/low/close/adj_close/volume.
 
-    Se usa `adj_close` para todo lo que sea retorno o tendencia (esta ajustado
-    por splits y dividendos) y `close` solo para mostrar precio de pantalla.
+    QUE SERIE USA CADA CALCULO, Y POR QUE HAY DOS
+
+    No es un detalle de implementacion: usar la equivocada fabrica senales de
+    cosas que no ocurrieron.
+
+    **`adj_close` (ajustado) para todo lo que sea RETORNO**: momentum, medias,
+    MACD, RSI, volatilidad, drawdown, fuerza relativa. Un valor que reparte el
+    4 % en dividendos no ha perdido un 4 %, y midiendolo sobre el precio sin
+    ajustar pareceria que si. Aqui el ajuste es obligatorio.
+
+    **`close` (el precio cotizado) para todo lo que sea NIVEL**: maximos y
+    minimos de 52 semanas, soportes y resistencias. Un maximo anual es un hecho
+    del mercado —el precio al que se cruzaron ordenes— y no cambia porque la
+    empresa reparta un dividendo despues.
+
+    La diferencia esta demostrada en `tests/test_precio_ajustado.py`: un valor
+    que sube a 130, cae a 120 y se recupera hasta 129 NUNCA hace un maximo
+    nuevo, pero con la serie ajustada su `dist_52w_high` sale en 0,0000 y
+    `HIGH_52W_BREAKOUT` se dispara. Es una ruptura de maximos que no existio, y
+    no da ningun error: solo una senal de mas.
+
+    El motivo es que `adj_close` divide el PASADO por el dividendo acumulado, de
+    modo que el maximo de hace un ano vale hoy menos de lo que valia. Cuanto mas
+    reparte una empresa, mas rupturas falsas: el sesgo va justo hacia los
+    valores de dividendo alto.
     """
     if df.empty:
         return pd.DataFrame()
@@ -277,8 +300,13 @@ def compute_all(df: pd.DataFrame, benchmark_close: pd.Series | None = None) -> p
     out["ret_5d"] = price.pct_change(5)
 
     # Posicion en el rango y riesgo
-    out["dist_52w_high"] = distance_to_high(price)
-    out["dist_52w_low"] = distance_to_low(price)
+    # NIVELES, no retornos: van sobre el precio COTIZADO. Un maximo de 52
+    # semanas es un hecho del mercado y no cambia porque la empresa reparta un
+    # dividendo despues. Con la serie ajustada, el maximo de hace un ano vale
+    # hoy menos de lo que valia y aparecen rupturas que no existieron —mas
+    # cuanto mas reparte la empresa—. Demostrado en test_precio_ajustado.py.
+    out["dist_52w_high"] = distance_to_high(close)
+    out["dist_52w_low"] = distance_to_low(close)
     out["drawdown"] = drawdown(price)
     out["max_dd_1y"] = max_drawdown(price)
 
