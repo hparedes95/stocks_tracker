@@ -36,6 +36,11 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6",
+    # Los tests del proveedor de universos ejercitan `pandas.read_html` sobre
+    # HTML simulado, y eso necesita lxml. Estaba solo en el extra `data`, asi
+    # que un entorno instalado con `.[dev]` a secas —el de CI— fallaba ocho
+    # tests por una dependencia ausente, no por el codigo.
+    "lxml>=5.3",
     # Genera casos en vez de escribirlos. Para el simulador de broker importa
     # mas de lo normal: los tests a mano prueban las secuencias que a uno se le
     # ocurren, y los fallos de contabilidad viven en las que no.

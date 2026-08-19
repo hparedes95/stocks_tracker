@@ -23,6 +23,16 @@ from rich.console import Console
 
 from .base import ProviderError
 
+
+class MissingParserError(ProviderError):
+    """Falta lxml, el analizador de HTML que usa `pandas.read_html`.
+
+    Subclase de `ProviderError` para que quien no distinga siga capturandolo
+    con el `except` de siempre, pero con tipo propio para que quien SI quiera
+    distinguirlo pueda: la accion que hay que tomar no se parece en nada a la
+    de un fallo de red.
+    """
+
 console = Console()
 
 _TIMEOUT = 30
@@ -143,6 +153,20 @@ class UniverseProvider:
             # en cualquier maquina, que el respaldo convertia en un silencioso
             # "manual (fallo la descarga)" y dejaba el universo en 50 valores.
             tables = pd.read_html(io.StringIO(response.text))
+        except ImportError as exc:
+            # `pandas.read_html` necesita lxml y lxml es una dependencia
+            # OPCIONAL, del extra `data`. Sin este caso aparte, la falta del
+            # paquete salia como "No se pudo leer <url>" y el respaldo la
+            # convertia en "manual (fallo la descarga)": el mensaje culpaba a
+            # la red de un problema de instalacion, y quien lo viera iria a
+            # mirar su conexion. Es el mismo error de diagnostico que ya costo
+            # dias con pandas 3.0, y por eso se distingue explicitamente.
+            raise MissingParserError(
+                f"Falta el paquete lxml, que es lo que pandas usa para leer "
+                f"tablas HTML. La pagina se descargo bien: esto NO es un "
+                f"problema de red. Se instala con "
+                f'`pip install -e ".[data]"`. ({exc})'
+            ) from exc
         except Exception as exc:  # noqa: BLE001
             raise ProviderError(f"No se pudo leer {spec['url']}: {exc}") from exc
 
@@ -198,6 +222,14 @@ def resolve_universe(universe: str, manual_tickers: list[str],
 
     try:
         constituents = UniverseProvider().fetch_constituents(universe)
+    except MissingParserError as exc:
+        # Se separa del fallo de descarga porque la accion que hay que tomar es
+        # otra: aqui no se arregla reintentando ni esperando a que Wikipedia
+        # responda, se arregla instalando un paquete. Con el mismo mensaje para
+        # los dos casos, el unico sintoma seria un universo reducido a la lista
+        # manual sin ningun motivo aparente.
+        console.print(f"[red]  {universe}: {exc}[/]")
+        return manual_tickers, "manual (falta lxml)"
     except ProviderError as exc:
         # El motivo se imprime. Antes se descartaba, y "manual (fallo la
         # descarga)" era todo lo que se sabia: no distinguia un 403 de un

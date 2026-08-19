@@ -248,3 +248,66 @@ def test_the_error_lists_every_table_it_saw(monkeypatch):
     monkeypatch.setattr(up.requests, "get", lambda *a, **k: FakeResponse(muchas))
     with pytest.raises(ProviderError, match="Col8"):
         up.UniverseProvider().fetch_constituents("NASDAQ100")
+
+
+# ---------------------------------------------------------------------------
+# Falta de lxml: un problema de instalacion que parecia uno de red
+# ---------------------------------------------------------------------------
+def test_a_missing_lxml_is_not_reported_as_a_download_failure(monkeypatch):
+    """`pandas.read_html` necesita lxml, y lxml es una dependencia OPCIONAL.
+
+    Sin distinguir este caso, la falta del paquete salia como "No se pudo leer
+    <url>" y el respaldo la convertia en "manual (fallo la descarga)". El
+    mensaje culpaba a la red de un problema de instalacion, asi que quien lo
+    viera iria a mirar su conexion mientras el universo se quedaba reducido a
+    la lista manual sin motivo aparente. Es el mismo error de diagnostico que
+    ya costo dias con pandas 3.0.
+
+    Esto es exactamente lo que ocurria en el flujo de CI, que instala `.[dev]`
+    y no `.[data]`.
+    """
+    monkeypatch.setattr(up.requests, "get",
+                        lambda *a, **k: FakeResponse("<table></table>"))
+
+    def sin_lxml(*a, **k):
+        raise ImportError("`Import lxml` failed.  Use pip or conda to install "
+                          "the lxml package.")
+
+    monkeypatch.setattr(up.pd, "read_html", sin_lxml)
+
+    with pytest.raises(up.MissingParserError) as fallo:
+        up.UniverseProvider().fetch_constituents("NASDAQ100")
+    assert "lxml" in str(fallo.value)
+    assert "NO es un problema de red" in str(fallo.value)
+
+
+def test_a_missing_lxml_says_so_in_the_fallback_origin(monkeypatch):
+    """El origen que se muestra tiene que decir la causa real. Con el mismo
+    texto que un fallo de descarga, el unico sintoma seria un universo reducido
+    y nadie sabria que se arregla instalando un paquete."""
+    monkeypatch.setattr(up.requests, "get",
+                        lambda *a, **k: FakeResponse("<table></table>"))
+    monkeypatch.setattr(up.pd, "read_html",
+                        lambda *a, **k: (_ for _ in ()).throw(ImportError("no lxml")))
+
+    tickers, origen = up.resolve_universe("NASDAQ100", ["AAA", "BBB"], "wikipedia")
+    assert tickers == ["AAA", "BBB"]
+    assert origen == "manual (falta lxml)"
+
+
+def test_a_real_download_failure_still_says_download_failure(monkeypatch):
+    """La contraprueba: si todo dijera "falta lxml", el mensaje nuevo mandaria
+    a instalar un paquete cada vez que Wikipedia devolviera un 403."""
+    def cae_la_red(*a, **k):
+        raise ConnectionError("timeout")
+
+    monkeypatch.setattr(up.requests, "get", cae_la_red)
+    _, origen = up.resolve_universe("NASDAQ100", ["AAA"], "wikipedia")
+    assert origen == "manual (fallo la descarga)"
+
+
+def test_the_missing_parser_error_is_still_a_provider_error():
+    """Quien captura `ProviderError` a secas —el codigo que ya existia— tiene
+    que seguir capturandolo. Si no, anadir el tipo nuevo convertiria un
+    respaldo elegante en una excepcion sin capturar en mitad de la ingesta."""
+    assert issubclass(up.MissingParserError, ProviderError)
