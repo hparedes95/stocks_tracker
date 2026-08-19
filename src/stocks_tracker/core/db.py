@@ -42,15 +42,16 @@ def migrate() -> None:
     conn = duckdb.connect(str(path))
     try:
         conn.execute(sql)
-        # DuckDB no ejecuta ALTER TABLE desde el esquema historico. Estas
-        # migraciones permiten actualizar almacenes ya existentes sin destruir
-        # evidencia historica.
         migrations = [
             "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS p_value DOUBLE",
             "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS adjusted_p_value DOUBLE",
             "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS multiple_testing_method VARCHAR",
             "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS data_quality_status VARCHAR",
             "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS fundamentals_point_in_time BOOLEAN",
+            "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS git_commit VARCHAR",
+            "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS config_hash VARCHAR",
+            "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS data_from DATE",
+            "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS data_to DATE",
         ]
         for statement in migrations:
             conn.execute(statement)
@@ -58,12 +59,8 @@ def migrate() -> None:
         conn.close()
 
 
-def upsert_df(
-    conn: duckdb.DuckDBPyConnection,
-    table: str,
-    df: pd.DataFrame,
-    keys: Sequence[str],
-) -> int:
+def upsert_df(conn: duckdb.DuckDBPyConnection, table: str, df: pd.DataFrame,
+              keys: Sequence[str]) -> int:
     if df is None or df.empty:
         return 0
     cols_info = conn.execute(f"PRAGMA table_info('{table}')").fetchall()
@@ -107,10 +104,7 @@ def query(sql: str, params: Iterable | None = None, read_only: bool = True) -> p
 def table_counts() -> pd.DataFrame:
     with connect(read_only=True) as conn:
         names = [r[0] for r in conn.execute("SHOW TABLES").fetchall()]
-        rows = [
-            {"tabla": n, "filas": conn.execute(f"SELECT COUNT(*) FROM {n}").fetchone()[0]}
-            for n in names
-        ]
+        rows = [{"tabla": n, "filas": conn.execute(f"SELECT COUNT(*) FROM {n}").fetchone()[0]} for n in names]
     return pd.DataFrame(rows).sort_values("tabla").reset_index(drop=True)
 
 
