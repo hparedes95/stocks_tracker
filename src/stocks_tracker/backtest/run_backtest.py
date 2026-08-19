@@ -17,6 +17,7 @@ import pandas as pd
 from rich.console import Console
 from rich.table import Table
 
+from ..core import lineage
 from ..core.db import connect, migrate, upsert_df
 from ..core.timeutils import utcnow
 from . import engine as eng
@@ -122,6 +123,18 @@ def run(
     # hicieron, no de la senal que se este mirando.
     results = eng.apply_multiple_testing(results)
 
+    # El sello se construye AQUI y no al guardar: el rango de datos y el numero
+    # de filas son los de esta ejecucion, y despues ya no se pueden reconstruir.
+    sello = lineage.sellar(
+        {"horizontes": list(horizons), "coste_bps": cost_bps, "ambito": scope,
+         "fdr_q": mt.FDR_Q, "min_fechas": eng.mx.MIN_DATES,
+         "min_eventos": eng.mx.MIN_OBSERVATIONS},
+        data_from=prices["date"].min().date(),
+        data_to=prices["date"].max().date(),
+        n_rows=len(prices),
+    )
+    console.print(f"[dim]{lineage.describir(sello)}[/]")
+
     rows = [
         {
             "signal_id": r.signal_id,
@@ -143,6 +156,7 @@ def run(
             "oos_to": r.oos_to.date() if r.oos_to is not None else None,
             "costs_bps_assumed": cost_bps,
             "updated_at": utcnow(),
+            **sello.as_dict(),
             "_motivo": r.reason,
             "_ventanas_positivas": r.positive_folds,
             "_ventanas": len(r.folds),

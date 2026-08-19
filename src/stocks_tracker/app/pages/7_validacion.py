@@ -280,6 +280,20 @@ if pd.notna(row.get("oos_from")) and pd.notna(row.get("oos_to")):
     period = f"Periodo analizado: {row['oos_from']} a {row['oos_to']}."
 st.caption(period)
 
+# De dónde salió este número. Sin esto, dentro de tres meses no hay forma de
+# saber si se calculó con el código y los datos de ahora o con otros.
+if pd.notna(row.get("git_commit")):
+    sucio = str(row["git_commit"]).endswith("-sucio")
+    st.caption(
+        f"Calculado con el código `{row['git_commit']}`, configuración "
+        f"`{row.get('config_hash', '—')}`, sobre datos de "
+        f"{row.get('data_from', '—')} a {row.get('data_to', '—')} "
+        f"({int(row['n_rows']):,} filas).".replace(",", ".")
+        + ("  \n:material/warning: El sufijo `-sucio` significa que el código "
+           "tenía cambios sin confirmar: ese identificador **no** describe "
+           "exactamente lo que se ejecutó." if sucio else "")
+    )
+
 # ---------------------------------------------------------------------------
 # Distribucion de retornos: senal frente al resto
 # ---------------------------------------------------------------------------

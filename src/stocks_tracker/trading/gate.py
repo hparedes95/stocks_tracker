@@ -440,15 +440,29 @@ def save_report(report: GateReport, summary: dict,
     resultado en el dashboard. Un examen cuyo resultado solo existe en el
     scrollback de una terminal es un examen que nadie mira.
     """
+    from ..core import lineage
     from ..core.ids import ulid
 
     curva = summary.get("curva") or []
     report_id = ulid()
+    # El sello dice con que codigo y que mandato se aprobo. Es la diferencia
+    # entre "esta estrategia paso la puerta" y "esta estrategia paso la puerta
+    # que habia entonces": los umbrales viven en trading.yaml y se pueden
+    # relajar despues sin que el informe guardado lo refleje.
+    sello = lineage.sellar(
+        {"estrategia": strategy_id, "preset": preset,
+         "pesos": _pesos_del_sello(preset),
+         "limites": _limites_del_sello()},
+        data_from=curva[0][0] if curva else None,
+        data_to=curva[-1][0] if curva else None,
+        n_rows=len(curva),
+    )
     with connect() as conn:
         conn.execute(
             "INSERT INTO gate_reports (report_id, logged_at, strategy_id, preset, "
             "passed, blockers, checks, sessions, trades, equity_start, equity_end, "
-            "data_from, data_to) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "data_from, data_to, git_commit, config_hash, n_rows) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [
                 report_id, datetime.now(), strategy_id, preset, report.passed,
                 json.dumps(report.blockers, ensure_ascii=False),
@@ -458,9 +472,38 @@ def save_report(report: GateReport, summary: dict,
                 float(summary.get("equity_final", 0.0)),
                 curva[0][0] if curva else None,
                 curva[-1][0] if curva else None,
+                sello.git_commit, sello.config_hash, sello.n_rows,
             ],
         )
     return report_id
+
+
+def _pesos_del_sello(preset: str) -> dict:
+    """Los pesos de los factores con los que se ordeno el universo.
+
+    Cambiarlos cambia que compra la estrategia, asi que un aprobado obtenido
+    con unos pesos no dice nada de otros. Los nueve umbrales de `evaluate()`
+    NO entran aqui porque estan escritos en el codigo, y de eso ya responde el
+    `git_commit`: meterlos ademas en el hash duplicaria la misma informacion en
+    dos sitios que podrian discrepar.
+    """
+    try:
+        return dict(get_factor_config().weights(preset))
+    except Exception:  # noqa: BLE001 — el sello nunca tumba el guardado
+        return {}
+
+
+def _limites_del_sello() -> dict:
+    """Los limites de riesgo vigentes: salen de trading.yaml y se pueden tocar.
+
+    Si fallara la lectura se devuelve un diccionario vacio en vez de propagar:
+    el sello es informacion util, y perderlo no puede impedir que se guarde un
+    informe que ya se ha calculado.
+    """
+    try:
+        return dict(get_trading_config().risk)
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def latest_report() -> dict | None:

@@ -217,6 +217,11 @@ CREATE TABLE IF NOT EXISTS signal_evidence (
   n_tests           INTEGER,        -- pruebas hechas en la tanda
   ci_low            DOUBLE,         -- intervalo del exceso medio al 95 %
   ci_high           DOUBLE,
+  git_commit        VARCHAR,        -- trazabilidad: ver core/lineage.py
+  config_hash       VARCHAR,
+  data_from         VARCHAR,
+  data_to           VARCHAR,
+  n_rows            INTEGER,
   oos_from          DATE,
   oos_to            DATE,
   costs_bps_assumed DOUBLE,
@@ -638,3 +643,14 @@ ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS ci_high DOUBLE;
 ALTER TABLE data_quality ADD COLUMN IF NOT EXISTS severity VARCHAR;
 ALTER TABLE data_quality ADD COLUMN IF NOT EXISTS checked_at TIMESTAMP;
 ALTER TABLE data_quality ADD COLUMN IF NOT EXISTS run_id VARCHAR;
+
+-- Trazabilidad: con que codigo, que configuracion y que datos se calculo cada
+-- numero. Ver core/lineage.py para el porque.
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS git_commit VARCHAR;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS config_hash VARCHAR;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS data_from VARCHAR;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS data_to VARCHAR;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS n_rows INTEGER;
+ALTER TABLE gate_reports ADD COLUMN IF NOT EXISTS git_commit VARCHAR;
+ALTER TABLE gate_reports ADD COLUMN IF NOT EXISTS config_hash VARCHAR;
+ALTER TABLE gate_reports ADD COLUMN IF NOT EXISTS n_rows INTEGER;
