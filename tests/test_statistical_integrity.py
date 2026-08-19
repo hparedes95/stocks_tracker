@@ -7,7 +7,7 @@ from stocks_tracker.backtest.metrics import benjamini_hochberg, mean_p_value
 
 
 def test_mean_p_value_is_small_for_clear_positive_mean():
-    values = np.array([0.10] * 120)
+    values = np.linspace(0.05, 0.15, 120)
     assert mean_p_value(values) < 1e-10
 
 
@@ -18,7 +18,7 @@ def test_benjamini_hochberg_controls_adjusted_values():
     assert q[0] <= 0.004
 
 
-@given(st.lists(st.floats(min_value=1e-6, max_value=1.0), min_size=1, max_size=50))
+@given(st.lists(st.floats(min_value=1e-6, max_value=1.0, allow_nan=False, allow_infinity=False), min_size=1, max_size=50))
 def test_benjamini_hochberg_q_values_are_bounded(values):
     q = benjamini_hochberg(np.array(values, dtype=float))
     assert np.all((q >= 0) & (q <= 1))
