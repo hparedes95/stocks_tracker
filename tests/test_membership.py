@@ -314,3 +314,55 @@ def test_the_warning_with_full_history_still_does_not_claim_it_is_fixed():
     texto = m.aviso_de_supervivencia(12.0, 10.0)
     assert "no desaparece" in texto
     assert "desaparecidas no estan disponibles" in texto
+
+
+# ---------------------------------------------------------------------------
+# Una lista de respaldo no puede dar de baja a nadie
+# ---------------------------------------------------------------------------
+def test_an_unreliable_list_never_closes_intervals(conn):
+    """EL FALLO MAS GRAVE DE LA REVISION. Cuando la descarga de Wikipedia
+    falla, `resolve_universe` devuelve la lista MANUAL de respaldo: unos 50
+    tickers frente a los 450 reales. Sin proteccion, los 400 que faltan se leen
+    como salidas del indice y se cierran sus intervalos.
+
+    Un 403 de un minuto escribiria una baja masiva falsa y PERMANENTE en la
+    unica tabla que guarda historia que no se puede reconstruir. Y no es
+    hipotetico: es exactamente lo que pasa cuando falta lxml, que es lo que
+    tuvo el CI en rojo una semana.
+    """
+    reales = [f"T{i:03d}" for i in range(450)]
+    respaldo = reales[:50]
+
+    m.actualizar(conn, "SP500", reales, LUNES)
+    cambios = m.actualizar(conn, "SP500", respaldo, MARTES, fiable=False)
+
+    assert cambios["salen"] == []
+    assert len(cambios["sin_confirmar"]) == 400
+    assert len(m.miembros_en(conn, MARTES)) == 450, \
+        "la lista de respaldo ha dado de baja a 400 valores"
+
+
+def test_an_unreliable_list_can_still_add_what_it_knows(conn):
+    """Abrir si es seguro: el respaldo es un subconjunto curado de miembros de
+    verdad. Asi la tabla solo puede ganar verdad, nunca perderla."""
+    m.actualizar(conn, "SP500", ["AAA"], LUNES)
+    m.actualizar(conn, "SP500", ["AAA", "NUEVA"], MARTES, fiable=False)
+    assert m.miembros_en(conn, MARTES) == {"AAA", "NUEVA"}
+
+
+def test_the_next_good_download_still_records_the_real_departure(conn):
+    """El error se corrige solo, que es lo que no pasaba al reves: una baja
+    falsa escrita en la tabla no la deshace ninguna descarga posterior."""
+    m.actualizar(conn, "SP500", ["AAA", "BBB"], LUNES)
+    m.actualizar(conn, "SP500", ["AAA"], MARTES, fiable=False)      # fallo
+    cambios = m.actualizar(conn, "SP500", ["AAA"], MIERCOLES)       # ya va bien
+    assert cambios["salen"] == ["BBB"]
+    assert m.miembros_en(conn, MIERCOLES) == {"AAA"}
+
+
+def test_a_reliable_list_is_the_default(conn):
+    """Los universos manuales por configuracion —ETF_CORE, INDICES— tienen la
+    lista buena. Si el defecto fuera "no fiable", no se cerraria nunca nada."""
+    m.actualizar(conn, "ETF_CORE", ["AAA", "BBB"], LUNES)
+    cambios = m.actualizar(conn, "ETF_CORE", ["AAA"], MARTES)
+    assert cambios["salen"] == ["BBB"]

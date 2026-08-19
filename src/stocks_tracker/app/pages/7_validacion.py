@@ -22,6 +22,7 @@ from stocks_tracker.backtest import engine as eng
 from stocks_tracker.backtest import metrics as mx
 from stocks_tracker.backtest import multiple_testing as mt
 from stocks_tracker.backtest import run_backtest as runner
+from stocks_tracker.core import lineage
 from stocks_tracker.core.config import get_explanations
 
 st.title("Validación de señales")
@@ -294,11 +295,16 @@ st.caption(period)
 # saber si se calculó con el código y los datos de ahora o con otros.
 if pd.notna(row.get("git_commit")):
     sucio = str(row["git_commit"]).endswith("-sucio")
+    # `lineage.miles` y no un replace aquí: aplicando el `.replace(",", ".")` a
+    # la frase entera —como estaba— también se comían las comas de la redacción
+    # y salía "código `abc123`. configuración `d4f`. sobre datos de…". Con una
+    # función que solo ve el número, ese error no se puede cometer.
+    filas = lineage.miles(row["n_rows"])
     st.caption(
         f"Calculado con el código `{row['git_commit']}`, configuración "
         f"`{row.get('config_hash', '—')}`, sobre datos de "
         f"{row.get('data_from', '—')} a {row.get('data_to', '—')} "
-        f"({int(row['n_rows']):,} filas).".replace(",", ".")
+        f"({filas} filas)."
         + ("  \n:material/warning: El sufijo `-sucio` significa que el código "
            "tenía cambios sin confirmar: ese identificador **no** describe "
            "exactamente lo que se ejecutó." if sucio else "")

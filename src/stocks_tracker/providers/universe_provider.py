@@ -209,6 +209,21 @@ class UniverseProvider:
         return universe in WIKIPEDIA_SOURCES
 
 
+def es_fiable(origen: str) -> bool:
+    """Si la lista devuelta describe de verdad la composicion del universo.
+
+    Lo que distingue no es manual frente a Wikipedia: hay universos que son
+    manuales por configuracion —ETF_CORE, INDICES, MACRO— y su lista es la
+    buena. Lo que NO es de fiar es un respaldo al que se ha caido porque algo
+    fallo, y esos son justo los que llevan el motivo entre parentesis.
+
+    Existe porque de esto depende si se pueden cerrar intervalos en
+    `universe_membership`: cerrarlos con una lista de respaldo escribe una baja
+    masiva falsa y permanente. Ver `core/membership.actualizar`.
+    """
+    return origen in ("manual", "wikipedia")
+
+
 def resolve_universe(universe: str, manual_tickers: list[str],
                      source: str = "manual") -> tuple[list[str], str]:
     """Tickers de un universo y de donde han salido.

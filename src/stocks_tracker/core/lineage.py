@@ -126,9 +126,25 @@ def sellar(config: dict, data_from=None, data_to=None, n_rows: int = 0) -> Sello
     )
 
 
+def miles(n: int) -> str:
+    """Un entero con separador de miles espanol: 324175 -> "324.175".
+
+    Existe como funcion propia porque el atajo —formatear la frase entera y
+    hacerle `.replace(",", ".")` al final— ya ha salido mal DOS veces en este
+    repositorio: se lleva por delante las comas de la redaccion y parte el
+    texto en oraciones falsas ("codigo abc123. configuracion d4f. sobre datos
+    de..."). Hay un comentario en `trading/gate.py` avisando, y aun asi volvio
+    a pasar en la pagina 7.
+
+    Con una funcion que solo ve el numero, ese error no se puede cometer: no
+    hay ninguna frase a la que aplicarselo.
+    """
+    return f"{int(n):,}".replace(",", ".")
+
+
 def describir(sello: Sello) -> str:
     """Una linea legible, para la consola y para la pantalla."""
     periodo = (f"{sello.data_from} a {sello.data_to}"
                if sello.data_from and sello.data_to else "sin periodo")
-    return (f"codigo {sello.git_commit} · configuracion {sello.config_hash} · "
-            f"datos {periodo} ({sello.n_rows:,} filas)".replace(",", "."))
+    return (f"codigo {sello.git_commit}, configuracion {sello.config_hash}, "
+            f"datos {periodo} ({miles(sello.n_rows)} filas)")

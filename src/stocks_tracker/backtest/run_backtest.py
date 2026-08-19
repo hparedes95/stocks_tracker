@@ -56,30 +56,39 @@ def load_data(scope: str | None = None,
     No se carga ningun indice: la referencia de la validacion es el propio
     universo equiponderado, que se calcula despues a partir de estos precios.
 
-    `pit` restringe cada fecha a los valores que pertenecian al universo ESE
-    DIA, en vez de a los de hoy. Va apagado por defecto y no por comodidad: la
+    `pit` restringe los EVENTOS a los valores que pertenecian al universo ese
+    dia, en vez de a los de hoy. Va apagado por defecto y no por comodidad: la
     tabla de composicion empieza el dia que se ejecuto la primera ingesta, asi
     que encenderlo hoy dejaria el backtest con unos pocos dias de datos. Ver
     `core/membership.py` para lo que esto corrige y lo que no.
+
+    Filtra las SENALES y nunca los precios, y esa distincion no es cosmetica.
+    `forward_returns` desplaza la serie por POSICION —`close.shift(-1-h)`—, asi
+    que un hueco en los precios de un ticker no se salta: se cruza. Un valor
+    que estuvo fuera del indice tres meses dejaria un agujero y el retorno "a
+    21 sesiones" del dia anterior pasaria a medir tres meses largos, sin dar
+    ningun error y con un numero perfectamente creible. Los precios se cargan
+    completos y la pertenencia decide que eventos cuentan.
     """
-    filtro_pit = """
-            JOIN universe_membership m ON m.ticker = p.ticker
-                 AND m.valid_from <= p.date
-                 AND (m.valid_to IS NULL OR m.valid_to > p.date)
-    """ if pit else ""
     with connect(read_only=True) as conn:
         prices = conn.execute(
-            f"""
-            SELECT DISTINCT p.ticker, p.date, p.adj_close
+            """
+            SELECT p.ticker, p.date, p.adj_close
             FROM prices_daily p
             JOIN instruments i USING (ticker)
-            {filtro_pit}
             WHERE i.asset_class IN ('equity', 'etf')
             ORDER BY p.ticker, p.date
             """
         ).fetchdf()
         signals = conn.execute(
-            "SELECT ticker, date, signal_id, direction, strength FROM signals"
+            f"""
+            SELECT {'DISTINCT ' if pit else ''}s.ticker, s.date, s.signal_id,
+                   s.direction, s.strength
+            FROM signals s
+            {'''JOIN universe_membership m ON m.ticker = s.ticker
+                 AND m.valid_from <= s.date
+                 AND (m.valid_to IS NULL OR m.valid_to > s.date)''' if pit else ''}
+            """
         ).fetchdf()
 
     if prices.empty:

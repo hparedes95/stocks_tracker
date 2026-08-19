@@ -206,3 +206,26 @@ def test_the_stamp_survives_a_round_trip_through_the_warehouse(almacen):
         ).fetchone()
     assert leido == (sello.git_commit, sello.config_hash, "2016-08-12",
                      "2026-08-11", 530_737)
+
+
+def test_the_thousands_separator_only_touches_the_number():
+    """324175 -> "324.175". Es la funcion que impide el error de siempre."""
+    assert ln.miles(324175) == "324.175"
+    assert ln.miles(1234567) == "1.234.567"
+    assert ln.miles(0) == "0"
+    assert ln.miles(999) == "999"
+
+
+def test_the_description_keeps_the_commas_of_its_own_sentence():
+    """El atajo —formatear la frase entera y hacerle `.replace(",", ".")`— se
+    lleva por delante las comas de la redaccion y la parte en oraciones falsas:
+    "codigo abc123. configuracion d4f. datos...".
+
+    Ya habia un comentario avisando en `trading/gate.py` y aun asi volvio a
+    pasar en la pagina 7. Este test lo fija donde se puede probar.
+    """
+    texto = ln.describir(ln.sellar({"a": 1}, data_from="2020-01-01",
+                                   data_to="2024-01-01", n_rows=1234567))
+    assert "1.234.567 filas" in texto
+    assert ", configuracion " in texto, "se ha comido la coma de la frase"
+    assert ", datos " in texto

@@ -405,3 +405,98 @@ def test_a_family_where_nothing_can_be_evaluated_does_not_crash():
     sin_p = _resultado("SIN", float("nan"))
     resultados = eng.apply_multiple_testing([sin_p])
     assert resultados[0].n_tests == 0
+
+
+# ---------------------------------------------------------------------------
+# El punto y su intervalo tienen que salir del mismo estimador
+# ---------------------------------------------------------------------------
+def _dias_desiguales(n_dias: int = 60, muchos: int = 200):
+    """Unos pocos dias con cientos de eventos y el resto con uno solo.
+
+    Es el escenario que separa la media por evento de la media por fecha, y no
+    es artificial: una senal de amplitud se dispara en medio mercado el mismo
+    dia y en casi nadie el resto del mes.
+    """
+    fechas, ret = [], []
+    for d in pd.bdate_range("2024-01-01", periods=n_dias):
+        n = muchos if d.day % 7 == 0 else 1
+        v = 0.05 if n > 1 else -0.001
+        fechas += [d] * n
+        ret += [v] * n
+    return fechas, ret
+
+
+def test_the_headline_number_is_inside_its_own_confidence_interval():
+    """Antes no lo estaba. El punto era la media por EVENTO y el intervalo
+    salia de la media por FECHA: la pantalla llego a ensenar un +4,81 % junto a
+    un intervalo de [+0,17 %, +0,82 %] que no lo contenia.
+
+    Dos numeros contiguos que se contradicen no informan de nada; solo hacen
+    desconfiar del resto de la pantalla, que es lo peor que puede pasarle a una
+    herramienta cuyo unico producto es que te puedas creer sus numeros.
+    """
+    fechas, ret = _dias_desiguales()
+    r = mx.summarize_event(ret, dates=fechas)
+    assert r.ci_low <= r.avg_excess <= r.ci_high
+
+
+def test_the_headline_is_the_daily_mean_and_not_the_event_mean():
+    """Con la media por evento, los dias de cientos de disparos pesan cientos
+    de veces mas, que es exactamente el sesgo que se quito del estadistico. El
+    titular tiene que ser el mismo numero que sostiene el t."""
+    fechas, ret = _dias_desiguales()
+    r = mx.summarize_event(ret, dates=fechas)
+    esperado = pd.Series(ret).groupby(pd.Series(fechas)).mean().mean()
+    assert r.avg_excess == pytest.approx(esperado)
+    assert r.avg_excess_evento == pytest.approx(float(np.mean(ret)))
+    assert abs(r.avg_excess_evento - r.avg_excess) > 0.01, \
+        "el escenario tiene que separar los dos estimadores"
+
+
+def test_without_dates_the_headline_falls_back_to_the_event_mean():
+    """Sin fechas no se puede agrupar. Devolver NaN dejaria la tabla vacia; lo
+    razonable es la media por evento, que es lo unico que se puede calcular."""
+    r = mx.summarize_event([0.01, 0.03])
+    assert r.avg_excess == pytest.approx(0.02)
+
+
+# ---------------------------------------------------------------------------
+# Una sola ventana no es una comprobacion de estabilidad
+# ---------------------------------------------------------------------------
+def test_one_surviving_window_is_no_windows_at_all():
+    """El embargo puede vaciar ventanas: los tramos se parten por numero de
+    eventos, y si abarcan menos dias que el embargo el recorte los deja sin
+    nada. Devolver la unica superviviente hacia que la clasificacion dijera
+    "solo positiva en 1 de 1 ventanas", una frase que se contradice sola."""
+    fechas = pd.bdate_range("2020-01-01", periods=120)
+    detalle = pd.DataFrame({"date": fechas, "retorno": 0.01, "referencia": 0.0})
+    assert eng.walk_forward(detalle, n_folds=3,
+                            embargo_days=eng.embargo_for(63)) == []
+
+
+def test_a_signal_without_windows_is_weak_and_says_why():
+    """Y no validada. Dar por estable lo que no se ha podido comprobar deja
+    pasar una senal saltandose uno de los cuatro criterios sin que nada lo
+    diga.
+
+    Se exige la frase exacta y no solo las palabras sueltas: sin el caso
+    aparte, el mensaje que sale es "solo positiva en 0 de 0 ventanas: depende
+    demasiado del tramo del historico", que contiene "ventanas" e "historico" y
+    pasaria una comprobacion laxa. Y dice una cosa falsa —que se ha mirado y
+    depende del tramo— en vez de la verdadera, que es que no se ha podido
+    mirar.
+    """
+    evento = _resultado("X", 0.001).event
+    etiqueta, motivo = eng.classify_evidence(evento, float("nan"), [])
+    assert etiqueta == eng.WEAK
+    assert "no hay bastante historico para partirlo en ventanas" in motivo
+    assert "0 de 0" not in motivo
+
+
+def test_enough_history_still_produces_windows_with_the_embargo():
+    """La contraprueba: si el embargo vaciara siempre, ninguna senal podria
+    validarse nunca y la comprobacion de estabilidad seria decorativa."""
+    fechas = pd.bdate_range("2015-01-01", periods=2000)
+    detalle = pd.DataFrame({"date": fechas, "retorno": 0.01, "referencia": 0.0})
+    ventanas = eng.walk_forward(detalle, n_folds=3, embargo_days=eng.embargo_for(63))
+    assert len(ventanas) == 3

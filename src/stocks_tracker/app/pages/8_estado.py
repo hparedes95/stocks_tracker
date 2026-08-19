@@ -194,21 +194,41 @@ st.caption(
     "ningún error, no se nota en pantalla, y deja cualquier backtest anterior "
     "sin poder reproducirse."
 )
+# Se toma la ULTIMA EJECUCION DE CADA COMPROBACIÓN, no el último lote escrito.
+# Dos motivos, y los dos daban falsos "todo bien":
+#   1. La ingesta escribe un lote por grupo de fechas, así que filtrar por
+#      `MAX(checked_at)` global dejaba fuera los problemas de los grupos
+#      anteriores de la misma ejecución.
+#   2. El cálculo no puede comprobar `precios_revisados` —para eso hay que
+#      comparar antes de sobrescribir—, así que su registro más reciente tiene
+#      que seguir siendo el de la ingesta.
+ULTIMA_DE_CADA_UNA = """
+    SELECT check_name, MAX(run_id) AS run_id
+    FROM data_quality d
+    WHERE checked_at = (SELECT MAX(x.checked_at) FROM data_quality x
+                        WHERE x.check_name = d.check_name)
+    GROUP BY check_name
+"""
+
 with connect(read_only=True) as conn:
     ultima = conn.execute("SELECT MAX(checked_at) FROM data_quality").fetchone()
     calidad = conn.execute(
-        """
-        SELECT check_name, ticker, severity, detail, checked_at
-        FROM data_quality
-        WHERE NOT passed AND checked_at >= (SELECT MAX(checked_at) FROM data_quality)
-        ORDER BY CASE severity WHEN 'bloquea' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END
+        f"""
+        SELECT d.check_name, d.ticker, d.severity, d.detail, d.checked_at
+        FROM data_quality d
+        JOIN ({ULTIMA_DE_CADA_UNA}) u
+          ON u.check_name = d.check_name AND u.run_id = d.run_id
+        WHERE NOT d.passed
+        ORDER BY CASE d.severity WHEN 'bloquea' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END
         LIMIT 60
         """
     ).fetchdf()
     pasadas = conn.execute(
-        """
-        SELECT COUNT(DISTINCT check_name) FROM data_quality
-        WHERE passed AND checked_at >= (SELECT MAX(checked_at) FROM data_quality)
+        f"""
+        SELECT COUNT(DISTINCT d.check_name) FROM data_quality d
+        JOIN ({ULTIMA_DE_CADA_UNA}) u
+          ON u.check_name = d.check_name AND u.run_id = d.run_id
+        WHERE d.passed
         """
     ).fetchone()
 

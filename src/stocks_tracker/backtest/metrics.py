@@ -60,6 +60,10 @@ class EventMetrics:
     # Observaciones efectivas: fechas distintas, no eventos. Es el `n` que de
     # verdad sostiene el contraste.
     n_dates: int = 0
+    # Media por evento. `avg_excess` es la media por FECHA, que es la que
+    # sostiene el t y el intervalo. Se guardan las dos porque contestan
+    # preguntas distintas y confundirlas fue un fallo real.
+    avg_excess_evento: float = float("nan")
     p_value: float = float("nan")
     ci_low: float = float("nan")
     ci_high: float = float("nan")
@@ -312,13 +316,28 @@ def summarize_event(returns, benchmark_returns=None, dates=None) -> EventMetrics
 
     excess = values - bench
 
+    # El exceso medio POR EVENTO. Se conserva porque contesta una pregunta
+    # legitima —"cuanto rindio un disparo tipico"— pero NO es el numero que
+    # acompana al intervalo: ver mas abajo.
+    excess_por_evento = float(excess.mean())
+
     if dates is None:
         t_stat, n_dates = float("nan"), 0
         ci_low, ci_high = float("nan"), float("nan")
+        avg_excess = excess_por_evento
     else:
         fechas = np.asarray(pd.to_datetime(pd.Series(dates)))[mask]
         t_stat, n_dates = clustered_hac_t(excess, fechas)
         ci_low, ci_high = clustered_mean_ci(excess, fechas)
+        # El titular es la media POR FECHA, la misma que sostiene el t y el
+        # intervalo. Con la media por evento, los dias con cientos de disparos
+        # pesan cientos de veces mas —que es justo el sesgo que se quito del
+        # estadistico—, y el punto y su intervalo salian de estimadores
+        # distintos: se llego a ver un +4,81 % junto a un intervalo de
+        # [+0,17 %, +0,82 %] que no lo contenia. Dos numeros contiguos que se
+        # contradicen no informan de nada, solo hacen desconfiar de la pantalla.
+        serie = by_date(excess, fechas)
+        avg_excess = float(serie.mean()) if len(serie) else excess_por_evento
 
     return EventMetrics(
         n_obs=int(len(values)),
@@ -326,13 +345,14 @@ def summarize_event(returns, benchmark_returns=None, dates=None) -> EventMetrics
         hit_rate_vs_benchmark=float((excess > 0).mean()),
         avg_return=float(values.mean()),
         median_return=float(np.median(values)),
-        avg_excess=float(excess.mean()),
+        avg_excess=avg_excess,
         std_return=float(values.std(ddof=1)) if len(values) > 1 else float("nan"),
         t_stat=t_stat,
         best=float(values.max()),
         worst=float(values.min()),
         benchmark_avg=float(bench.mean()),
         n_dates=int(n_dates),
+        avg_excess_evento=excess_por_evento,
         p_value=p_value_from_t(t_stat),
         ci_low=ci_low,
         ci_high=ci_high,

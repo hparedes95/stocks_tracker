@@ -345,6 +345,16 @@ def walk_forward(
                 ic_ir=float("nan"),
             )
         )
+
+    # Con UNA sola ventana no se puede juzgar la estabilidad entre regimenes,
+    # que es lo unico que este analisis mide. Devolver esa ventana suelta hacia
+    # que `classify_evidence` dijera "solo positiva en 1 de 1 ventanas", una
+    # frase que se contradice a si misma y que ademas impedia validar la senal
+    # para siempre. Pasa de verdad: los tramos se parten por numero de eventos,
+    # y si abarcan menos dias que el embargo (89 para el horizonte de 63) el
+    # recorte los vacia.
+    if len(folds) < 2:
+        return []
     return folds
 
 
@@ -408,7 +418,21 @@ def classify_evidence(
 
     n_folds = len(folds)
     positive = sum(1 for f in folds if f.avg_excess > 0)
-    stable = n_folds == 0 or positive >= max(2, int(np.ceil(n_folds * 2 / 3)))
+
+    # Sin ventanas no se ha podido comprobar la estabilidad entre regimenes. No
+    # es lo mismo que haberla comprobado y que salga bien: dar por estable lo
+    # que no se ha mirado deja validar una senal saltandose uno de los cuatro
+    # criterios sin que nada lo diga.
+    if n_folds == 0:
+        return (
+            WEAK,
+            f"Exceso medio {event.avg_excess:+.2%}, pero no hay bastante "
+            "historico para partirlo en ventanas y ver si aguanta en distintos "
+            "tramos de mercado. Sin eso no se distingue una senal de una "
+            "fotografia de un periodo concreto.",
+        )
+
+    stable = positive >= max(2, int(np.ceil(n_folds * 2 / 3)))
 
     consistent = (np.isfinite(ic_ir) and ic_ir > min_ic_ir) or event.is_significant
 

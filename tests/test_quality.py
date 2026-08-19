@@ -284,16 +284,38 @@ def test_a_missing_ticker_warns_but_does_not_block():
     assert not q.bloqueantes(hallazgos)
 
 
+def _revisadas(n_barras: int, campos_por_barra: int = 1) -> pd.DataFrame:
+    campos = ["close", "open", "high", "low", "volume"][:campos_por_barra]
+    return pd.DataFrame([
+        {"ticker": "AAA", "date": pd.Timestamp("2024-03-01") + pd.Timedelta(days=i),
+         "campo": c, "antes": 100.0, "ahora": 90.0, "cambio": 0.1}
+        for i in range(n_barras) for c in campos
+    ])
+
+
 def test_a_massive_rewrite_blocks_but_a_single_one_only_warns():
-    """Una fila cambiada puede ser una correccion legitima de un error puntual.
-    El 1 % del lote es que la serie entera es otra."""
-    revisadas = pd.DataFrame([{"ticker": "AAA", "date": pd.Timestamp("2024-03-01"),
-                               "campo": "close", "antes": 100.0, "ahora": 90.0,
-                               "cambio": 0.1}])
-    solo_una = q.evaluar(pd.DataFrame(), revisadas, filas_lote=1000)
-    muchas = q.evaluar(pd.DataFrame(), pd.concat([revisadas] * 50), filas_lote=1000)
+    """Una barra cambiada puede ser una correccion legitima de un error
+    puntual. El 1 % del lote es que la serie entera es otra."""
+    solo_una = q.evaluar(pd.DataFrame(), _revisadas(1), filas_lote=1000)
+    muchas = q.evaluar(pd.DataFrame(), _revisadas(50), filas_lote=1000)
     assert not q.bloqueantes(solo_una)
     assert q.bloqueantes(muchas)
+
+
+def test_the_blocking_fraction_counts_bars_and_not_fields():
+    """`revisiones` devuelve una fila por (ticker, fecha, CAMPO), asi que una
+    sola barra reescrita produce hasta cinco. `filas_lote` cuenta barras.
+
+    Dividiendo lo uno por lo otro, la fraccion salia hasta 5 veces inflada: una
+    correccion del 0,25 % del lote disparaba el bloqueo del 1 % y la
+    comprobacion que existe para avisar de un problema del proveedor paraba el
+    programa por un problema que no existia.
+    """
+    una_barra_cinco_campos = _revisadas(1, campos_por_barra=5)
+    assert len(una_barra_cinco_campos) == 5
+    hallazgos = q.evaluar(pd.DataFrame(), una_barra_cinco_campos, filas_lote=400)
+    assert not q.bloqueantes(hallazgos), "1 barra de 400 es 0,25 %, no debe bloquear"
+    assert "1 barras" in hallazgos[0].detail
 
 
 def test_the_warning_says_what_it_means_and_not_just_a_number():
@@ -363,7 +385,7 @@ def test_the_gate_records_what_it_checked_even_when_everything_passes(almacen):
     """Guardar solo los problemas deja una tabla en la que no se distingue "se
     comprobo y estaba bien" de "no se comprobo". Esa diferencia es justo la que
     hace falta el dia que algo se rompe."""
-    from stocks_tracker.core.quality import COMPROBACIONES
+    from stocks_tracker.core.quality import COMPROBACIONES_DEL_ALMACEN
 
     fechas = list(pd.bdate_range("2024-01-01", periods=40))
     _sembrar(almacen, pd.concat([_serie(t, fechas) for t in ("AAA", "BBB")]))
@@ -374,8 +396,58 @@ def test_the_gate_records_what_it_checked_even_when_everything_passes(almacen):
         filas = conn.execute(
             "SELECT check_name, passed FROM data_quality"
         ).fetchdf()
-    assert set(filas["check_name"]) == set(COMPROBACIONES)
+    assert set(filas["check_name"]) == set(COMPROBACIONES_DEL_ALMACEN)
     assert filas["passed"].all()
+
+
+def test_the_gate_does_not_claim_to_have_checked_for_rewrites(almacen):
+    """`precios_revisados` solo se puede comprobar DURANTE la ingesta,
+    comparando con lo que habia antes de sobrescribirlo. La puerta marcaba esa
+    comprobacion como pasada en cada calculo sin poder mirar nada.
+
+    No era cosmetico: la pagina 8 ensena el registro mas reciente de cada
+    comprobacion, asi que ese "pasado" falso TAPABA el hallazgo bloqueante que
+    la ingesta acababa de escribir. El aviso de que el proveedor ha reescrito
+    el historico —la comprobacion mas valiosa de todas— desaparecia de la
+    pantalla en cuanto se ejecutaba el calculo.
+    """
+    fechas = list(pd.bdate_range("2024-01-01", periods=40))
+    _sembrar(almacen, pd.concat([_serie(t, fechas) for t in ("AAA", "BBB")]))
+    from stocks_tracker.compute.run_compute import puerta_de_calidad
+
+    puerta_de_calidad()
+    with almacen.connect(read_only=True) as conn:
+        nombres = {r[0] for r in conn.execute(
+            "SELECT DISTINCT check_name FROM data_quality").fetchall()}
+    assert "precios_revisados" not in nombres
+
+
+def test_an_ingest_finding_is_not_hidden_by_a_later_compute(almacen):
+    """El caso completo, de extremo a extremo: la ingesta detecta una
+    reescritura y despues se ejecuta el calculo. El hallazgo tiene que seguir
+    siendo el registro mas reciente de esa comprobacion."""
+    from stocks_tracker.compute.run_compute import puerta_de_calidad
+    from stocks_tracker.core.quality import Hallazgo, guardar
+
+    fechas = list(pd.bdate_range("2024-01-01", periods=40))
+    _sembrar(almacen, pd.concat([_serie(t, fechas) for t in ("AAA", "BBB")]))
+
+    with almacen.connect() as conn:
+        guardar(conn, [Hallazgo("precios_revisados", q.BLOQUEA, None, None,
+                                "el proveedor reescribio 300 barras")],
+                "run-ingesta", ["precios_revisados"])
+    puerta_de_calidad()
+
+    with almacen.connect(read_only=True) as conn:
+        fila = conn.execute(
+            """
+            SELECT passed, severity FROM data_quality d
+            WHERE check_name = 'precios_revisados'
+              AND checked_at = (SELECT MAX(x.checked_at) FROM data_quality x
+                                WHERE x.check_name = 'precios_revisados')
+            """
+        ).fetchone()
+    assert fila == (False, q.BLOQUEA), "el calculo ha tapado el aviso de la ingesta"
 
 
 def test_an_empty_warehouse_does_not_block(almacen):

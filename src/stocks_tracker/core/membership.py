@@ -44,7 +44,8 @@ from datetime import date
 import pandas as pd
 
 
-def actualizar(conn, universo: str, miembros: list[str], hoy: date) -> dict:
+def actualizar(conn, universo: str, miembros: list[str], hoy: date,
+               fiable: bool = True) -> dict:
     """Registra la composicion de hoy como intervalos, no como una foto diaria.
 
     Tres casos y solo tres:
@@ -56,6 +57,21 @@ def actualizar(conn, universo: str, miembros: list[str], hoy: date) -> dict:
       entro", que es el unico dato que la hace util.
     - **Sale**: tenia intervalo abierto y ya no esta. Se cierra con
       `valid_to = hoy`.
+
+    `fiable=False` desactiva el tercero, y es imprescindible. Cuando la
+    descarga de Wikipedia falla —un 403, un timeout, o la falta de lxml que
+    tuvo CI en rojo una semana—, `resolve_universe` devuelve la lista MANUAL de
+    respaldo, que son unos 50 tickers frente a los 450 reales. Sin esta
+    proteccion, esos 400 que faltan se leen como salidas del indice y se
+    cierran sus intervalos: un fallo de red de un minuto escribe una baja
+    masiva falsa, PERMANENTE, en la unica tabla que guarda historia que no se
+    puede reconstruir. Comprobado: 400 intervalos cerrados en falso.
+
+    Abrir si es seguro con una lista incompleta —el respaldo es un subconjunto
+    curado de miembros de verdad—, asi que la tabla solo puede ganar verdad,
+    nunca perderla. Y si algun valor salio de verdad ese dia, la siguiente
+    descarga buena lo cierra: el error se corrige solo, que es justo lo que no
+    pasaba al reves.
 
     Devuelve el recuento de cada caso, para poder decirlo en pantalla: que un
     valor salga del S&P 500 es una noticia y merece verse.
@@ -69,7 +85,8 @@ def actualizar(conn, universo: str, miembros: list[str], hoy: date) -> dict:
     actuales = set(miembros)
 
     entran = sorted(actuales - abiertos)
-    salen = sorted(abiertos - actuales)
+    salen = sorted(abiertos - actuales) if fiable else []
+    no_fiables = sorted(abiertos - actuales) if not fiable else []
 
     if salen:
         conn.execute(
@@ -99,7 +116,11 @@ def actualizar(conn, universo: str, miembros: list[str], hoy: date) -> dict:
             conn.unregister("_nuevos")
 
     return {"entran": entran, "salen": salen,
-            "siguen": len(actuales & abiertos)}
+            "siguen": len(actuales & abiertos),
+            # Los que habrian salido si la lista fuera de fiar. Se devuelven
+            # para poder decirlo en pantalla: un silencio aqui haria pensar que
+            # la composicion no cambio, cuando lo que pasa es que no se sabe.
+            "sin_confirmar": no_fiables}
 
 
 def compactar(conn) -> int:

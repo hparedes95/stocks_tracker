@@ -324,10 +324,17 @@ def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
     fuera: list[Hallazgo] = []
 
     if revisadas is not None and not revisadas.empty:
-        fraccion = (len(revisadas) / filas_lote) if filas_lote else 1.0
+        # `revisadas` trae una fila por (ticker, fecha, CAMPO), asi que una sola
+        # barra reescrita produce hasta cinco. `filas_lote` cuenta barras. Al
+        # dividir uno por otro la fraccion salia hasta 5 veces inflada y una
+        # correccion del 0,25 % disparaba el bloqueo del 1 %: la comprobacion
+        # que existe para avisar de un problema del proveedor paraba el
+        # programa por un problema que no existia.
+        barras = len(revisadas[["ticker", "date"]].drop_duplicates())
+        fraccion = (barras / filas_lote) if filas_lote else 1.0
         peor = revisadas.sort_values("cambio", ascending=False).iloc[0]
         texto = (
-            f"{len(revisadas)} valores ya guardados han cambiado en esta "
+            f"{barras} barras ya guardadas han cambiado en esta "
             f"descarga ({fraccion:.1%} del lote). El mayor: {peor['ticker']} "
             f"el {pd.to_datetime(peor['date']).date()}, {peor['campo']} pasa de "
             f"{peor['antes']:.4g} a {peor['ahora']:.4g}. "
@@ -432,14 +439,27 @@ def guardar(conn, hallazgos: list[Hallazgo], run_id: str,
     return len(filas)
 
 
-# Nombres de todas las comprobaciones, para poder registrar tambien las que
-# pasan. Escrito a mano y no deducido de los hallazgos: si se dedujera, una
+# Nombres de las comprobaciones, para poder registrar tambien las que pasan.
+# Escrito a mano y no deducido de los hallazgos: si se dedujera, una
 # comprobacion que dejara de ejecutarse desapareceria del registro sin dejar
 # rastro, que es exactamente el fallo del que esta tabla tiene que proteger.
-COMPROBACIONES = (
-    "precios_revisados", "ohlc_incoherente", "precios_nulos",
-    "huecos_en_la_serie", "ticker_desaparecido", "volumen_cero",
+#
+# Van en dos grupos porque no todo se puede comprobar en todo momento, y decir
+# "comprobado y bien" de algo que no se ha mirado es peor que no decir nada:
+# `puerta_de_calidad` marcaba `precios_revisados` como pasado en cada calculo
+# —sin poder compararlo con nada, porque el valor viejo ya se habia
+# sobrescrito— y con eso TAPABA el hallazgo bloqueante que la ingesta acababa
+# de registrar.
+COMPROBACIONES_DEL_ALMACEN = (
+    "ohlc_incoherente", "precios_nulos", "huecos_en_la_serie",
+    "ticker_desaparecido", "volumen_cero",
 )
+
+# Solo se puede comprobar durante la ingesta, comparando lo que llega con lo
+# que ya habia. Despues del UPSERT el valor viejo no existe en ninguna parte.
+COMPROBACIONES_DE_LA_INGESTA = ("precios_revisados",)
+
+COMPROBACIONES = COMPROBACIONES_DE_LA_INGESTA + COMPROBACIONES_DEL_ALMACEN
 
 
 def resumen(hallazgos: list[Hallazgo]) -> str:

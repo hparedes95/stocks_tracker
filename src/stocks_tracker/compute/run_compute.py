@@ -762,7 +762,13 @@ def puerta_de_calidad() -> bool:
     abriendo con `--ignorar-calidad` por costumbre, y entonces deja de existir.
     """
     from ..core.ids import ulid
-    from ..core.quality import COMPROBACIONES, bloqueantes, evaluar, guardar, resumen
+    from ..core.quality import (
+        COMPROBACIONES_DEL_ALMACEN,
+        bloqueantes,
+        evaluar,
+        guardar,
+        resumen,
+    )
 
     with connect(read_only=True) as conn:
         precios = conn.execute(
@@ -774,7 +780,11 @@ def puerta_de_calidad() -> bool:
     hallazgos = evaluar(precios)
     run_id = ulid()
     with connect() as conn:
-        guardar(conn, hallazgos, run_id, list(COMPROBACIONES))
+        # Solo las comprobaciones que ESTA funcion puede hacer. Marcar
+        # `precios_revisados` como pasado sin poder compararlo con nada
+        # tapaba el hallazgo bloqueante de la ingesta, porque la pagina 8
+        # ensena el registro mas reciente de cada comprobacion.
+        guardar(conn, hallazgos, run_id, list(COMPROBACIONES_DEL_ALMACEN))
 
     graves = bloqueantes(hallazgos)
     if not graves:

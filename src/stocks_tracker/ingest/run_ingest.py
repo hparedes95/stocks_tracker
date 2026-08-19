@@ -33,7 +33,7 @@ from ..core.timeutils import utcnow
 from ..providers.base import completeness
 from ..providers.fred_provider import FredProvider
 from ..providers.registry import get_price_provider
-from ..providers.universe_provider import resolve_universe
+from ..providers.universe_provider import es_fiable, resolve_universe
 
 console = Console()
 
@@ -78,12 +78,17 @@ def ingest_universe(provider_name: str | None = None) -> int:
     # Los universos con `source: wikipedia` se resuelven contra la lista real de
     # constituyentes; si la descarga falla se usa la lista manual del YAML.
     resolved: dict[str, list[str]] = {}
+    origenes: dict[str, str] = {}
     for key in get_active_universes():
         spec = universes.get(key)
         if spec is None:
             continue
         members, origin = resolve_universe(key, spec.tickers, spec.source)
         resolved[key] = members
+        # El origen se guarda porque decide si se pueden CERRAR intervalos de
+        # composicion. Con una lista de respaldo no se puede: los que faltan no
+        # es que hayan salido del indice, es que no se han podido leer.
+        origenes[key] = origin
         if spec.source == "wikipedia":
             console.print(f"  {key}: {len(members)} tickers ({origin})")
 
@@ -219,12 +224,21 @@ def ingest_universe(provider_name: str | None = None) -> int:
                 "en intervalos[/]"
             )
         for key, members in resolved.items():
-            cambios = membership.actualizar(conn, key, members, date.today())
+            fiable = es_fiable(origenes.get(key, "manual"))
+            cambios = membership.actualizar(conn, key, members, date.today(),
+                                            fiable=fiable)
             if cambios["entran"] or cambios["salen"]:
                 console.print(
                     f"  [yellow]{key}:[/] entran {len(cambios['entran'])}, "
                     f"salen {len(cambios['salen'])}"
                     + (f" ({', '.join(cambios['salen'][:5])})" if cambios["salen"] else "")
+                )
+            if cambios["sin_confirmar"]:
+                console.print(
+                    f"  [yellow]{key}:[/] {len(cambios['sin_confirmar'])} valores "
+                    f"no aparecen en la lista de respaldo, pero NO se dan de baja: "
+                    f"con '{origenes.get(key)}' no se sabe si salieron del indice "
+                    "o solo falto la descarga."
                 )
         _log(conn, run_id, "universe", "all", "OK", rows=n)
 

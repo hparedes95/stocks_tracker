@@ -311,3 +311,24 @@ def test_the_missing_parser_error_is_still_a_provider_error():
     que seguir capturandolo. Si no, anadir el tipo nuevo convertiria un
     respaldo elegante en una excepcion sin capturar en mitad de la ingesta."""
     assert issubclass(up.MissingParserError, ProviderError)
+
+
+def test_only_a_real_resolution_is_trustworthy():
+    """Lo que decide si se pueden cerrar intervalos de composicion. Un universo
+    manual POR CONFIGURACION tiene la lista buena; un respaldo al que se ha
+    caido porque algo fallo, no. Confundirlos escribe bajas falsas."""
+    assert up.es_fiable("wikipedia")
+    assert up.es_fiable("manual")
+    assert not up.es_fiable("manual (fallo la descarga)")
+    assert not up.es_fiable("manual (descarga incompleta)")
+    assert not up.es_fiable("manual (falta lxml)")
+
+
+def test_every_fallback_origin_is_marked_unreliable():
+    """Barrido sobre los origenes que resolve_universe puede devolver de
+    verdad: si alguien anade uno nuevo y olvida el parentesis, este test no lo
+    caza, pero al menos fija los que hay."""
+    from stocks_tracker.providers.universe_provider import es_fiable
+    for origen in ("manual (fallo la descarga)", "manual (descarga incompleta)",
+                   "manual (falta lxml)"):
+        assert not es_fiable(origen), origen
