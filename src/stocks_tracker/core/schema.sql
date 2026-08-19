@@ -209,7 +209,14 @@ CREATE TABLE IF NOT EXISTS signal_evidence (
   ic_ir             DOUBLE,
   hit_rate          DOUBLE,
   avg_excess_ret    DOUBLE,
-  n_obs             INTEGER,
+  n_obs             INTEGER,        -- eventos
+  n_dates           INTEGER,        -- fechas distintas: el n que sostiene el t
+  t_stat            DOUBLE,         -- HAC agrupado por fecha
+  p_value           DOUBLE,
+  q_value           DOUBLE,         -- Benjamini-Hochberg sobre toda la familia
+  n_tests           INTEGER,        -- pruebas hechas en la tanda
+  ci_low            DOUBLE,         -- intervalo del exceso medio al 95 %
+  ci_high           DOUBLE,
   oos_from          DATE,
   oos_to            DATE,
   costs_bps_assumed DOUBLE,
@@ -605,3 +612,19 @@ CREATE TABLE IF NOT EXISTS decision_journal (
   veredicto         VARCHAR,        -- acierto | suerte | mala_suerte | error
   nota_revision     VARCHAR
 );
+
+-- ============ MIGRACIONES DE COLUMNAS ============
+-- `CREATE TABLE IF NOT EXISTS` no anade columnas a una tabla que ya existe, asi
+-- que un almacen creado con una version anterior se quedaria sin ellas. Y no
+-- daria error: `upsert_df` recorta el payload a las columnas de la tabla, de
+-- modo que los valores nuevos se perderian en silencio, que es peor.
+--
+-- `ADD COLUMN IF NOT EXISTS` es idempotente, asi que esto puede ejecutarse en
+-- cada arranque sin comprobar nada.
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS n_dates INTEGER;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS t_stat DOUBLE;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS p_value DOUBLE;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS q_value DOUBLE;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS n_tests INTEGER;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS ci_low DOUBLE;
+ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS ci_high DOUBLE;

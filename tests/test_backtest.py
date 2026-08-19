@@ -223,6 +223,16 @@ def test_event_study_measures_excess_not_raw_return():
 # ---------------------------------------------------------------------------
 # Clasificacion de evidencia
 # ---------------------------------------------------------------------------
+def _fechas(n: int) -> pd.DatetimeIndex:
+    """Una fecha distinta por evento.
+
+    El caso mas favorable posible: cada evento es su propio dia, asi que no hay
+    nada que agrupar y estos tests siguen midiendo la clasificacion y no el
+    recuento de observaciones, que se prueba aparte en test_multiple_testing.
+    """
+    return pd.bdate_range("2020-01-01", periods=n)
+
+
 def test_small_sample_is_labelled_no_data():
     event = mx.summarize_event([0.05] * 20)
     label, reason = eng.classify_evidence(event, float("nan"), [])
@@ -233,7 +243,7 @@ def test_small_sample_is_labelled_no_data():
 def test_negative_excess_is_not_validated():
     rng = np.random.default_rng(2)
     returns = rng.normal(-0.01, 0.02, 200)
-    event = mx.summarize_event(returns)
+    event = mx.summarize_event(returns, dates=_fechas(200))
     label, reason = eng.classify_evidence(event, 0.5, [])
     assert label == eng.NOT_VALIDATED
     assert "No bate a la referencia" in reason
@@ -242,7 +252,7 @@ def test_negative_excess_is_not_validated():
 def test_consistent_positive_signal_is_validated():
     rng = np.random.default_rng(4)
     returns = rng.normal(0.012, 0.02, 400)
-    event = mx.summarize_event(returns)
+    event = mx.summarize_event(returns, dates=_fechas(400))
     folds = [
         eng.FoldResult(f"V{i}", pd.Timestamp("2024-01-01"), pd.Timestamp("2024-06-01"),
                        100, 0.01, 0.6, float("nan"), float("nan"))
@@ -256,7 +266,7 @@ def test_signal_that_only_works_in_one_window_is_weak():
     """Funcionar en un solo tramo del historico no es funcionar."""
     rng = np.random.default_rng(9)
     returns = rng.normal(0.012, 0.02, 400)
-    event = mx.summarize_event(returns)
+    event = mx.summarize_event(returns, dates=_fechas(400))
     folds = [
         eng.FoldResult("V1", pd.Timestamp("2022-01-01"), pd.Timestamp("2022-06-01"),
                        100, 0.05, 0.7, float("nan"), float("nan")),

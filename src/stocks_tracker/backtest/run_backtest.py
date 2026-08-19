@@ -20,6 +20,7 @@ from rich.table import Table
 from ..core.db import connect, migrate, upsert_df
 from ..core.timeutils import utcnow
 from . import engine as eng
+from . import multiple_testing as mt
 
 console = Console()
 
@@ -110,32 +111,44 @@ def run(
     # senales opuestas salgan ambas "ganadoras".
     bench_fwd = eng.universe_forward_returns(fwd, horizons)
 
-    rows: list[dict] = []
-    for signal_id in sorted(signals["signal_id"].unique()):
-        for horizon in horizons:
-            result = eng.validate_signal(
-                signal_id, signals, fwd, horizon, scope, bench_fwd, cost_bps
-            )
-            rows.append(
-                {
-                    "signal_id": signal_id,
-                    "scope": scope,
-                    "horizon_days": horizon,
-                    "evidence": result.evidence,
-                    "ic_ir": result.ic_ir,
-                    "hit_rate": result.event.hit_rate,
-                    "avg_excess_ret": result.event.avg_excess,
-                    "n_obs": result.event.n_obs,
-                    "oos_from": result.oos_from.date() if result.oos_from is not None else None,
-                    "oos_to": result.oos_to.date() if result.oos_to is not None else None,
-                    "costs_bps_assumed": cost_bps,
-                    "updated_at": utcnow(),
-                    "_motivo": result.reason,
-                    "_t_stat": result.event.t_stat,
-                    "_ventanas_positivas": result.positive_folds,
-                    "_ventanas": len(result.folds),
-                }
-            )
+    results = [
+        eng.validate_signal(signal_id, signals, fwd, horizon, scope, bench_fwd, cost_bps)
+        for signal_id in sorted(signals["signal_id"].unique())
+        for horizon in horizons
+    ]
+
+    # La correccion necesita la familia entera, asi que va despues del bucle y
+    # no dentro: cuantos falsos positivos esperar depende de cuantas pruebas se
+    # hicieron, no de la senal que se este mirando.
+    results = eng.apply_multiple_testing(results)
+
+    rows = [
+        {
+            "signal_id": r.signal_id,
+            "scope": r.scope,
+            "horizon_days": r.horizon_days,
+            "evidence": r.evidence,
+            "ic_ir": r.ic_ir,
+            "hit_rate": r.event.hit_rate,
+            "avg_excess_ret": r.event.avg_excess,
+            "n_obs": r.event.n_obs,
+            "n_dates": r.event.n_dates,
+            "t_stat": r.event.t_stat,
+            "p_value": r.event.p_value,
+            "q_value": r.q_value,
+            "n_tests": r.n_tests,
+            "ci_low": r.event.ci_low,
+            "ci_high": r.event.ci_high,
+            "oos_from": r.oos_from.date() if r.oos_from is not None else None,
+            "oos_to": r.oos_to.date() if r.oos_to is not None else None,
+            "costs_bps_assumed": cost_bps,
+            "updated_at": utcnow(),
+            "_motivo": r.reason,
+            "_ventanas_positivas": r.positive_folds,
+            "_ventanas": len(r.folds),
+        }
+        for r in results
+    ]
 
     table = pd.DataFrame(rows)
     if table.empty:
@@ -165,9 +178,12 @@ def _print_report(table: pd.DataFrame, horizons: tuple[int, ...]) -> None:
     report = Table(title=f"Validacion de senales · horizonte {reference} sesiones")
     report.add_column("Senal")
     report.add_column("Eventos", justify="right")
+    report.add_column("Fechas", justify="right")
     report.add_column("Acierto", justify="right")
     report.add_column("Exceso medio", justify="right")
+    report.add_column("IC 95 %", justify="right")
     report.add_column("t", justify="right")
+    report.add_column("q", justify="right")
     report.add_column("Ventanas +", justify="right")
     report.add_column("Evidencia")
 
@@ -175,6 +191,11 @@ def _print_report(table: pd.DataFrame, horizons: tuple[int, ...]) -> None:
         eng.VALIDATED: "green", eng.WEAK: "yellow",
         eng.NOT_VALIDATED: "red", eng.NO_DATA: "dim",
     }
+    def intervalo(row) -> str:
+        if pd.isna(row["ci_low"]) or pd.isna(row["ci_high"]):
+            return "—"
+        return f"{row['ci_low']:+.2%} a {row['ci_high']:+.2%}"
+
     # Se recorre como diccionarios: los nombres que empiezan por guion bajo se
     # convierten en posicionales (_8, _9...) con itertuples, y eso se rompe en
     # cuanto alguien anade una columna.
@@ -182,9 +203,12 @@ def _print_report(table: pd.DataFrame, horizons: tuple[int, ...]) -> None:
         report.add_row(
             row["signal_id"],
             str(row["n_obs"]),
+            str(row["n_dates"]),
             f"{row['hit_rate']:.0%}" if pd.notna(row["hit_rate"]) else "—",
             f"{row['avg_excess_ret']:+.2%}" if pd.notna(row["avg_excess_ret"]) else "—",
-            f"{row['_t_stat']:.1f}" if pd.notna(row["_t_stat"]) else "—",
+            intervalo(row),
+            f"{row['t_stat']:.1f}" if pd.notna(row["t_stat"]) else "—",
+            f"{row['q_value']:.3f}" if pd.notna(row["q_value"]) else "—",
             f"{row['_ventanas_positivas']}/{row['_ventanas']}",
             f"[{colors.get(row['evidence'], 'white')}]{row['evidence']}[/]",
         )
@@ -196,6 +220,16 @@ def _print_report(table: pd.DataFrame, horizons: tuple[int, ...]) -> None:
         f"\n[bold]{validated} de {len(subset)} senales superan la validacion[/] "
         f"a {reference} sesiones."
     )
+
+    pruebas = int(table["n_tests"].max()) if "n_tests" in table else 0
+    if pruebas:
+        azar = mt.expected_false_positives(pruebas)
+        console.print(
+            f"[dim]Se han hecho {pruebas} pruebas en total (senales x horizontes). "
+            f"Si ninguna senal sirviera, unas {azar:.0f} pasarian igualmente por "
+            f"azar, por eso la etiqueta exige tambien un q por debajo de "
+            f"{mt.FDR_Q:.2f}.[/]"
+        )
     console.print(
         "[dim]Que una senal supere esto NO significa que vaya a funcionar: "
         "significa que en este historico no se comporto como el azar. El "

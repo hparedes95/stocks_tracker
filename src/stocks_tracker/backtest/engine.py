@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 
 from . import metrics as mx
+from . import multiple_testing as mt
 
 DEFAULT_HORIZONS = (5, 10, 21, 63)
 
@@ -67,6 +68,10 @@ class ValidationResult:
     oos_from: pd.Timestamp | None = None
     oos_to: pd.Timestamp | None = None
     reason: str = ""
+    # Rellenados por `apply_multiple_testing`, que necesita ver toda la familia.
+    n_tests: int = 0
+    q_value: float = float("nan")
+    survives_fdr: bool | None = None
 
     @property
     def positive_folds(self) -> int:
@@ -188,7 +193,11 @@ def event_study(
     else:
         merged["referencia"] = 0.0
 
-    result = mx.summarize_event(merged["retorno"], merged["referencia"])
+    # Las fechas van al resumen porque el contraste se agrupa por dia: el mismo
+    # dia se disparan eventos en muchos valores y todos heredan el movimiento
+    # del mercado. Sin agrupar, esos eventos cuentan como observaciones
+    # independientes y el t sale inflado varias veces.
+    result = mx.summarize_event(merged["retorno"], merged["referencia"], merged["date"])
     return result, merged
 
 
@@ -282,7 +291,8 @@ def decile_spread(deciles: pd.DataFrame, n_buckets: int = 10) -> float:
 
 
 def walk_forward(
-    events: pd.DataFrame, n_folds: int = 3, return_col: str = "retorno"
+    events: pd.DataFrame, n_folds: int = 3, return_col: str = "retorno",
+    embargo_days: int = 0,
 ) -> list[FoldResult]:
     """Divide el periodo en ventanas consecutivas y evalua cada una.
 
@@ -291,6 +301,13 @@ def walk_forward(
     protegerse. Lo que mide es **estabilidad entre regimenes**: una senal que
     solo funciona en un tramo del historico no es una senal, es una fotografia
     de ese tramo.
+
+    `embargo_days` descarta los eventos del final de cada ventana cuyo retorno
+    todavia no habia terminado cuando empieza la siguiente. Sin el, con
+    horizonte 63 los ultimos eventos de la ventana 1 miden un trozo de mercado
+    que pertenece a la ventana 2, y entonces "positiva en 2 de 3 ventanas" no
+    son dos comprobaciones independientes sino una y media. Se pasa el propio
+    horizonte: es exactamente cuanto dura el solapamiento.
     """
     if events.empty or "date" not in events.columns:
         return []
@@ -305,9 +322,16 @@ def walk_forward(
     folds: list[FoldResult] = []
 
     for i, positions in enumerate(boundaries, start=1):
-        if len(positions) < 10:
+        if len(positions) == 0:
             continue
         chunk = data.iloc[positions]
+        # El embargo se aplica a todas las ventanas menos a la ultima: despues
+        # de ella no hay nada con lo que solaparse.
+        if embargo_days > 0 and i < len(boundaries):
+            corte = chunk["date"].iloc[-1] - pd.Timedelta(days=embargo_days)
+            chunk = chunk[chunk["date"] <= corte]
+        if len(chunk) < 10:
+            continue
         excess = chunk[return_col] - chunk.get("referencia", 0.0)
         folds.append(
             FoldResult(
@@ -324,17 +348,35 @@ def walk_forward(
     return folds
 
 
+def embargo_for(horizon: int) -> int:
+    """Dias naturales que hay que descartar al final de cada ventana.
+
+    El horizonte viene en SESIONES y las fechas de los eventos son naturales.
+    Cinco sesiones son siete dias, asi que se convierte con 7/5 y se redondea
+    hacia arriba. Quedarse corto dejaria pasar justo el solapamiento que el
+    embargo existe para quitar.
+    """
+    return int(np.ceil(max(0, horizon) * 7.0 / 5.0))
+
+
 def classify_evidence(
     event: mx.EventMetrics, ic_ir: float, folds: list[FoldResult],
     min_obs: int = mx.MIN_OBSERVATIONS, min_ic_ir: float = 0.3,
+    survives_fdr: bool | None = None,
 ) -> tuple[str, str]:
     """Etiqueta de evidencia y su motivo, en lenguaje llano.
 
     Criterios para `validada`, todos a la vez:
-      - muestra suficiente,
+      - muestra suficiente, en EVENTOS y en FECHAS distintas,
       - exceso positivo sobre la referencia DESPUES de costes,
       - consistencia (IC-IR) por encima del umbral, o exceso significativo,
-      - resultado positivo en al menos dos de cada tres ventanas.
+      - resultado positivo en al menos dos de cada tres ventanas,
+      - y sobrevivir a la correccion por el numero de pruebas hechas.
+
+    `survives_fdr` llega de fuera porque no se puede saber mirando una sola
+    senal: depende de cuantas mas se probaron. `None` significa "todavia sin
+    corregir", y en ese caso la etiqueta es provisional; `run()` la recalcula
+    cuando tiene la familia entera.
 
     Se devuelve tambien el motivo para poder mostrarlo: una etiqueta sin
     explicacion invita a ignorarla.
@@ -347,6 +389,14 @@ def classify_evidence(
             NO_DATA,
             f"Solo {event.n_obs} eventos: por debajo de {min_obs} cualquier "
             "conclusion es anecdota.",
+        )
+
+    if event.n_dates < mx.MIN_DATES:
+        return (
+            NO_DATA,
+            f"Los {event.n_obs} eventos caen en solo {event.n_dates} fechas "
+            f"distintas, y hacen falta {mx.MIN_DATES}. Muchos valores el mismo "
+            "dia son una observacion repetida, no muchas observaciones.",
         )
 
     if not np.isfinite(event.avg_excess) or event.avg_excess <= 0:
@@ -362,11 +412,21 @@ def classify_evidence(
 
     consistent = (np.isfinite(ic_ir) and ic_ir > min_ic_ir) or event.is_significant
 
+    if consistent and stable and survives_fdr is False:
+        return (
+            WEAK,
+            f"Por si sola pasaria (exceso {event.avg_excess:+.2%}, "
+            f"t = {event.t_stat:.1f}), pero no sobrevive al corregir por el "
+            "numero de senales y horizontes probados: con tantas pruebas, "
+            "algunas salen bien por azar.",
+        )
+
     if consistent and stable:
         return (
             VALIDATED,
             f"Exceso medio {event.avg_excess:+.2%} sobre la referencia en "
-            f"{event.n_obs} eventos, positivo en {positive} de {n_folds} ventanas.",
+            f"{event.n_obs} eventos repartidos en {event.n_dates} fechas, "
+            f"positivo en {positive} de {n_folds} ventanas.",
         )
 
     if not stable:
@@ -396,7 +456,10 @@ def validate_signal(
     """Evalua una senal concreta y devuelve su veredicto."""
     subset = signals[signals["signal_id"] == signal_id]
     event, detail = event_study(subset, fwd, horizon, bench_fwd, cost_bps)
-    folds = walk_forward(detail, n_folds=n_folds) if not detail.empty else []
+    folds = (
+        walk_forward(detail, n_folds=n_folds, embargo_days=embargo_for(horizon))
+        if not detail.empty else []
+    )
 
     # El IC no aplica a senales discretas (todas valen lo mismo cuando se
     # disparan); se deja como no disponible y la clasificacion recae en el
@@ -413,3 +476,42 @@ def validate_signal(
         event=event, ic_mean=ic_mean, ic_ir=ic_ir, folds=folds,
         costs_bps=cost_bps, oos_from=oos_from, oos_to=oos_to, reason=reason,
     )
+
+
+def apply_multiple_testing(
+    results: list[ValidationResult], q: float = mt.FDR_Q
+) -> list[ValidationResult]:
+    """Reetiqueta la familia entera de contrastes corrigiendo por su numero.
+
+    Se hace DESPUES y sobre la lista completa porque es la unica forma: cuantos
+    falsos positivos esperar no es una propiedad de una senal, es una propiedad
+    de cuantas miraste. Una misma senal con el mismo t merece una etiqueta
+    distinta segun se haya probado sola o junto a otras cuarenta, y eso no es
+    una incoherencia: es exactamente lo que significa corregir.
+
+    Solo se corrigen las que traen un contraste utilizable. Las que se quedaron
+    en `sin_datos` no compiten por nada y no deben endurecer el umbral de las
+    demas.
+    """
+    if not results:
+        return results
+
+    candidatas = [r for r in results if np.isfinite(r.event.p_value)]
+    if not candidatas:
+        for r in results:
+            r.n_tests = 0
+        return results
+
+    sobrevive, q_valores = mt.benjamini_hochberg(
+        [r.event.p_value for r in candidatas], q=q
+    )
+
+    for r in results:
+        r.n_tests = len(candidatas)
+    for r, pasa, q_val in zip(candidatas, sobrevive, q_valores, strict=True):
+        r.q_value = float(q_val)
+        r.survives_fdr = bool(pasa)
+        r.evidence, r.reason = classify_evidence(
+            r.event, r.ic_ir, r.folds, survives_fdr=bool(pasa)
+        )
+    return results

@@ -20,6 +20,7 @@ from stocks_tracker.app.components.theme import (
 )
 from stocks_tracker.backtest import engine as eng
 from stocks_tracker.backtest import metrics as mx
+from stocks_tracker.backtest import multiple_testing as mt
 from stocks_tracker.backtest import run_backtest as runner
 from stocks_tracker.core.config import get_explanations
 
@@ -141,12 +142,20 @@ if int(counts.get(eng.VALIDATED, 0)) == 0:
 # ---------------------------------------------------------------------------
 st.subheader("Resultados por señal")
 
+def _intervalo(fila) -> str:
+    if pd.isna(fila.get("ci_low")) or pd.isna(fila.get("ci_high")):
+        return "—"
+    return f"{fila['ci_low']:+.2%} a {fila['ci_high']:+.2%}"
+
+
 table = pd.DataFrame(
     {
         "Señal": subset["signal_id"].map(lambda s: labels.get(s, s)),
         "Eventos": subset["n_obs"],
+        "Fechas": subset.get("n_dates"),
         "Acierto": subset["hit_rate"] * 100,
         "Exceso medio": subset["avg_excess_ret"] * 100,
+        "Intervalo 95 %": subset.apply(_intervalo, axis=1),
         "Evidencia": subset["evidence"].map(EVIDENCE_LABEL),
     }
 )
@@ -156,6 +165,12 @@ st.dataframe(
         "Eventos": st.column_config.NumberColumn(
             format="%d", help="Por debajo de 100 cualquier conclusión es anecdota."
         ),
+        "Fechas": st.column_config.NumberColumn(
+            format="%d",
+            help="Días distintos en los que se disparó. Es el número que de verdad "
+                 "sostiene la conclusión: mil eventos repartidos en diez días son "
+                 "diez observaciones, no mil.",
+        ),
         "Acierto": st.column_config.ProgressColumn(
             min_value=0.0, max_value=100.0, format="%.0f%%",
             help="Porcentaje de eventos con retorno positivo. Por si solo no dice nada: "
@@ -164,13 +179,36 @@ st.dataframe(
         "Exceso medio": st.column_config.NumberColumn(
             format="%+.2f%%", help="Frente al universo equiponderado, tras costes."
         ),
+        "Intervalo 95 %": st.column_config.TextColumn(
+            help="Dónde puede estar el exceso de verdad. Si cruza el cero, el dato "
+                 "es compatible con que la señal no aporte nada.",
+        ),
     },
 )
 st.caption(
     "El **acierto** no basta: en un mercado alcista casi cualquier señal acierta "
     "más de la mitad de las veces. Lo que importa es el **exceso** sobre lo que "
-    "habría dado comprar cualquier valor del universo ese mismo día."
+    "habría dado comprar cualquier valor del universo ese mismo día — y el "
+    "**intervalo**, que dice con cuánta precisión se conoce ese exceso. Un "
+    "+0,80 % que va de −1,2 % a +2,8 % no es un +0,80 %."
 )
+
+# Cuantas pruebas se hicieron. Sin este dato, una lista de señales validadas se
+# lee como si cada una se hubiera examinado por separado, y no es asi.
+pruebas = 0
+if "n_tests" in evidence.columns and evidence["n_tests"].notna().any():
+    pruebas = int(evidence["n_tests"].max())
+if pruebas > 1:
+    st.info(
+        f"Para llegar a esta tabla se han hecho **{pruebas} pruebas** "
+        f"(cada señal en cada horizonte). Si ninguna señal sirviera para nada, "
+        f"unas **{mt.expected_false_positives(pruebas):.0f}** pasarían igualmente "
+        "por azar. Por eso no basta con que una señal salga bien: la etiqueta "
+        "exige además que sobreviva al corregir por el número de intentos "
+        f"(Benjamini-Hochberg con q = {mt.FDR_Q:.2f}), y algunas que aprobarían "
+        "por su cuenta aparecen aquí como débiles justo por eso.",
+        icon=":material/functions:",
+    )
 
 # ---------------------------------------------------------------------------
 # Detalle de una senal
@@ -194,23 +232,47 @@ with badge_col:
     )
 
 with metrics_col:
-    cols = st.columns(4)
+    cols = st.columns(5)
     cols[0].metric("Eventos", int(row["n_obs"]))
     cols[1].metric(
+        "Fechas",
+        int(row["n_dates"]) if pd.notna(row.get("n_dates")) else "—",
+        help="Días distintos. Es la muestra efectiva.",
+    )
+    cols[2].metric(
         "Acierto",
         f"{row['hit_rate']:.0%}" if pd.notna(row["hit_rate"]) else "—",
     )
-    cols[2].metric(
+    cols[3].metric(
         "Exceso medio",
         f"{row['avg_excess_ret']:+.2%}" if pd.notna(row["avg_excess_ret"]) else "—",
+        delta=_intervalo(row) if pd.notna(row.get("ci_low")) else None,
+        delta_color="off",
     )
-    cols[3].metric("Coste asumido", f"{row['costs_bps_assumed']:.0f} pb")
+    cols[4].metric("Coste asumido", f"{row['costs_bps_assumed']:.0f} pb")
 
 if int(row["n_obs"]) < mx.MIN_OBSERVATIONS:
     st.warning(
         f"Solo {int(row['n_obs'])} eventos. Por debajo de "
         f"{mx.MIN_OBSERVATIONS} la muestra es insuficiente para concluir nada.",
         icon=":material/warning:",
+    )
+elif pd.notna(row.get("n_dates")) and int(row["n_dates"]) < mx.MIN_DATES:
+    st.warning(
+        f"Los {int(row['n_obs'])} eventos caen en solo {int(row['n_dates'])} "
+        f"fechas distintas, y hacen falta {mx.MIN_DATES}. Muchos valores el "
+        "mismo día no son observaciones independientes: ese día el mercado "
+        "entero se movió igual, así que en realidad es **una** observación "
+        "vista muchas veces.",
+        icon=":material/warning:",
+    )
+
+if pd.notna(row.get("q_value")) and pd.notna(row.get("n_tests")) and int(row["n_tests"]) > 1:
+    q = float(row["q_value"])
+    marca = "por debajo" if q <= mt.FDR_Q else "por encima"
+    st.caption(
+        f"Corregido por las {int(row['n_tests'])} pruebas de la tanda, su q vale "
+        f"**{q:.3f}**, {marca} del {mt.FDR_Q:.2f} exigido."
     )
 
 period = ""
@@ -285,7 +347,10 @@ else:
     # Estabilidad entre ventanas
     # -----------------------------------------------------------------------
     st.subheader("Estabilidad a lo largo del tiempo")
-    folds = eng.walk_forward(detail, n_folds=3)
+    # Con el mismo embargo que usó la etiqueta: si la pantalla dividiera las
+    # ventanas de otra forma, mostraría "positiva en 3 de 3" junto a una
+    # etiqueta que se calculó con 2 de 3, y no habría manera de entender por qué.
+    folds = eng.walk_forward(detail, n_folds=3, embargo_days=eng.embargo_for(horizon))
     if not folds:
         st.caption("Muestra insuficiente para dividir en ventanas.")
     else:
