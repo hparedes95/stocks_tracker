@@ -12,14 +12,25 @@ from stocks_tracker.trading.brokers.simulated import SimulatedBroker, _Holding
 
 
 def test_small_group_fallback_uses_full_universe():
-    """A tiny peer group must be scored against the whole universe."""
+    """A tiny peer group must be scored against the whole universe.
+
+    Winsorization is switched off on purpose. With the default (0.02, 0.98)
+    the expected value could only be written by re-running `winsorize`, and a
+    test that recomputes the implementation confirms nothing. Off, the number
+    is plain arithmetic over the 23 rows, and the property under test —which
+    population the small group is compared against— does not depend on it.
+    """
     df = pd.DataFrame({
         "sector": ["small"] * 3 + ["large"] * 20,
         "metric": [1.0, 2.0, 3.0] + list(np.linspace(10.0, 29.0, 20)),
     })
-    result = zscore_by_group(df, "metric", "sector", min_group=8, robust=False)
+    result = zscore_by_group(df, "metric", "sector", winsor=(0.0, 1.0),
+                             min_group=8, robust=False)
     expected = (3.0 - df["metric"].mean()) / df["metric"].std(ddof=0)
     assert result.iloc[2] == pytest.approx(expected)
+    # El signo es lo que separa las dos lecturas: dentro de su propio grupo
+    # (1, 2, 3) el valor 3.0 es el MAXIMO y saldria positivo. Contra el
+    # universo entero esta cerca del fondo, y sale negativo.
     assert result.iloc[2] < 0
 
 
