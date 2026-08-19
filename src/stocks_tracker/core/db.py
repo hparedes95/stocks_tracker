@@ -1,8 +1,4 @@
-"""Unica puerta de acceso a DuckDB.
-
-Patron: el ETL es el unico escritor; la UI abre en solo lectura. DuckDB admite
-un escritor, asi que separar los roles evita bloqueos.
-"""
+"""Unica puerta de acceso a DuckDB."""
 
 from __future__ import annotations
 
@@ -27,7 +23,6 @@ def _ensure_parent(path: Path) -> None:
 
 @contextmanager
 def connect(read_only: bool = False):
-    """Conexion a DuckDB. Usar siempre como context manager."""
     path = get_settings().warehouse_path
     _ensure_parent(path)
     if read_only and not path.exists():
@@ -40,13 +35,25 @@ def connect(read_only: bool = False):
 
 
 def migrate() -> None:
-    """Crea las tablas que falten. Idempotente."""
+    """Crea tablas y aplica migraciones idempotentes del esquema."""
     path = get_settings().warehouse_path
     _ensure_parent(path)
     sql = schema_path().read_text(encoding="utf-8")
     conn = duckdb.connect(str(path))
     try:
         conn.execute(sql)
+        # DuckDB no ejecuta ALTER TABLE desde el esquema historico. Estas
+        # migraciones permiten actualizar almacenes ya existentes sin destruir
+        # evidencia historica.
+        migrations = [
+            "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS p_value DOUBLE",
+            "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS adjusted_p_value DOUBLE",
+            "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS multiple_testing_method VARCHAR",
+            "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS data_quality_status VARCHAR",
+            "ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS fundamentals_point_in_time BOOLEAN",
+        ]
+        for statement in migrations:
+            conn.execute(statement)
     finally:
         conn.close()
 
@@ -57,48 +64,31 @@ def upsert_df(
     df: pd.DataFrame,
     keys: Sequence[str],
 ) -> int:
-    """Inserta reemplazando las filas cuya clave ya existe.
-
-    DuckDB no tiene un UPSERT generico sobre DataFrames, asi que se hace
-    DELETE + INSERT dentro de una transaccion. El payload debe ser unico por
-    clave; aceptar duplicados internos haria el resultado dependiente del
-    orden de las filas y puede romper constraints de tablas concretas.
-    """
     if df is None or df.empty:
         return 0
-
     cols_info = conn.execute(f"PRAGMA table_info('{table}')").fetchall()
     table_cols = [c[1] for c in cols_info]
     if not table_cols:
         raise ValueError(f"La tabla '{table}' no existe")
-
     missing_keys = [k for k in keys if k not in df.columns]
     if missing_keys:
         raise ValueError(f"Faltan columnas clave {missing_keys} para '{table}'")
     if not keys:
         raise ValueError("El UPSERT necesita al menos una columna clave")
-
     duplicates = df.duplicated(subset=list(keys), keep=False)
     if duplicates.any():
         sample = df.loc[duplicates, list(keys)].head(5).to_dict("records")
-        raise ValueError(
-            f"El payload contiene claves duplicadas para '{table}': {sample}"
-        )
-
+        raise ValueError(f"El payload contiene claves duplicadas para '{table}': {sample}")
     payload = df.copy()
     for col in table_cols:
         if col not in payload.columns:
             payload[col] = None
     payload = payload[table_cols]
-
     conn.register("_payload", payload)
     try:
         conn.execute("BEGIN TRANSACTION")
         join = " AND ".join(f"t.{k} = s.{k}" for k in keys)
-        conn.execute(
-            f"DELETE FROM {table} AS t WHERE EXISTS "
-            f"(SELECT 1 FROM _payload AS s WHERE {join})"
-        )
+        conn.execute(f"DELETE FROM {table} AS t WHERE EXISTS (SELECT 1 FROM _payload AS s WHERE {join})")
         conn.execute(f"INSERT INTO {table} SELECT * FROM _payload")
         conn.execute("COMMIT")
     except Exception:
@@ -110,13 +100,11 @@ def upsert_df(
 
 
 def query(sql: str, params: Iterable | None = None, read_only: bool = True) -> pd.DataFrame:
-    """Atajo para lecturas puntuales fuera de la UI."""
     with connect(read_only=read_only) as conn:
         return conn.execute(sql, list(params) if params else None).fetchdf()
 
 
 def table_counts() -> pd.DataFrame:
-    """Numero de filas por tabla. Util para diagnostico."""
     with connect(read_only=True) as conn:
         names = [r[0] for r in conn.execute("SHOW TABLES").fetchall()]
         rows = [
