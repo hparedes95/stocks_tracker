@@ -31,7 +31,6 @@ def connect(read_only: bool = False):
     path = get_settings().warehouse_path
     _ensure_parent(path)
     if read_only and not path.exists():
-        # DuckDB falla al abrir en solo lectura un fichero inexistente.
         migrate()
     conn = duckdb.connect(str(path), read_only=read_only)
     try:
@@ -61,13 +60,13 @@ def upsert_df(
     """Inserta reemplazando las filas cuya clave ya existe.
 
     DuckDB no tiene un UPSERT generico sobre DataFrames, asi que se hace
-    DELETE + INSERT dentro de una transaccion. Idempotente por construccion:
-    ejecutar el mismo lote dos veces no duplica ni cambia recuentos.
+    DELETE + INSERT dentro de una transaccion. El payload debe ser unico por
+    clave; aceptar duplicados internos haria el resultado dependiente del
+    orden de las filas y puede romper constraints de tablas concretas.
     """
     if df is None or df.empty:
         return 0
 
-    # Alinear columnas con la tabla destino, en su orden.
     cols_info = conn.execute(f"PRAGMA table_info('{table}')").fetchall()
     table_cols = [c[1] for c in cols_info]
     if not table_cols:
@@ -76,6 +75,15 @@ def upsert_df(
     missing_keys = [k for k in keys if k not in df.columns]
     if missing_keys:
         raise ValueError(f"Faltan columnas clave {missing_keys} para '{table}'")
+    if not keys:
+        raise ValueError("El UPSERT necesita al menos una columna clave")
+
+    duplicates = df.duplicated(subset=list(keys), keep=False)
+    if duplicates.any():
+        sample = df.loc[duplicates, list(keys)].head(5).to_dict("records")
+        raise ValueError(
+            f"El payload contiene claves duplicadas para '{table}': {sample}"
+        )
 
     payload = df.copy()
     for col in table_cols:
@@ -123,7 +131,6 @@ def main() -> None:
     parser.add_argument("--migrate", action="store_true", help="crea o actualiza las tablas")
     parser.add_argument("--counts", action="store_true", help="muestra filas por tabla")
     args = parser.parse_args()
-
     if args.migrate:
         migrate()
         print(f"Almacen listo en {get_settings().warehouse_path.relative_to(project_root())}")

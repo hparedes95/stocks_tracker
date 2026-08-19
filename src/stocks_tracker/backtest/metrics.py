@@ -1,8 +1,8 @@
 """Metricas de evaluacion. Funciones puras sobre arrays de retornos.
 
 Toda metrica que se muestre debe ir acompanada de `n` y, cuando aplique, de su
-significancia. Un acierto del 62 % no dice nada si el mercado subio el 65 % de
-los dias: por eso el exceso sobre la referencia es obligatorio y no opcional.
+significancia. Los retornos financieros pueden estar autocorrelacionados y
+solapados, por lo que la significancia usa un error estandar HAC.
 """
 
 from __future__ import annotations
@@ -13,21 +13,17 @@ import numpy as np
 import pandas as pd
 
 SESSIONS_YEAR = 252
-
-# Por debajo de esta muestra, cualquier metrica es anecdota.
 MIN_OBSERVATIONS = 100
 
 
 @dataclass
 class EventMetrics:
-    """Resultado de un estudio de eventos."""
-
     n_obs: int
-    hit_rate: float                 # % de eventos con retorno positivo
-    hit_rate_vs_benchmark: float    # % que ademas bate a la referencia
+    hit_rate: float
+    hit_rate_vs_benchmark: float
     avg_return: float
     median_return: float
-    avg_excess: float               # frente a la referencia, es lo que importa
+    avg_excess: float
     std_return: float
     t_stat: float
     best: float
@@ -36,11 +32,7 @@ class EventMetrics:
 
     @property
     def is_significant(self) -> bool:
-        """Muestra suficiente y exceso distinto de cero con holgura.
-
-        `|t| > 2` es el criterio habitual. No prueba que la senal funcione: solo
-        que el resultado no se explica facilmente por azar EN ESTA MUESTRA.
-        """
+        """Muestra suficiente y exceso con significancia HAC."""
         return self.n_obs >= MIN_OBSERVATIONS and abs(self.t_stat) > 2.0
 
     def to_dict(self) -> dict:
@@ -59,30 +51,48 @@ def hit_rate(returns) -> float:
     return float((values > 0).mean()) if len(values) else float("nan")
 
 
-def t_statistic(returns) -> float:
-    """t de Student de la media frente a cero.
+def hac_t_statistic(returns, max_lag: int | None = None) -> float:
+    """t de la media con error estandar Newey-West/HAC.
 
-    Con retornos financieros el supuesto de independencia no se cumple del todo
-    (hay autocorrelacion y solapamiento entre eventos), asi que el t-stat es
-    optimista. Sirve para descartar lo obviamente aleatorio, no para certificar.
+    Los estudios de eventos usan horizontes solapados (5/10/21/63 sesiones),
+    por lo que asumir independencia subestima el error estandar. El ancho de
+    banda se elige automaticamente con la regla de Andrews y queda limitado a
+    n-1. La estimacion se hace sobre la media, que es el contraste que necesita
+    el estudio de eventos.
     """
     values = _clean(returns)
-    if len(values) < 3:
+    n = len(values)
+    if n < 3:
         return float("nan")
-    std = values.std(ddof=1)
-    # Comparar con cero exacto no basta. Cuando todos los eventos dan el mismo
-    # retorno —un solo valor en el universo, o el coste fijo dominandolo todo—
-    # la desviacion no es 0 sino ruido de coma flotante del orden de 1e-18, y
-    # la division producia t de 10^16. Un numero asi impreso en una tabla no es
-    # un dato: es una forma de perder la confianza en toda la tabla.
-    scale = float(np.abs(values).mean())
-    if not np.isfinite(std) or std <= max(1e-12, scale * 1e-9):
+
+    centered = values - values.mean()
+    gamma0 = float(np.dot(centered, centered) / n)
+    if not np.isfinite(gamma0) or gamma0 <= 1e-24:
         return float("nan")
-    return float(values.mean() / (std / np.sqrt(len(values))))
+
+    if max_lag is None:
+        max_lag = int(np.floor(4.0 * (n / 100.0) ** (2.0 / 9.0)))
+    max_lag = max(0, min(int(max_lag), n - 1))
+
+    long_run_var = gamma0
+    for lag in range(1, max_lag + 1):
+        gamma = float(np.dot(centered[lag:], centered[:-lag]) / n)
+        weight = 1.0 - lag / (max_lag + 1.0)
+        long_run_var += 2.0 * weight * gamma
+
+    # La estimacion de varianza de la media es LRV / n.
+    if not np.isfinite(long_run_var) or long_run_var <= 1e-24:
+        return float("nan")
+    se = np.sqrt(long_run_var / n)
+    return float(values.mean() / se) if se > 0 else float("nan")
+
+
+def t_statistic(returns) -> float:
+    """t de la media con correccion HAC para dependencia temporal."""
+    return hac_t_statistic(returns)
 
 
 def sharpe(returns, periods_per_year: int = SESSIONS_YEAR) -> float:
-    """Sharpe anualizado, sin tipo libre de riesgo (exceso sobre cero)."""
     values = _clean(returns)
     if len(values) < 2:
         return float("nan")
@@ -93,7 +103,6 @@ def sharpe(returns, periods_per_year: int = SESSIONS_YEAR) -> float:
 
 
 def sortino(returns, periods_per_year: int = SESSIONS_YEAR) -> float:
-    """Como el Sharpe, pero penalizando solo la volatilidad a la baja."""
     values = _clean(returns)
     if len(values) < 2:
         return float("nan")
@@ -107,7 +116,6 @@ def sortino(returns, periods_per_year: int = SESSIONS_YEAR) -> float:
 
 
 def max_drawdown(equity) -> float:
-    """Peor caida desde un maximo. Valor negativo."""
     values = _clean(equity)
     if len(values) < 2:
         return float("nan")
@@ -116,7 +124,6 @@ def max_drawdown(equity) -> float:
 
 
 def calmar(equity, years: float) -> float:
-    """Retorno anualizado dividido por la peor caida."""
     values = _clean(equity)
     if len(values) < 2 or years <= 0:
         return float("nan")
@@ -129,17 +136,11 @@ def calmar(equity, years: float) -> float:
 
 
 def equity_curve(returns, initial: float = 1.0) -> pd.Series:
-    """Curva de capital compuesta a partir de retornos periodicos."""
     series = pd.Series(returns).astype(float).fillna(0.0)
     return initial * (1.0 + series).cumprod()
 
 
 def information_coefficient(scores, forward_returns, method: str = "spearman") -> float:
-    """Correlacion de rangos entre puntuacion y retorno posterior.
-
-    Spearman y no Pearson: interesa si el ORDEN se mantiene, no si la relacion
-    es lineal. Un IC de 0,03 ya es notable en la practica.
-    """
     frame = pd.DataFrame({"score": scores, "fwd": forward_returns}).dropna()
     if len(frame) < 5 or frame["score"].nunique() < 3:
         return float("nan")
@@ -147,11 +148,6 @@ def information_coefficient(scores, forward_returns, method: str = "spearman") -
 
 
 def ic_information_ratio(ic_series) -> float:
-    """Media del IC dividida por su desviacion: mide CONSISTENCIA.
-
-    Un IC medio alto conseguido con enormes vaivenes vale menos que uno modesto
-    y estable. Es la metrica que decide si una senal se queda o se descarta.
-    """
     values = _clean(ic_series)
     if len(values) < 3:
         return float("nan")
@@ -161,10 +157,7 @@ def ic_information_ratio(ic_series) -> float:
     return float(values.mean() / std)
 
 
-def summarize_event(
-    returns, benchmark_returns=None
-) -> EventMetrics:
-    """Resumen de un estudio de eventos, siempre contra una referencia."""
+def summarize_event(returns, benchmark_returns=None) -> EventMetrics:
     values = _clean(returns)
     if len(values) == 0:
         nan = float("nan")
@@ -187,7 +180,7 @@ def summarize_event(
         median_return=float(np.median(values)),
         avg_excess=float(excess.mean()),
         std_return=float(values.std(ddof=1)) if len(values) > 1 else float("nan"),
-        t_stat=t_statistic(excess),
+        t_stat=hac_t_statistic(excess),
         best=float(values.max()),
         worst=float(values.min()),
         benchmark_avg=float(bench.mean()),
@@ -195,11 +188,6 @@ def summarize_event(
 
 
 def apply_costs(returns, cost_bps: float, roundtrip: bool = True) -> np.ndarray:
-    """Descuenta comision y deslizamiento de cada operacion.
-
-    Sin costes, cualquier estrategia de alta rotacion parece rentable. Por
-    defecto se cobra la ida y la vuelta, que es lo que ocurre de verdad.
-    """
     values = np.asarray(returns, dtype=float)
     multiplier = 2.0 if roundtrip else 1.0
     return values - (cost_bps / 10_000.0) * multiplier
