@@ -1,8 +1,8 @@
-"""Pagina 4 — Ficha de valor.
+"""Página 4 — Ficha de valor.
 
-Dos graficos en pestanas y a proposito: el de TradingView (la herramienta
-familiar) y el nuestro con nuestras senales dibujadas encima. La redundancia
-sirve para comprobar de un vistazo que nuestros calculos coinciden con la
+Dos gráficos en pestañas y a propósito: el de TradingView (la herramienta
+familiar) y el nuestro con nuestras señales dibujadas encima. La redundancia
+sirve para comprobar de un vistazo que nuestros cálculos coinciden con la
 referencia del mercado.
 """
 
@@ -77,7 +77,7 @@ kpi[2].metric("12 meses", format_pct(latest_ind.get("roc_12m"), with_sign=False)
               format_pct(latest_ind.get("roc_12m")))
 kpi[3].metric("RSI (14)", format_num(latest_ind.get("rsi14"), 0))
 kpi[4].metric("Vol. anual", format_pct(latest_ind.get("realized_vol_252"), 0, False))
-kpi[5].metric("Desde maximos", format_pct(latest_ind.get("dist_52w_high"), 1, False))
+kpi[5].metric("Desde máximos", format_pct(latest_ind.get("dist_52w_high"), 1, False))
 
 # ---------------------------------------------------------------------------
 # Graficos
@@ -87,13 +87,13 @@ kpi[5].metric("Desde maximos", format_pct(latest_ind.get("dist_52w_high"), 1, Fa
 # no lo alcanza (sin conexion, bloqueador, red restringida) la pestana sale en
 # blanco. Abrir en una pestana vacia haria parecer que la aplicacion no funciona.
 tab_own, tab_tv, tab_fund, tab_cost, tab_news = st.tabs(
-    ["Nuestras senales", "Grafico TradingView", "Fundamentales",
+    ["Nuestras señales", "Gráfico TradingView", "Fundamentales",
      "Lo que cuesta", "Noticias"]
 )
 
 with tab_own:
     st.caption(
-        "Nuestros datos con nuestras senales marcadas, nuestras medias y los "
+        "Nuestros datos con nuestras señales marcadas, nuestras medias y los "
         "niveles que hemos calculado. Los widgets de TradingView no permiten "
         "dibujar nada encima: son sus datos, no los nuestros."
     )
@@ -144,13 +144,13 @@ with tab_own:
     )
 
     if rendered:
-        notes = [f"{len(markers)} senales marcadas"]
+        notes = [f"{len(markers)} señales marcadas"]
         if price_lines:
             notes.append(f"{len(price_lines)} niveles calculados")
         st.caption(
             " · ".join(notes)
-            + ". Se muestran solo las senales de cambio de estado y las mas "
-            "recientes: pintarlas todas taparia las velas."
+            + ". Se muestran solo las señales de cambio de estado y las más "
+            "recientes: pintarlas todas taparía las velas."
         )
     else:
         # Respaldo si falta la libreria vendorizada.
@@ -161,9 +161,9 @@ with tab_own:
 
 with tab_tv:
     st.caption(
-        "Grafico completo de TradingView. Si aparece en blanco, el navegador no "
+        "Gráfico completo de TradingView. Si aparece en blanco, el navegador no "
         "puede alcanzar tradingview.com (sin conexion, bloqueador o red restringida): "
-        "usa la pestana **Nuestras senales**, que funciona con datos locales."
+        "usa la pestaña **Nuestras señales**, que funciona con datos locales."
     )
     tv_widgets.advanced_chart(
         tv_symbol,
@@ -185,9 +185,9 @@ with tab_fund:
         if not revision.fiable:
             escribir = st.error if revision.rotos else st.warning
             escribir(
-                "**Estos numeros no cuadran.** " + " ".join(
+                "**Estos números no cuadran.** " + " ".join(
                     a.texto for a in revision.avisos
-                ) + "\n\nVienen de un unico proveedor gratuito y no hay una "
+                ) + "\n\nVienen de un único proveedor gratuito y no hay una "
                 "segunda fuente con la que compararlos: contrastalos con las "
                 "cuentas de la empresa antes de decidir nada con ellos.",
                 icon=":material/report:" if revision.rotos
@@ -222,8 +222,8 @@ with tab_fund:
             )
         st.dataframe(pd.DataFrame(table), hide_index=True, height=390)
         st.caption(
-            "Comparar contra la mediana del propio sector es lo unico que da "
-            "sentido a estos numeros: un PER de 12 es caro en un sector y barato en otro."
+            "Comparar contra la mediana del propio sector es lo único que da "
+            "sentido a estos números: un PER de 12 es caro en un sector y barato en otro."
         )
         cov = fundamentals.get("completeness")
         if pd.notna(cov):
@@ -254,7 +254,7 @@ with tab_news:
     if tv_widgets.enabled() and tv_symbol:
         tv_widgets.top_stories(tv_symbol, height=560)
     else:
-        st.caption("Noticias no disponibles sin TradingView o sin simbolo equivalente.")
+        st.caption("Noticias no disponibles sin TradingView o sin símbolo equivalente.")
 
 # ---------------------------------------------------------------------------
 # Perfil factorial y explicacion
@@ -268,7 +268,7 @@ profile_col, reasons_col, extra_col = st.columns([1, 1.2, 1])
 with profile_col:
     st.subheader("Perfil factorial")
     if row.empty:
-        st.caption("Este valor no esta puntuado (indices y macro no se puntuan).")
+        st.caption("Este valor no esta puntuado (índices y macro no se puntuan).")
     else:
         r = row.iloc[0]
         scores = {
@@ -283,9 +283,9 @@ with profile_col:
         )
 
 with reasons_col:
-    st.subheader("Por que destaca")
+    st.subheader("Por qué destaca")
     if row.empty:
-        st.caption("Sin puntuacion.")
+        st.caption("Sin puntuación.")
     else:
         r = row.iloc[0]
         contributions = da.get_contributions(ticker)
@@ -309,12 +309,12 @@ with extra_col:
     close = latest_price["close"]
     st.metric("ATR (14)", format_num(atr))
     if pd.notna(atr) and pd.notna(close):
-        st.metric("Referencia tecnica de stop", format_num(close - 2 * float(atr)))
+        st.metric("Referencia técnica de stop", format_num(close - 2 * float(atr)))
         st.caption(
-            "Precio menos dos veces el ATR. Es una **referencia tecnica**, no una "
-            "recomendacion: un hueco de apertura puede saltarlo sin ejecutarse ahi."
+            "Precio menos dos veces el ATR. Es una **referencia técnica**, no una "
+            "recomendación: un hueco de apertura puede saltarlo sin ejecutarse ahí."
         )
-    st.metric("Caida maxima 1 ano", format_pct(latest_ind.get("max_dd_1y"), 0, False))
+    st.metric("Caída máxima 1 año", format_pct(latest_ind.get("max_dd_1y"), 0, False))
 
     support = latest_ind.get("support_near")
     resistance = latest_ind.get("resistance_near")
@@ -326,8 +326,8 @@ with extra_col:
             + (format_num(resistance) if pd.notna(resistance) else "—")
         )
         st.caption(
-            "Agrupacion de maximos y minimos locales del ultimo ano. Un nivel "
-            "tocado varias veces pesa mas que uno tocado una sola vez."
+            "Agrupación de máximos y mínimos locales del último año. Un nivel "
+            "tocado varias veces pesa más que uno tocado una sola vez."
         )
 
     if tv_widgets.enabled() and tv_symbol:
@@ -337,16 +337,16 @@ with extra_col:
 # Historial de senales
 # ---------------------------------------------------------------------------
 st.divider()
-st.subheader("Senales detectadas")
+st.subheader("Señales detectadas")
 if signals.empty:
-    st.caption("Ninguna senal en el periodo cargado.")
+    st.caption("Ninguna señal en el periodo cargado.")
 else:
     recent = signals.tail(25).iloc[::-1]
     view = pd.DataFrame(
         {
             "Fecha": pd.to_datetime(recent["date"]).dt.strftime("%d/%m/%Y"),
-            "Senal": recent["signal_id"].map(lambda s: labels.get(s, s)),
-            "Direccion": recent["direction"].map(
+            "Señal": recent["signal_id"].map(lambda s: labels.get(s, s)),
+            "Dirección": recent["direction"].map(
                 {"bullish": "Alcista", "bearish": "Bajista", "neutral": "Neutral"}
             ),
             "Fuerza": recent["strength"],
@@ -361,13 +361,13 @@ else:
         },
     )
     st.caption(
-        "Sin la validacion historica de la fase 3, estas senales son "
+        "Sin la validación histórica de la fase 3, estas señales son "
         "observaciones sin evidencia de que aporten valor."
     )
 
-if st.button("Anadir a la watchlist"):
+if st.button("Añadir a la watchlist"):
     da.add_to_watchlist(ticker, price=float(latest_price["close"]))
-    st.toast(f"{ticker} anadido a la watchlist")
+    st.toast(f"{ticker} añadido a la watchlist")
 
 st.divider()
 render_disclaimer()

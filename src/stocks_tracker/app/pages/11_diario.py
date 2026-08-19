@@ -1,9 +1,9 @@
-"""Pagina 11 — Diario de decisiones.
+"""Página 11 — Diario de decisiones.
 
-El orden de esta pantalla es su unica caracteristica importante: al revisar una
-decision se lee **primero lo que escribiste** y solo despues, y con un clic de
+El orden de esta pantalla es su única característica importante: al revisar una
+decisión se lee **primero lo que escribiste** y solo después, y con un clic de
 por medio, lo que paso. Al reves no sirve de nada: con el resultado delante, la
-tesis se relee a traves de el y siempre parece que ya se sabia.
+tesis se relee a traves de el y siempre parece que ya se sabía.
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ from stocks_tracker.core.journal import (
 
 st.title("Diario de decisiones")
 st.caption(
-    "Por que compraste, **escrito antes de saber si salio bien**. Cuando algo "
+    "Por qué compraste, **escrito antes de saber si salió bien**. Cuando algo "
     "sale bien, el recuerdo del motivo se reescribe solo para que encaje y se "
-    "aprende una leccion que nunca ocurrio. Lo unico que lo frena es dejarlo "
-    "por escrito antes y releerlo despues sin retocarlo."
+    "aprende una lección que nunca ocurrió. Lo único que lo frena es dejarlo "
+    "por escrito antes y releerlo después sin retocarlo."
 )
 
 datos = store.leer()
@@ -38,7 +38,7 @@ hoy = store.hoy()
 precios = store.precios_para(entradas)
 
 tab_nueva, tab_revisar, tab_historial, tab_balance = st.tabs(
-    ["Anotar una decision", "Revisar", "Historial", "Que dice el diario"]
+    ["Anotar una decisión", "Revisar", "Historial", "Qué dice el diario"]
 )
 
 # ===========================================================================
@@ -46,8 +46,8 @@ tab_nueva, tab_revisar, tab_historial, tab_balance = st.tabs(
 # ===========================================================================
 with tab_nueva:
     st.caption(
-        "Anota tambien lo que decides **no** hacer. No comprar y esperar son la "
-        "mitad de las decisiones que tomas y no dejan rastro en ningun sitio: "
+        "Anota también lo que decides **no** hacer. No comprar y esperar son la "
+        "mitad de las decisiones que tomas y no dejan rastro en ningún sitio: "
         "sin ellas, el diario solo puede guardar aciertos."
     )
 
@@ -58,39 +58,39 @@ with tab_nueva:
                                   placeholder="Busca un ticker")
         with arriba[1]:
             accion = st.selectbox(
-                "Que has decidido", options=list(Accion),
+                "Qué has decidido", options=list(Accion),
                 format_func=lambda a: ETIQUETA_ACCION[a],
             )
         with arriba[2]:
-            conviccion = st.slider("Conviccion", 1, 5, 3,
+            conviccion = st.slider("Convicción", 1, 5, 3,
                                    help="Del 1 (dudo) al 5 (lo tengo claro). "
-                                        "Sirve para comprobar despues si tus "
-                                        "decisiones mas convencidas salen mejor.")
+                                        "Sirve para comprobar después si tus "
+                                        "decisiones más convencidas salen mejor.")
 
         tesis = st.text_area(
-            "Por que", height=110,
+            "Por qué", height=110,
             placeholder="Con tus palabras. Lo que de verdad te ha hecho "
                         "decidirlo, no lo que suena bien.",
         )
         salida = st.text_area(
-            "Que tendria que pasar para que cambiara de idea", height=90,
-            placeholder="Lo mas util del diario: si los ingresos vuelven a "
+            "Qué tendría que pasar para que cambiara de idea", height=90,
+            placeholder="Lo más útil del diario: si los ingresos vuelven a "
                         "caer, si pierde la MM200, si el margen baja del 15 %...",
-            help="Es el campo que la memoria reescribe con mas facilidad. "
-                 "Escrito antes, no hay forma de discutirlo despues.",
+            help="Es el campo que la memoria reescribe con más facilidad. "
+                 "Escrito antes, no hay forma de discutirlo después.",
         )
         horizonte = st.number_input(
-            "En cuantos dias quieres revisar esto", min_value=1, max_value=3650,
+            "En cuantos días quieres revisar esto", min_value=1, max_value=3650,
             value=90, step=30,
-            help="El plazo lo pones tu: revisar a los 90 dias una tesis a tres "
-                 "anos solo produce ruido.",
+            help="El plazo lo pones tu: revisar a los 90 días una tesis a tres "
+                 "años solo produce ruido.",
         )
 
         enviado = st.form_submit_button("Anotar", type="primary")
         if enviado:
             if not ticker or not tesis.strip():
-                st.error("Hace falta el valor y el motivo. Una decision sin "
-                         "motivo escrito no se puede revisar despues.")
+                st.error("Hace falta el valor y el motivo. Una decisión sin "
+                         "motivo escrito no se puede revisar después.")
             else:
                 store.anotar(
                     ticker=ticker, accion=accion, tesis=tesis.strip(),
@@ -99,9 +99,9 @@ with tab_nueva:
                     foto=store.foto_de(ticker),
                 )
                 st.success(
-                    f"Anotado. Se guarda tambien el precio, el percentil y el "
+                    f"Anotado. Se guarda también el precio, el percentil y el "
                     f"RSI de hoy: cuando revises {ticker} veras lo que de "
-                    "verdad sabias, no lo que recuerdes haber sabido."
+                    "verdad sabías, no lo que recuerdes haber sabido."
                 )
 
 # ===========================================================================
@@ -111,30 +111,30 @@ with tab_revisar:
     toca = pendientes(entradas, hoy)
     if not toca:
         st.info(
-            "Nada pendiente de revisar. Aparecen aqui solas cuando se cumple "
+            "Nada pendiente de revisar. Aparecen aquí solas cuando se cumple "
             "el plazo que les pusiste.",
             icon=":material/check_circle:",
         )
     else:
         st.caption(
-            f"**{len(toca)}** decision(es) han cumplido su plazo. Lee primero "
-            "lo que escribiste; el resultado esta escondido a proposito, "
-            "porque con el delante la tesis siempre parece que ya lo sabia."
+            f"**{len(toca)}** decisión(es) han cumplido su plazo. Lee primero "
+            "lo que escribiste; el resultado está escondido a propósito, "
+            "porque con el delante la tesis siempre parece que ya lo sabía."
         )
 
     for e in toca:
         with st.expander(
             f"{e.ticker} · {ETIQUETA_ACCION[e.accion]} el "
-            f"{e.fecha:%d/%m/%Y} ({e.dias_desde(hoy)} dias)",
+            f"{e.fecha:%d/%m/%Y} ({e.dias_desde(hoy)} días)",
             expanded=len(toca) == 1,
         ):
             st.markdown("**Lo que escribiste entonces**")
             st.info(e.tesis or "_(sin motivo escrito)_")
             if e.que_me_haria_salir:
-                st.markdown("**Lo que dijiste que te haria cambiar de idea**")
+                st.markdown("**Lo que dijiste que te haría cambiar de idea**")
                 st.warning(e.que_me_haria_salir)
-            st.caption(f"Conviccion: {e.conviccion}/5 · plazo: "
-                       f"{e.horizonte_dias} dias")
+            st.caption(f"Convicción: {e.conviccion}/5 · plazo: "
+                       f"{e.horizonte_dias} días")
 
             # El resultado, detras de un clic. Es la unica linea de esta pagina
             # que de verdad importa: leerlo antes contamina la relectura.
@@ -147,7 +147,7 @@ with tab_revisar:
                     st.caption("Sin precio para calcular el resultado.")
                 else:
                     m = st.columns(2)
-                    m[0].metric("Resultado de la decision",
+                    m[0].metric("Resultado de la decisión",
                                 f"{resultado * 100:+.1f} %")
                     if relativo is not None:
                         m[1].metric("Descontando el mercado",
@@ -155,12 +155,12 @@ with tab_revisar:
                     if e.accion in (Accion.NO_COMPRAR, Accion.ESPERAR,
                                     Accion.VENDER):
                         st.caption(
-                            "El signo esta invertido a proposito: si el valor "
-                            "se hundio despues de que decidieras no tenerlo, "
-                            "la decision te ahorro ese dinero."
+                            "El signo esta invertido a propósito: si el valor "
+                            "se hundió después de que decidieras no tenerlo, "
+                            "la decisión te ahorro ese dinero."
                         )
 
-            st.markdown("**Y ahora lo importante: ¿por que salio asi?**")
+            st.markdown("**Y ahora lo importante: ¿por qué salió así?**")
             elegido = st.radio(
                 "Veredicto", options=list(Veredicto), key=f"ver_{e.id}",
                 format_func=lambda v: DESCRIPCION_VEREDICTO[v][0],
@@ -169,10 +169,10 @@ with tab_revisar:
             if elegido is not None:
                 st.caption(DESCRIPCION_VEREDICTO[elegido][1])
             nota = st.text_area(
-                "Que te llevas de aqui", key=f"nota_{e.id}", height=80,
-                placeholder="Lo que harias distinto, o lo que confirmarias.",
+                "Qué te llevas de aquí", key=f"nota_{e.id}", height=80,
+                placeholder="Lo que harías distinto, o lo que confirmarías.",
             )
-            if st.button("Guardar la revision", key=f"btn_{e.id}",
+            if st.button("Guardar la revisión", key=f"btn_{e.id}",
                          type="primary", disabled=elegido is None):
                 store.revisar(e.id, elegido, nota.strip())
                 st.rerun()
@@ -182,15 +182,15 @@ with tab_revisar:
 # ===========================================================================
 with tab_historial:
     if not entradas:
-        st.caption("Todavia no hay ninguna decision anotada.")
+        st.caption("Todavía no hay ninguna decisión anotada.")
     else:
         tabla = pd.DataFrame([
             {
                 "Fecha": e.fecha,
                 "Valor": e.ticker,
-                "Decision": ETIQUETA_ACCION[e.accion],
-                "Conviccion": e.conviccion,
-                "Por que": e.tesis,
+                "Decisión": ETIQUETA_ACCION[e.accion],
+                "Convicción": e.conviccion,
+                "Por qué": e.tesis,
                 "Revisar el": e.vence_el(),
                 "Veredicto": (DESCRIPCION_VEREDICTO[e.veredicto][0]
                               if e.veredicto else "— pendiente —"),
@@ -202,7 +202,7 @@ with tab_historial:
             column_config={
                 "Fecha": st.column_config.DateColumn(format="DD/MM/YYYY"),
                 "Revisar el": st.column_config.DateColumn(format="DD/MM/YYYY"),
-                "Por que": st.column_config.TextColumn(width="large"),
+                "Por qué": st.column_config.TextColumn(width="large"),
             },
         )
 
@@ -215,7 +215,7 @@ with tab_balance:
 
     if balance.total < 5:
         st.info(
-            f"Hay {balance.total} decision(es) revisada(s). Con tan pocas, "
+            f"Hay {balance.total} decisión(es) revisada(s). Con tan pocas, "
             "cualquier porcentaje de aciertos es ruido. Esta pantalla empieza "
             "a decir algo a partir de una decena, y no hay atajo.",
             icon=":material/hourglass_empty:",
@@ -231,12 +231,12 @@ with tab_balance:
             pct = balance.por_suerte * 100
             texto = (
                 f"De las {balance.buenos_resultados} decisiones que salieron "
-                f"bien, **{pct:.0f} %** fue por algo que no habias escrito."
+                f"bien, **{pct:.0f} %** fue por algo que no habías escrito."
             )
             if pct >= 50:
                 st.warning(
-                    texto + " Es el numero mas incomodo del diario: lo que "
-                    "esta funcionando no es tu metodo. Repetirlo esperando el "
+                    texto + " Es el número más incomodo del diario: lo que "
+                    "está funcionando no es tu método. Repetirlo esperando el "
                     "mismo resultado es apostar a que la suerte se mantenga.",
                     icon=":material/casino:",
                 )
@@ -246,16 +246,16 @@ with tab_balance:
         st.caption(
             f"Buen proceso en {balance.buen_proceso} de {balance.total}: "
             "cuenta los aciertos por el motivo previsto **y** los fallos que no "
-            "podias ver venir. Es la cifra que conviene subir; la de resultados "
-            "depende ademas del mercado."
+            "podías ver venir. Es la cifra que conviene subir; la de resultados "
+            "depende además del mercado."
         )
 
         cal = calibracion_por_conviccion(revisadas)
         if len(cal) >= 2:
-            st.markdown("**¿Sirve de algo tu conviccion?**")
+            st.markdown("**¿Sirve de algo tu convicción?**")
             st.dataframe(
                 pd.DataFrame([
-                    {"Conviccion": nivel, "Decisiones": d["n"],
+                    {"Convicción": nivel, "Decisiones": d["n"],
                      "Salieron bien": d["acierta"] * 100,
                      "Buen proceso": d["proceso"] * 100}
                     for nivel, d in sorted(cal.items())
@@ -267,9 +267,9 @@ with tab_balance:
                 },
             )
             st.caption(
-                "Si las de conviccion 5 no salen mejor que las de conviccion 2, "
-                "tu conviccion no esta midiendo nada — y es justo la que te hace "
-                "apostar mas fuerte."
+                "Si las de convicción 5 no salen mejor que las de convicción 2, "
+                "tu convicción no esta midiendo nada — y es justo la que te hace "
+                "apostar más fuerte."
             )
 
 st.divider()

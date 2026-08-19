@@ -1,8 +1,8 @@
-"""Lo que el bot ha hecho, en solo lectura, para la pagina del bot.
+"""Lo que el bot ha hecho, en solo lectura, para la página del bot.
 
 **Por que este modulo existe y por que es tan corto.** Habia una regla de
 arquitectura que prohibia al dashboard tocar nada del bot. El motivo era
-concreto y sigue siendo bueno: si una pagina mostrase las propuestas de una
+concreto y sigue siendo bueno: si una página mostrase las propuestas de una
 estrategia sin validar, se leerian como recomendaciones y acabarian
 ejecutandose a mano.
 
@@ -17,7 +17,7 @@ La frontera queda asi, y los tests la fijan:
   y pendientes. Todo por aqui, en solo lectura.
 - El dashboard NO PUEDE importar lo que decide —estrategia, riesgo, ciclo— ni
   mostrar intenciones vetadas o simuladas como si fueran candidatas. Una
-  propuesta que nadie ha validado no se ensena.
+  propuesta que nadie ha validado no se enseña.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def pending(mode: str | None = None) -> pd.DataFrame:
     """Ordenes retenidas por el freno de mano, sin las caducadas.
 
     La caducidad se filtra aqui y no se corrige: escribir en la base desde el
-    dashboard convertiria una pagina de lectura en un segundo escritor, y
+    dashboard convertiria una página de lectura en un segundo escritor, y
     DuckDB solo admite uno. Quien las marca es `trading.confirm`.
     """
     sql = (

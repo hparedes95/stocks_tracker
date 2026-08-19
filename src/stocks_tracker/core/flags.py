@@ -2,7 +2,7 @@
 
 Independientes del score y SIEMPRE visibles, aunque el valor puntue alto. Un
 score alto con el dividendo sin cubrir y la deuda disparada sigue siendo un
-riesgo, y esconderlo detras de un numero bonito seria justo lo contrario de lo
+riesgo, y esconderlo detrás de un número bonito sería justo lo contrario de lo
 que esta herramienta pretende.
 """
 
@@ -43,7 +43,7 @@ def red_flags(row: pd.Series) -> list[str]:
 def earnings_soon(row: pd.Series, days: int = 5) -> str | None:
     """Aviso si hay resultados a la vuelta de la esquina.
 
-    Publicar resultados es el evento que mas gaps de apertura produce, y un gap
+    Publicar resultados es el evento que más gaps de apertura produce, y un gap
     salta cualquier stop. Merece un aviso propio.
     """
     next_report = row.get("next_earnings_days")
@@ -54,5 +54,5 @@ def earnings_soon(row: pd.Series, days: int = 5) -> str | None:
     except (TypeError, ValueError):
         return None
     if np.isfinite(d) and 0 <= d <= days:
-        return f"Presenta resultados en {int(d)} dias"
+        return f"Presenta resultados en {int(d)} días"
     return None

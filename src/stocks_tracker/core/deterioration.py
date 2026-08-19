@@ -1,21 +1,21 @@
-"""Que ha cambiado a peor en una posicion DESDE QUE LA COMPRASTE.
+"""Qué ha cambiado a peor en una posición DESDE QUE LA COMPRASTE.
 
-La diferencia con las banderas rojas de `flags.py` es la referencia. Alli se
+La diferencia con las banderas rojas de `flags.py` es la referencia. Allí se
 compara un valor contra unos umbrales fijos: un payout del 110 % es malo lo
-tengas o no. Aqui se compara contra el dia en que compraste, y eso cambia la
-pregunta: no es "¿esta caro?" sino "¿sigue siendo lo que compre?".
+tengas o no. Aquí se compara contra el día en que compraste, y eso cambia la
+pregunta: no es "¿está caro?" sino "¿sigue siendo lo que compre?".
 
 Un margen del 14 % no dice gran cosa. Un margen del 14 % en una empresa que
-tenia el 22 % cuando la compraste dice que la tesis que te llevo a comprarla ya
+tenía el 22 % cuando la compraste dice que la tesis que te llevo a comprarla ya
 no se sostiene, y lo dice antes de que el precio lo refleje del todo.
 
 **Esto no predice nada.** No dice que vaya a bajar ni recomienda vender: dice
-que algo concreto ha empeorado y cuanto, con el numero delante, para que la
-decision la tomes tu mirando el motivo y no el color. Un valor puede
+que algo concreto ha empeorado y cuanto, con el número delante, para que la
+decisión la tomes tu mirando el motivo y no el color. Un valor puede
 deteriorarse y subir, y puede estar impecable y caer un 40 %.
 
 Y al reves importa igual: verde significa "se ha mirado y no hay nada", no
-"esta todo bien". Cuando no hay datos para mirar, el nivel es GRIS y lo dice,
+"está todo bien". Cuando no hay datos para mirar, el nivel es GRIS y lo dice,
 porque un verde por falta de datos es la peor de las mentiras posibles: la que
 tranquiliza.
 """
@@ -108,7 +108,7 @@ ETIQUETA = {
 
 @dataclass(frozen=True)
 class Senal:
-    """Un motivo concreto, con el numero que lo sostiene."""
+    """Un motivo concreto, con el número que lo sostiene."""
 
     clave: str
     grave: bool
@@ -163,11 +163,11 @@ class Diagnostico:
 def _crudo(origen: Any, campo: str) -> Any:
     """El valor tal cual, o None si no hay forma de leerlo.
 
-    Los ausentes llegan de tres formas distintas segun por donde vengan:
+    Los ausentes llegan de tres formas distintas según por donde vengan:
     `None` en un diccionario escrito a mano, `float('nan')` de numpy y `pd.NA`
-    de una columna booleana de DuckDB. Los tres significan lo mismo y aqui se
-    unifican; `pd.NA` ademas revienta con `TypeError` en cuanto se le aplica un
-    `bool()`, asi que colarse tumbaria la pagina de la cartera entera.
+    de una columna booleana de DuckDB. Los tres significan lo mismo y aquí se
+    unifican; `pd.NA` además revienta con `TypeError` en cuanto se le aplica un
+    `bool()`, así que colarse tumbaría la página de la cartera entera.
     """
     if origen is None:
         return None
@@ -186,11 +186,11 @@ def _crudo(origen: Any, campo: str) -> Any:
 
 
 def _num(origen: Any, campo: str) -> float | None:
-    """Un numero utilizable, o None.
+    """Un número utilizable, o None.
 
-    Todo lo que sigue depende de esto: un `NaN` que se colara como numero
-    haria que las comparaciones dieran False en silencio y el semaforo saldria
-    verde por no haber podido mirar. Aqui `None` significa "no se sabe" y quien
+    Todo lo que sigue depende de esto: un `NaN` que se colara como número
+    haría que las comparaciones dieran False en silencio y el semáforo saldría
+    verde por no haber podido mirar. Aquí `None` significa "no se sabe" y quien
     llama tiene que tratarlo como tal.
     """
     valor = _crudo(origen, campo)
@@ -216,9 +216,9 @@ def _pct(x: float) -> str:
 # Las comprobaciones
 # ---------------------------------------------------------------------------
 def _fundamentales(hoy: Any, entonces: Any) -> list[Senal]:
-    """Lo que ha empeorado en el negocio, no en la cotizacion.
+    """Lo que ha empeorado en el negocio, no en la cotización.
 
-    Es la parte que llega antes: los margenes se estrechan y la deuda sube
+    Es la parte que llega antes: los márgenes se estrechan y la deuda sube
     varios trimestres antes de que el mercado lo descuente del todo.
     """
     fuera: list[Senal] = []
@@ -240,7 +240,7 @@ def _fundamentales(hoy: Any, entonces: Any) -> list[Senal]:
         if caida >= CAIDA_ROE_RELATIVA:
             fuera.append(Senal(
                 "roe", False,
-                f"La rentabilidad sobre recursos propios ha caido un "
+                f"La rentabilidad sobre recursos propios ha caído un "
                 f"{caida * 100:.0f} %, de {_pct(roe_antes)} a {_pct(roe_hoy)}.",
             ))
 
@@ -285,10 +285,10 @@ def _fundamentales(hoy: Any, entonces: Any) -> list[Senal]:
 
 
 def _precio(hoy: Any, entonces: Any) -> list[Senal]:
-    """Lo que ha empeorado en la cotizacion.
+    """Lo que ha empeorado en la cotización.
 
-    Llega mas tarde que lo anterior, pero es lo unico disponible cuando no hay
-    fundamentales —indices, ETF, cripto—.
+    Llega más tarde que lo anterior, pero es lo único disponible cuando no hay
+    fundamentales —índices, ETF, cripto—.
     """
     fuera: list[Senal] = []
 
@@ -298,30 +298,30 @@ def _precio(hoy: Any, entonces: Any) -> list[Senal]:
         fuera.append(Senal(
             "mm200", False,
             "Cotiza por debajo de su media de 200 sesiones; cuando compraste "
-            "estaba por encima. Es el cambio de tendencia de fondo mas seguido.",
+            "estaba por encima. Es el cambio de tendencia de fondo más seguido.",
         ))
 
     if _bool(hoy, "death_cross") is True:
         fuera.append(Senal(
             "cruce", False,
             "La media de 50 sesiones ha cortado a la baja la de 200 (cruce de "
-            "la muerte). Llega tarde por construccion, pero mucha gente lo mira.",
+            "la muerte). Llega tarde por construcción, pero mucha gente lo mira.",
         ))
 
     caida = _num(hoy, "drawdown")
     if caida is not None and caida <= CAIDA_VIGILAR:
         fuera.append(Senal(
             "caida", caida <= CAIDA_GRAVE,
-            f"Cae un {_pct(abs(caida))} desde su maximo. Para volver al maximo "
+            f"Cae un {_pct(abs(caida))} desde su máximo. Para volver al máximo "
             f"tiene que subir un {abs(caida) / (1 + caida) * 100:.0f} %: una "
-            "caida grande necesita una subida mayor solo para empatar.",
+            "caída grande necesita una subida mayor solo para empatar.",
         ))
 
     relativa = _num(hoy, "rs_vs_bench_3m")
     if relativa is not None and relativa <= RETRASO_INDICE_3M:
         fuera.append(Senal(
             "relativa", False,
-            f"Se queda {_pct(abs(relativa))} por detras de su indice a tres "
+            f"Se queda {_pct(abs(relativa))} por detrás de su índice a tres "
             "meses. Si el mercado sube y este no, el problema es de este valor.",
         ))
 
@@ -330,9 +330,9 @@ def _precio(hoy: Any, entonces: Any) -> list[Senal]:
             and vol_corta / vol_larga >= SALTO_VOLATILIDAD):
         fuera.append(Senal(
             "volatilidad", False,
-            f"Se mueve {vol_corta / vol_larga:.1f} veces mas de lo habitual en "
-            "el ultimo mes. Que la volatilidad se dispare suele significar que "
-            "hay algo que el mercado todavia esta digiriendo.",
+            f"Se mueve {vol_corta / vol_larga:.1f} veces más de lo habitual en "
+            "el último mes. Que la volatilidad se dispare suele significar que "
+            "hay algo que el mercado todavía esta digiriendo.",
         ))
 
     return fuera
@@ -343,16 +343,16 @@ def diagnosticar(ticker: str, *, fund_hoy: Any = None, fund_entonces: Any = None
                  comparado_con: Any = None) -> Diagnostico:
     """Que ha cambiado a peor entre la compra y hoy.
 
-    `*_entonces` son los datos que habia el dia de la compra, no los de hoy:
-    con los de hoy en los dos lados no habria nada que comparar y todo saldria
+    `*_entonces` son los datos que había el día de la compra, no los de hoy:
+    con los de hoy en los dos lados no habría nada que comparar y todo saldría
     verde. Se obtienen con la union punto-en-el-tiempo, la misma que evita que
-    el ranking historico se sepa el futuro.
+    el ranking histórico se sepa el futuro.
 
-    Sin datos de hoy no se diagnostica: el nivel sale GRIS. Sin datos del dia
-    de la compra se ejecuta lo que solo mira el presente —payout, caida desde
-    maximos— y, si eso no encuentra nada, el nivel tambien sale GRIS: las
-    comprobaciones que comparan no han llegado a correr, asi que "sin cambios a
-    peor" seria afirmar algo que nadie ha comprobado.
+    Sin datos de hoy no se diagnóstica: el nivel sale GRIS. Sin datos del día
+    de la compra se ejecuta lo que solo mira el presente —payout, caída desde
+    máximos— y, si eso no encuentra nada, el nivel también sale GRIS: las
+    comprobaciones que comparan no han llegado a correr, así que "sin cambios a
+    peor" sería afirmar algo que nadie ha comprobado.
     """
     senales = _fundamentales(fund_hoy, fund_entonces) + _precio(ind_hoy, ind_entonces)
     # Haber encontrado algo ya demuestra que habia datos. Sin esa salida

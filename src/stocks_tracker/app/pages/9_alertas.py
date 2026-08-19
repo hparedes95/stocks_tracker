@@ -1,6 +1,6 @@
-"""Pagina 9 — Alertas.
+"""Página 9 — Alertas.
 
-Historico de avisos, estado de los canales y las reglas configuradas.
+Histórico de avisos, estado de los canales y las reglas configuradas.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ SEVERITY_ORDER = {"critica": 0, "alta": 1, "media": 2, "baja": 3}
 
 
 def _severity_of(payload) -> str:
-    """La gravedad viaja dentro del JSON, para no anadir una columna al esquema."""
+    """La gravedad viaja dentro del JSON, para no añadir una columna al esquema."""
     if not payload:
         return "media"
     try:
@@ -39,7 +39,7 @@ def _severity_of(payload) -> str:
 
 
 tab_history, tab_watch, tab_channels, tab_rules = st.tabs(
-    ["Historico", "Vigilancia en vivo", "Canales", "Reglas configuradas"]
+    ["Histórico", "Vigilancia en vivo", "Canales", "Reglas configuradas"]
 )
 
 # ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ with tab_history:
     with filter_left:
         days = st.selectbox(
             "Periodo", options=[7, 30, 90, 365], index=1,
-            format_func=lambda d: f"Ultimos {d} dias",
+            format_func=lambda d: f"Últimos {d} días",
         )
     with filter_right:
         only_pending = st.toggle("Solo sin revisar", value=False)
@@ -60,7 +60,7 @@ with tab_history:
     if alerts.empty:
         st.info(
             "Sin alertas en este periodo.\n\n"
-            "Las alertas se generan con `make alerts`, o automaticamente si has "
+            "Las alertas se generan con `make alerts`, o automáticamente si has "
             "programado `scripts/daily_update.sh` en cron.",
             icon=":material/notifications_off:",
         )
@@ -115,9 +115,9 @@ with tab_history:
 
     st.caption(
         "Cada regla tiene un **periodo de espera**: una vez avisada, no vuelve a "
-        "dispararse para el mismo valor durante varios dias. Sin eso, la misma "
-        "alerta se repetiria cada jornada mientras la condicion siga siendo "
-        "cierta, y en una semana dejarias de leerlas."
+        "dispararse para el mismo valor durante varios días. Sin eso, la misma "
+        "alerta se repetiría cada jornada mientras la condición siga siendo "
+        "cierta, y en una semana dejarías de leerlas."
     )
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ with tab_watch:
     status_cols = st.columns(4)
     status_cols[0].metric("Activo", "Si" if wcfg.enabled else "No")
     status_cols[1].metric("Cada", f"{wcfg.interval_seconds} s")
-    status_cols[2].metric("Simbolos", len(wcfg.all_symbols))
+    status_cols[2].metric("Símbolos", len(wcfg.all_symbols))
     status_cols[3].metric(
         "Vigilando ahora", "Si" if watch_config.is_watch_time() else "No",
         help="Depende del horario configurado en config/watch.yaml.",
@@ -146,19 +146,19 @@ with tab_watch:
     state = watch_state.load()
     if state.levels:
         st.warning(
-            f"Hay {len(state.levels)} umbrales cruzados en la sesion de "
+            f"Hay {len(state.levels)} umbrales cruzados en la sesión de "
             f"{state.day}. El vigilante ya ha avisado de ellos y no repetira "
             "hasta que empeoren.",
             icon=":material/priority_high:",
         )
     else:
-        st.caption(":grey[Ningun umbral cruzado en la sesion actual.]")
+        st.caption(":grey[Ningún umbral cruzado en la sesión actual.]")
 
     st.markdown("**Umbrales de aviso**")
     rows = []
     for group, label in (
-        ("index_drop", "Indices"), ("crypto_drop", "Cripto"),
-        ("portfolio_drop", "Tu cartera"), ("position_drop", "Una posicion"),
+        ("index_drop", "Índices"), ("crypto_drop", "Cripto"),
+        ("portfolio_drop", "Tu cartera"), ("position_drop", "Una posición"),
         ("vix_level", "VIX (nivel)"), ("vix_jump_pct", "VIX (salto)"),
     ):
         for threshold in wcfg.thresholds(group):
@@ -175,38 +175,38 @@ with tab_watch:
                  height=min(420, 42 + 35 * len(rows)))
 
     st.info(
-        "Los niveles de -7%, -13% y -20% en indices son los **cortacircuitos "
-        "del mercado estadounidense**: los porcentajes de caida del S&P 500 a "
-        "los que la SEC detiene la negociacion. No son cifras elegidas a ojo.",
+        "Los niveles de -7%, -13% y -20% en índices son los **cortacircuitos "
+        "del mercado estadounidense**: los porcentajes de caída del S&P 500 a "
+        "los que la SEC detiene la negociación. No son cifras elegidas a ojo.",
         icon=":material/gavel:",
     )
 
     with st.expander("Combinalo con las alertas de TradingView (recomendado)"):
         st.markdown(
             """
-Los graficos de TradingView que ves en el dashboard van **en vivo**, pero no
-sirven para avisarte: son un `iframe` de otro dominio, asi que este codigo no
+Los gráficos de TradingView que ves en el dashboard van **en vivo**, pero no
+sirven para avisarte: son un `iframe` de otro dominio, así que este código no
 puede leer los precios que hay dentro (la politica de mismo origen del
-navegador lo impide, y es la proteccion que evita que cualquier web espie lo
-que tienes abierto en otra pestana). Y ademas solo existen mientras tengas la
-pestana abierta delante.
+navegador lo impide, y es la protección que evita que cualquier web espie lo
+que tienes abierto en otra pestaña). Y además solo existen mientras tengas la
+pestaña abierta delante.
 
 **TradingView si tiene alertas propias**, y esas corren en sus servidores:
-funcionan con el navegador cerrado, llegan al movil como notificacion y usan su
+funcionan con el navegador cerrado, llegan al movil como notificación y usan su
 feed, sin los ~15 minutos de retraso de Yahoo. Para "avisame si el S&P se
 desploma" son mejores que este vigilante.
 
-1. Abre el grafico de SPY o del S&P 500 en tradingview.com.
-2. Boton derecho sobre el grafico -> **Anadir alerta**.
-3. Condicion: *Variacion porcentual diaria* menor que **-3%** (y otra a -7% si
+1. Abre el gráfico de SPY o del S&P 500 en tradingview.com.
+2. Boton derecho sobre el gráfico -> **Añadir alerta**.
+3. Condición: *Variación porcentual diaria* menor que **-3%** (y otra a -7% si
    te caben).
-4. Marca la notificacion a la aplicacion movil.
+4. Marca la notificación a la aplicación movil.
 
-Con la cuenta gratuita tienes un numero limitado de alertas activas; consulta
-el limite vigente en su web, que cambia con los planes.
+Con la cuenta gratuita tienes un número limitado de alertas activas; consulta
+el límite vigente en su web, que cambia con los planes.
 
 **Lo que ellos no pueden hacer y este vigilante si**: valorar **tu cartera
-entera ponderada por posicion**. TradingView no sabe cuantas acciones tienes de
+entera ponderada por posición**. TradingView no sabe cuantas acciones tienes de
 cada cosa. Lo sensato es usar los dos.
             """
         )
@@ -215,23 +215,23 @@ cada cosa. Lo sensato es usar los dos.
         st.markdown(
             """
 Un aviso de desplome que nunca has probado no sirve de nada: te enteras de que
-estaba mal configurado el dia que importa.
+estaba mal configurado el día que importa.
 
 ```bash
 make watch-test          # simula un -8% y manda los avisos de verdad
 ```
 
-Usa datos sinteticos y fuerza la caida, asi que recorre el camino entero
-—deteccion, mensaje, envio— sin esperar a que el mercado se caiga. Deberias
-recibirlo en el movil en segundos. Si no llega, revisa la pestana **Canales**.
+Usa datos sintéticos y fuerza la caída, así que recorre el camino entero
+—detección, mensaje, envio— sin esperar a que el mercado se caiga. Deberías
+recibirlo en el movil en segundos. Si no llega, revisa la pestaña **Canales**.
             """
         )
 
     st.caption(
         "**Latencia real**: Yahoo sirve la renta variable con unos 15 minutos "
         "de retraso. En un desplome de verdad te enteras antes por el propio "
-        "mercado que por esta herramienta si estas mirando la pantalla; su "
-        "valor esta en los dias en que NO estas mirando. La cripto si va al "
+        "mercado que por esta herramienta si estás mirando la pantalla; su "
+        "valor está en los días en que NO estás mirando. La cripto si va al "
         "momento."
     )
 
@@ -281,7 +281,7 @@ with tab_channels:
 5. Pon `enabled: true` en el canal `telegram` de `config/alerts.yaml`.
 
 El token da control total sobre el bot: no lo compartas ni lo subas al
-repositorio. `.env` esta en `.gitignore` por ese motivo.
+repositorio. `.env` está en `.gitignore` por ese motivo.
             """
         )
 
@@ -309,15 +309,15 @@ with tab_rules:
                     )
                     st.code(rule.when, language="python")
                 with meta:
-                    st.caption(f"**Ambito**  \n{rule.scope}")
-                    st.caption(f"**Espera**  \n{rule.cooldown_days} dias")
+                    st.caption(f"**Ámbito**  \n{rule.scope}")
+                    st.caption(f"**Espera**  \n{rule.cooldown_days} días")
                 if rule.note:
                     st.caption(rule.note)
 
     st.caption(
         "Las reglas se editan en `config/alerts.yaml`. Las condiciones se "
         "evaluan con un interprete restringido que solo admite comparaciones y "
-        "aritmetica: nunca se ejecuta codigo arbitrario."
+        "aritmetica: nunca se ejecuta código arbitrario."
     )
 
 st.divider()

@@ -1,16 +1,16 @@
 """Contrastar los fundamentales en vez de creerselos.
 
-Los ratios llegan de un unico proveedor gratuito, y un proveedor gratuito se
+Los ratios llegan de un único proveedor gratuito, y un proveedor gratuito se
 equivoca: un PER de 3 en una empresa cara, un margen del 900 %, una
-capitalizacion de otra empresa por un ticker mal cruzado. Ninguno de esos
+capitalización de otra empresa por un ticker mal cruzado. Ninguno de esos
 errores da un fallo: entran en el ranking, suben al valor a los primeros
-puestos y ahi se quedan, con la misma pinta que los datos buenos.
+puestos y ahí se quedan, con la misma pinta que los datos buenos.
 
 Tres formas de contrastar, en orden de lo independiente que es cada una:
 
-1. **Contra nuestros propios precios.** La capitalizacion tiene que cuadrar con
-   el precio por las acciones en circulacion, y la beta que declaran tiene que
-   parecerse a la que sale de calcularla con las cotizaciones. Es el unico
+1. **Contra nuestros propios precios.** La capitalización tiene que cuadrar con
+   el precio por las acciones en circulación, y la beta que declaran tiene que
+   parecerse a la que sale de calcularla con las cotizaciones. Es el único
    contraste de verdad independiente que se puede hacer sin pagar otra fuente.
 
 2. **Contra si mismos.** Los ratios de una misma foto tienen que cumplir
@@ -19,16 +19,16 @@ Tres formas de contrastar, en orden de lo independiente que es cada una:
    que salir de repartir el payout del beneficio.
 
    Solo valen las identidades entre datos que el proveedor calcula por
-   SEPARADO. El PER contra el earnings yield parecia una de ellas y no lo era:
-   el segundo se obtiene dividiendo uno entre el primero, asi que se cumplia
+   SEPARADO. El PER contra el earnings yield parecía una de ellas y no lo era:
+   el segundo se obtiene dividiendo uno entre el primero, así que se cumplía
    siempre y un PER equivocado se validaba a si mismo.
 
-3. **Contra el pasado.** Un ratio que se multiplica por diez de un dia para
+3. **Contra el pasado.** Un ratio que se multiplica por diez de un día para
    otro casi nunca es la empresa: es el dato. Se compara con las fotos
-   anteriores, que existen desde que se guarda el historico punto-en-el-tiempo.
+   anteriores, que existen desde que se guarda el histórico punto-en-el-tiempo.
 
 Lo que NO hace: inventarse el valor bueno. Cuando dos cosas se contradicen no
-se sabe cual es la equivocada, y elegir una seria peor que avisar de las dos.
+se sabe cual es la equivocada, y elegir una sería peor que avisar de las dos.
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ class Revision:
 
     @property
     def fiable(self) -> bool:
-        """Sin ningun aviso. No garantiza que el dato sea correcto: garantiza
+        """Sin ningún aviso. No garantiza que el dato sea correcto: garantiza
         que no se ha encontrado nada que lo contradiga, que es otra cosa."""
         return not self.avisos
 
@@ -136,13 +136,13 @@ def _num(origen: Any, campo: str) -> float | None:
 def _discrepancia(a: float, b: float) -> float:
     """Diferencia relativa entre dos formas de calcular lo mismo.
 
-    Se divide por el mayor en valor absoluto y no por uno de los dos: asi el
-    resultado no cambia segun cual se ponga primero, que con datos de dos
+    Se divide por el mayor en valor absoluto y no por uno de los dos: así el
+    resultado no cambia según cual se ponga primero, que con datos de dos
     origenes distintos es una fuente de sustos tonta.
 
-    Ojo con los umbrales que se comparan contra esto: para dos numeros del
-    mismo signo el resultado SIEMPRE es menor que 1, asi que un umbral de 1,0
-    deja la comprobacion muerta sin que nada falle. Un 0,75 significa "el menor
+    Ojo con los umbrales que se comparan contra esto: para dos números del
+    mismo signo el resultado SIEMPRE es menor que 1, así que un umbral de 1,0
+    deja la comprobación muerta sin que nada falle. Un 0,75 significa "el menor
     no llega ni a la cuarta parte del mayor".
     """
     escala = max(abs(a), abs(b))
@@ -164,10 +164,10 @@ def _contra_precios(f: Any, precio: float | None,
         if desvio > TOLERANCIA_CAPITALIZACION:
             fuera.append(Aviso(
                 "market_cap", Gravedad.DUDOSO,
-                f"La capitalizacion que declaran ({capitaliza:,.0f}) no cuadra "
-                f"con el precio por las acciones en circulacion "
+                f"La capitalización que declaran ({capitaliza:,.0f}) no cuadra "
+                f"con el precio por las acciones en circulación "
                 f"({propia:,.0f}): un {desvio:.0%} de diferencia. Suele "
-                "significar que el numero de acciones esta desactualizado o "
+                "significar que el número de acciones esta desactualizado o "
                 "que el ticker esta cruzado con otra empresa.",
             ))
 
@@ -185,7 +185,7 @@ def _contra_precios(f: Any, precio: float | None,
                 "beta", Gravedad.DUDOSO,
                 f"La beta que declaran es {declarada:.2f} y la que sale de "
                 f"nuestras cotizaciones es {beta_calculada:.2f}. Se calculan "
-                "sobre periodos distintos, asi que una diferencia pequena es "
+                "sobre periodos distintos, así que una diferencia pequeña es "
                 "normal; esta no lo es.",
             ))
 
@@ -230,7 +230,7 @@ def _contra_si_mismos(f: Any) -> list[Aviso]:
         fuera.append(Aviso(
             "operating_margin", Gravedad.ROTO,
             f"El margen operativo ({operativo:.1%}) supera al bruto "
-            f"({bruto:.1%}), que es imposible por definicion.",
+            f"({bruto:.1%}), que es imposible por definición.",
         ))
 
     roe = _num(f, "roe")
@@ -241,7 +241,7 @@ def _contra_si_mismos(f: Any) -> list[Aviso]:
         fuera.append(Aviso(
             "roe", Gravedad.DUDOSO,
             f"El ROE ({roe:.1%}) queda por debajo del ROA ({roa:.1%}) en una "
-            "empresa endeudada, cuando la deuda deberia hacerlo mayor.",
+            "empresa endeudada, cuando la deuda debería hacerlo mayor.",
         ))
 
     reparto = _num(f, "payout_ratio")
@@ -253,7 +253,7 @@ def _contra_si_mismos(f: Any) -> list[Aviso]:
                 "dividend_yield", Gravedad.DUDOSO,
                 f"La rentabilidad por dividendo ({dividendo:.2%}) no cuadra con "
                 f"repartir el {reparto:.0%} de un beneficio del "
-                f"{rendimiento:.2%} (saldria {esperado:.2%}).",
+                f"{rendimiento:.2%} (saldría {esperado:.2%}).",
             ))
 
     return fuera
@@ -290,7 +290,7 @@ def _contra_el_pasado(f: Any, anterior: Any) -> list[Aviso]:
             fuera.append(Aviso(
                 campo, Gravedad.DUDOSO,
                 f"`{campo}` ha pasado de {antes:,.2f} a {ahora:,.2f} de una "
-                "descarga a la siguiente. Un cambio asi de un dia para otro "
+                "descarga a la siguiente. Un cambio así de un día para otro "
                 "casi nunca es la empresa: es el dato.",
             ))
     return fuera
@@ -301,8 +301,8 @@ def revisar(ticker: str, fundamentales: Any, *, precio: float | None = None,
             anterior: Any = None) -> Revision:
     """Todo lo que contradice a los fundamentales de un valor.
 
-    Sin fundamentales no hay revision y NO se devuelve "fiable": no haber
-    encontrado nada porque no habia nada que mirar no es lo mismo que no haber
+    Sin fundamentales no hay revisión y NO se devuelve "fiable": no haber
+    encontrado nada porque no había nada que mirar no es lo mismo que no haber
     encontrado nada.
     """
     if fundamentales is None:
@@ -319,8 +319,8 @@ def revisar(ticker: str, fundamentales: Any, *, precio: float | None = None,
 def beta_desde_precios(retornos_valor, retornos_mercado) -> float | None:
     """Beta calculada con nuestras propias cotizaciones.
 
-    Es el unico contraste verdaderamente independiente que se puede hacer sin
-    pagar una segunda fuente: el proveedor dice un numero y nosotros lo
+    Es el único contraste verdaderamente independiente que se puede hacer sin
+    pagar una segunda fuente: el proveedor dice un número y nosotros lo
     calculamos por nuestra cuenta con datos que no vienen de el.
     """
     import numpy as np

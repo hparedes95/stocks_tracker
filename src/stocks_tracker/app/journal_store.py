@@ -47,7 +47,7 @@ def leer() -> pd.DataFrame:
     """Todo el diario, lo mas reciente primero.
 
     Si la tabla todavia no existe se devuelve vacio en vez de reventar: la
-    pagina dira que aun no hay decisiones, que es la verdad.
+    página dira que aun no hay decisiones, que es la verdad.
     """
     try:
         with connect(read_only=True) as conn:
@@ -73,7 +73,7 @@ def a_entradas(datos: pd.DataFrame) -> list[Entrada]:
     """Pasa las filas al tipo del nucleo, saltando las que no se entienden.
 
     Una accion o un veredicto desconocidos —de una version futura, o de una
-    edicion a mano— no pueden tumbar la pagina entera.
+    edicion a mano— no pueden tumbar la página entera.
     """
     fuera: list[Entrada] = []
     for _, fila in datos.iterrows():
@@ -156,7 +156,7 @@ def revisar(entrada_id: str, veredicto: Veredicto, nota: str = "") -> None:
 def precios_para(entradas: list[Entrada], mercado: str = MERCADO) -> dict:
     """Los precios que hacen falta para calcular resultados, mercado incluido.
 
-    El proxy de mercado casi nunca esta en el diario —nadie anota una decision
+    El proxy de mercado casi nunca está en el diario —nadie anota una decision
     sobre SPY—, asi que pedir solo los tickers anotados dejaba la comparacion
     contra el mercado sin precio y esa metrica no aparecia NUNCA en pantalla.
     No daba error: simplemente faltaba.

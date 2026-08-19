@@ -1,11 +1,11 @@
-"""Graficos con `lightweight-charts` de TradingView, sobre NUESTROS datos.
+"""Gráficos con `lightweight-charts` de TradingView, sobre NUESTROS datos.
 
-Es lo que ningun widget embebido puede dar: los widgets son cajas negras con
-datos de TradingView y no admiten que dibujemos nada encima. Aqui podemos
-superponer nuestras senales, nuestros niveles y nuestras medias.
+Es lo que ningún widget embebido puede dar: los widgets son cajas negras con
+datos de TradingView y no admiten que dibujemos nada encima. Aquí podemos
+superponer nuestras señales, nuestros niveles y nuestras medias.
 
 El JS va **vendorizado** en `app/static/` (Apache 2.0) en lugar de cargarse de
-un CDN: asi los graficos funcionan sin conexion, que es justo la limitacion que
+un CDN: así los gráficos funcionan sin conexion, que es justo la limitación que
 tienen los widgets.
 
 Notas de la API v5 (todos los tutoriales que circulan siguen en v4):
@@ -15,8 +15,8 @@ Notas de la API v5 (todos los tutoriales que circulan siguen en v4):
 - `LightweightCharts.createSeriesMarkers(series, markers)`.
   `series.setMarkers()` YA NO EXISTE: los marcadores son un primitive.
 - **El `time` de un marcador debe coincidir EXACTAMENTE con el de un punto de
-  la serie; si no, se descarta en silencio.** Es el fallo mas probable de este
-  modulo, y por eso todo pasa por `to_lwc_time()` y `snap_to_sessions()`.
+  la serie; si no, se descarta en silencio.** Es el fallo más probable de este
+  módulo, y por eso todo pasa por `to_lwc_time()` y `snap_to_sessions()`.
 """
 
 from __future__ import annotations
@@ -38,14 +38,14 @@ _JS_FILE = _STATIC / "lightweight-charts.standalone.production.js"
 
 @lru_cache(maxsize=1)
 def _library_js() -> str:
-    """La libreria, leida una sola vez.
+    """La librería, leida una sola vez.
 
-    Se incrusta en cada iframe. Son ~190 KB por grafico, que en localhost no
+    Se incrusta en cada iframe. Son ~190 KB por gráfico, que en localhost no
     viaja por ninguna red: es el precio de no depender de un CDN externo.
     """
     if not _JS_FILE.exists():
         raise FileNotFoundError(
-            f"Falta la libreria vendorizada en {_JS_FILE}. "
+            f"Falta la librería vendorizada en {_JS_FILE}. "
             "Descargala del paquete npm 'lightweight-charts'."
         )
     return _JS_FILE.read_text(encoding="utf-8")
@@ -90,11 +90,11 @@ class Pane:
 # Conversion de fechas: el punto delicado
 # --------------------------------------------------------------------------
 def to_lwc_time(value) -> str | None:
-    """Convierte una fecha al formato que espera la libreria: 'YYYY-MM-DD'.
+    """Convierte una fecha al formato que espera la librería: 'YYYY-MM-DD'.
 
-    Se usa la MISMA funcion para los datos y para los marcadores. Si cada uno
-    usara su formato, los marcadores no encontrarian su punto y desaparecerian
-    sin ningun error.
+    Se usa la MISMA función para los datos y para los marcadores. Si cada uno
+    usara su formato, los marcadores no encontrarían su punto y desaparecerían
+    sin ningún error.
     """
     if value is None or (isinstance(value, float) and value != value):
         return None
@@ -116,11 +116,11 @@ def to_lwc_time(value) -> str | None:
 
 
 def snap_to_sessions(target, sessions: list[str]) -> str | None:
-    """Lleva una fecha a la sesion disponible mas cercana hacia atras.
+    """Lleva una fecha a la sesión disponible más cercana hacia atrás.
 
-    Una senal puede caer en un dia sin cotizacion (festivo, o una fecha que la
-    ingesta no trajo). Sin este ajuste el marcador se descartaria en silencio y
-    la senal simplemente no aparaceria en el grafico.
+    Una señal puede caer en un día sin cotización (festivo, o una fecha que la
+    ingesta no trajo). Sin este ajuste el marcador se descartaría en silencio y
+    la señal simplemente no aparaceria en el gráfico.
     """
     stamp = to_lwc_time(target)
     if stamp is None or not sessions:
@@ -155,11 +155,11 @@ def markers_from_signals(
     only_significant: bool = True,
     max_markers: int = MAX_MARKERS,
 ) -> list[Marker]:
-    """Marcadores a partir de la tabla de senales, alineados con la serie.
+    """Marcadores a partir de la tabla de señales, alineados con la serie.
 
-    Se filtra y se limita a proposito. Un ano de historico produce del orden de
-    ochenta senales; pintarlas todas con su etiqueta tapa las velas y convierte
-    el grafico en ruido. Se conservan las mas recientes de las senales que
+    Se filtra y se limita a propósito. Un año de histórico produce del orden de
+    ochenta señales; pintarlas todas con su etiqueta tapa las velas y convierte
+    el gráfico en ruido. Se conservan las más recientes de las señales que
     indican cambio de estado, y solo llevan texto si son pocas.
     """
     if signals is None or signals.empty or not sessions:
@@ -350,7 +350,7 @@ def price_chart(
     height: int = 460,
     key: str = "",
 ) -> bool:
-    """Velas con nuestras medias, senales y niveles. Devuelve False si no hay datos."""
+    """Velas con nuestras medias, señales y niveles. Devuelve False si no hay datos."""
     if ohlcv is None or ohlcv.empty or not library_available():
         return False
 
@@ -427,12 +427,12 @@ def equity_chart(curves: dict[str, pd.Series], height: int = 340, key: str = "")
 
 
 def series_to_points(dates, values) -> list[dict]:
-    """Ayuda para construir paneles desde las paginas."""
+    """Ayuda para construir paneles desde las páginas."""
     return _line_points(dates, values)
 
 
 def sessions_of(ohlcv: pd.DataFrame) -> list[str]:
-    """Fechas de las velas, en el formato de la libreria.
+    """Fechas de las velas, en el formato de la librería.
 
     Es lo que hay que pasar a `markers_from_signals` para que cada marcador
     caiga sobre un punto existente.

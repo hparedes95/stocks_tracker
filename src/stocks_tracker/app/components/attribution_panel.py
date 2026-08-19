@@ -1,8 +1,8 @@
-"""De donde ha salido lo que has ganado.
+"""De dónde ha salido lo que has ganado.
 
-Es la pantalla que corrige el sesgo que mas caro sale: en un mercado alcista
+Es la pantalla que corrige el sesgo que más caro sale: en un mercado alcista
 todo parece un acierto y en uno bajista todo parece un fallo, se haya elegido
-bien o mal. Sin separar la marea del merito no hay forma de aprender de las
+bien o mal. Sin separar la marea del mérito no hay forma de aprender de las
 propias decisiones, porque el resultado no las califica.
 """
 
@@ -20,11 +20,11 @@ def _valor(fila: pd.Series, campo: str) -> float | None:
 
 
 def posiciones_desde(datos: pd.DataFrame) -> list[Posicion]:
-    """Pasa la consulta al nucleo, tirando lo que no se puede atribuir.
+    """Pasa la consulta al núcleo, tirando lo que no se puede atribuir.
 
     Sin retorno propio o sin referencia de mercado no hay nada que descomponer,
-    y meterla con ceros la contaria como "ni mejor ni peor que el mercado", que
-    es una afirmacion que nadie ha comprobado.
+    y meterla con ceros la contaría como "ni mejor ni peor que el mercado", que
+    es una afirmación que nadie ha comprobado.
     """
     fuera: list[Posicion] = []
     for _, fila in datos.iterrows():
@@ -49,7 +49,7 @@ def posiciones_desde(datos: pd.DataFrame) -> list[Posicion]:
 
 
 def render_attribution_panel(datos: pd.DataFrame) -> None:
-    st.subheader("De donde viene lo que has ganado")
+    st.subheader("De dónde viene lo que has ganado")
 
     if datos.empty:
         st.caption("Sin posiciones abiertas que atribuir.")
@@ -60,8 +60,8 @@ def render_attribution_panel(datos: pd.DataFrame) -> None:
 
     if not posiciones:
         st.info(
-            "No hay ninguna posicion con referencia de mercado para comparar. "
-            "Hace falta el historico de **SPY** y de los ETF sectoriales: se "
+            "No hay ninguna posición con referencia de mercado para comparar. "
+            "Hace falta el histórico de **SPY** y de los ETF sectoriales: se "
             "descargan con `stocks.ps1 update`.",
             icon=":material/help:",
         )
@@ -70,25 +70,25 @@ def render_attribution_panel(datos: pd.DataFrame) -> None:
     r = resumir(posiciones)
 
     st.caption(
-        "Tu resultado partido en tres: lo que hizo el mercado, lo que anadio "
-        "estar en unos sectores y no en otros, y lo que anadio elegir esos "
-        "valores concretos. **Los tres suman exactamente tu resultado**, asi "
-        "que no hay resto donde esconder nada. Cada posicion se compara con lo "
-        "que hicieron el indice y su sector **desde el dia que la compraste**, "
-        "no con el ano natural."
+        "Tu resultado partido en tres: lo que hizo el mercado, lo que añadió "
+        "estar en unos sectores y no en otros, y lo que añadió elegir esos "
+        "valores concretos. **Los tres suman exactamente tu resultado**, así "
+        "que no hay resto donde esconder nada. Cada posición se compara con lo "
+        "que hicieron el índice y su sector **desde el día que la compraste**, "
+        "no con el año natural."
     )
 
     cols = st.columns(4)
     cols[0].metric("Tu resultado", f"{r.retorno * 100:+.1f} %")
     cols[1].metric("El mercado hizo", f"{r.mercado * 100:+.1f} %",
-                   help="Lo que habrias ganado comprando SPY el mismo dia que "
-                        "cada posicion y no tocando nada mas.")
+                   help="Lo que habrías ganado comprando SPY el mismo día que "
+                        "cada posición y no tocando nada más.")
     cols[2].metric("Por los sectores", f"{r.efecto_sector * 100:+.1f} pp",
-                   help="Lo que aporto estar en esos sectores en vez de en el "
+                   help="Lo que aportó estar en esos sectores en vez de en el "
                         "mercado entero.")
     cols[3].metric("Por los valores", f"{r.efecto_seleccion * 100:+.1f} pp",
-                   help="Lo que aporto elegir esos valores dentro de sus "
-                        "sectores. Es la parte que mide la seleccion.")
+                   help="Lo que aportó elegir esos valores dentro de sus "
+                        "sectores. Es la parte que mide la selección.")
 
     frase = veredicto(r)
     if not r.hay_bastante:
@@ -107,10 +107,10 @@ def render_attribution_panel(datos: pd.DataFrame) -> None:
             f"**{azar * 100:.0f} %**."
         )
         st.caption(
-            "No es un contraste estadistico y no hay que leerlo como tal: las "
+            "No es un contraste estadístico y no hay que leerlo como tal: las "
             "posiciones se solapan en el tiempo, comparten mercado y no son "
             "independientes. Es una cota de humildad — si ese porcentaje es "
-            "alto, no hay nada que explicar todavia."
+            "alto, no hay nada que explicar todavía."
         )
 
     # --- Posicion a posicion ------------------------------------------------
@@ -118,7 +118,7 @@ def render_attribution_panel(datos: pd.DataFrame) -> None:
         {
             "Ticker": p.ticker,
             "Sector": p.sector or "—",
-            "Dias": p.dias,
+            "Días": p.dias,
             "Tu": p.retorno * 100,
             "Mercado": p.retorno_mercado * 100,
             "Su sector": (p.retorno_sector * 100
@@ -141,30 +141,30 @@ def render_attribution_panel(datos: pd.DataFrame) -> None:
         },
     )
     st.caption(
-        "Ordenado por lo que aporto la eleccion del valor, de peor a mejor: "
-        "arriba estan las decisiones que mas restaron. Una posicion puede "
-        "ganar dinero y estar arriba del todo — significa que el sector subio "
-        "mas que ella."
+        "Ordenado por lo que aportó la elección del valor, de peor a mejor: "
+        "arriba están las decisiones que más restaron. Una posición puede "
+        "ganar dinero y estar arriba del todo — significa que el sector subió "
+        "más que ella."
     )
 
     if descartadas:
         st.caption(
-            f"{descartadas} posicion(es) sin referencia de mercado para "
-            "comparar, fuera del calculo. No se cuentan como neutras: eso "
-            "seria afirmar algo que no se ha comprobado."
+            f"{descartadas} posición(es) sin referencia de mercado para "
+            "comparar, fuera del cálculo. No se cuentan como neutras: eso "
+            "sería afirmar algo que no se ha comprobado."
         )
 
     sin_sector = len(posiciones) - r.comparables
     if sin_sector:
         st.caption(
-            f"{sin_sector} posicion(es) sin ETF sectorial de referencia. En "
+            f"{sin_sector} posición(es) sin ETF sectorial de referencia. En "
             "ellas no se puede separar el efecto del sector del de la "
-            "seleccion, y todo lo que no es mercado cuenta como seleccion."
+            "selección, y todo lo que no es mercado cuenta como selección."
         )
 
     st.caption(
         "**Esto no es tu resultado fiscal ni el de tu broker**: ignora "
         "dividendos, comisiones y cambio de divisa. Tampoco es una "
-        "rentabilidad anualizada, porque cada posicion lleva su propio tiempo "
+        "rentabilidad anualizada, porque cada posición lleva su propio tiempo "
         "dentro."
     )

@@ -20,6 +20,7 @@ PS_SCRIPTS = ["installer/install.ps1", "scripts/windows/stocks.ps1"]
 # Un solo .bat, a proposito. Habia tres y el usuario tenia que saber cual
 # tocaba y en que orden.
 BAT_SCRIPTS = ["installer/Stocks Tracker.bat"]
+PS1_SCRIPTS = ["scripts/windows/stocks.ps1", "installer/install.ps1"]
 
 
 def read(path: str) -> bytes:
@@ -829,3 +830,20 @@ def test_a_failing_study_does_not_stop_the_rest():
     daily = task_block("daily")
     trozo = daily[daily.index("--venue kraken --gate"):]
     assert "catch" in trozo, "un fallo de la puerta de cripto detiene el ciclo"
+
+
+@pytest.mark.parametrize("script", PS1_SCRIPTS)
+def test_ps1_files_are_pure_ascii(script):
+    """PowerShell 5.1 —el que trae Windows de serie— lee un `.ps1` SIN BOM
+    como ANSI, no como UTF-8.
+
+    La interfaz del navegador si lleva tildes y enes: eso es HTML servido por
+    Streamlit y se ve bien. Estos ficheros no: un acento aqui sale ilegible en
+    la consola, y en el peor caso parte una cadena y rompe el script. Si algun
+    dia hacen falta, la salida es guardarlos CON BOM, no quitar este test.
+    """
+    raw = read(script)
+    non_ascii = [b for b in raw if b > 127]
+    assert not non_ascii, (
+        f"{script} tiene {len(non_ascii)} bytes no ASCII y no lleva BOM"
+    )

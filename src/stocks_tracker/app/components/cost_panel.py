@@ -1,15 +1,15 @@
 """Lo que cuesta de verdad comprar un valor, en la ficha del valor.
 
-Va aqui y no en una calculadora aparte porque es donde se decide comprar. Una
-pantalla que hay que ir a buscar no se mira, y este es justo el numero que
-conviene ver ANTES y no al hacer la declaracion.
+Va aquí y no en una calculadora aparte porque es donde se decide comprar. Una
+pantalla que hay que ir a buscar no se mira, y este es justo el número que
+conviene ver ANTES y no al hacer la declaración.
 
 Tres preguntas, en orden de lo que sorprende:
 
-1. ¿Cuanto tiene que subir solo para no perder dinero? (comision + divisa,
+1. ¿Cuánto tiene que subir solo para no perder dinero? (comisión + divisa,
    ida y vuelta)
-2. ¿Cuanto renta el dividendo DE VERDAD? (retencion en origen)
-3. ¿Recomprarlo ahora me deja una perdida sin compensar? (regla de los dos meses)
+2. ¿Cuánto renta el dividendo DE VERDAD? (retención en origen)
+3. ¿Recomprarlo ahora me deja una pérdida sin compensar? (regla de los dos meses)
 """
 
 from __future__ import annotations
@@ -28,14 +28,14 @@ MARGEN_ESTIMACION_PCT = 2.0
 
 
 def _ventas_recientes(ticker: str) -> tuple[list[dict], dict]:
-    """Ventas de este valor que podrian activar la regla, y su estimacion.
+    """Ventas de este valor que podrían activar la regla, y su estimación.
 
     Se leen del almacen y no se piden por pantalla: si hubiera que teclearlas,
-    el aviso no apareceria nunca justo cuando hace falta.
+    el aviso no aparecería nunca justo cuando hace falta.
 
     Devuelve las ventas en el formato que espera `costs.comprobar_dos_meses` y,
-    aparte, el resultado estimado de cada una para poder ensenarlo. `None`
-    significa "no se sabe", que no es lo mismo que "fue ganancia": esas tambien
+    aparte, el resultado estimado de cada una para poder enseñarlo. `None`
+    significa "no se sabe", que no es lo mismo que "fue ganancia": esas también
     se avisan.
     """
     from .. import data_access as da
@@ -71,14 +71,14 @@ def _ventas_recientes(ticker: str) -> tuple[list[dict], dict]:
 def render_cost_panel(ticker: str, currency: str = "EUR",
                       dividend_yield: float = 0.0, country: str = "") -> None:
     st.caption(
-        "Estimacion para comparar alternativas, **no es asesoramiento fiscal**. "
-        "Los tipos cambian y tu situacion puede tener minusvalias pendientes de "
+        "Estimación para comparar alternativas, **no es asesoramiento fiscal**. "
+        "Los tipos cambian y tu situación puede tener minusvalias pendientes de "
         "otros ejercicios. Las tarifas salen de `config/costs.yaml`: cambialas "
-        "por las de tu broker o los numeros no seran los tuyos."
+        "por las de tu broker o los números no seran los tuyos."
     )
 
     importe = st.number_input(
-        "Cuanto quieres invertir (EUR)", min_value=0.0, value=1000.0,
+        "Cuánto quieres invertir (EUR)", min_value=0.0, value=1000.0,
         step=100.0, key=f"coste_importe_{ticker}",
     )
 
@@ -93,9 +93,9 @@ def render_cost_panel(ticker: str, currency: str = "EUR",
     op = resumen.operacion
 
     # --- 1. El liston -------------------------------------------------------
-    st.subheader("Cuanto tiene que subir para no perder")
+    st.subheader("Cuánto tiene que subir para no perder")
     col = st.columns(4)
-    col[0].metric("Comision", f"{op.comision:.2f} EUR")
+    col[0].metric("Comisión", f"{op.comision:.2f} EUR")
     col[1].metric("Cambio de divisa", f"{op.cambio_divisa:.2f} EUR",
                   help="Se cobra sobre el importe entero, no sobre el "
                        "beneficio. Es cero si compras en euros.")
@@ -112,9 +112,9 @@ def render_cost_panel(ticker: str, currency: str = "EUR",
     if op.ida_y_vuelta_pct >= 1.0:
         st.warning(
             f"Con este importe los costes se llevan un **{op.ida_y_vuelta_pct:.2f} %** "
-            "entre comprar y vender. Una operacion que suba menos que eso pierde "
-            "dinero aunque la veas en verde. Con importes pequenos la comision "
-            "minima pesa mucho: agrupar compras sale mas barato que hacerlas "
+            "entre comprar y vender. Una operación que suba menos que eso pierde "
+            "dinero aunque la veas en verde. Con importes pequeños la comisión "
+            "mínima pesa mucho: agrupar compras sale más barato que hacerlas "
             "sueltas.",
             icon=":material/warning:",
         )
@@ -136,24 +136,24 @@ def render_cost_panel(ticker: str, currency: str = "EUR",
         d[1].metric("Neto en tu cuenta", f"{div.neto_inmediato_pct:.2f} %",
                     delta=f"-{div.retencion_pct:.1f} % retenido en origen")
         d[2].metric("No recuperable", f"{div.perdido_pct:.2f} %",
-                    help="Lo retenido por encima del limite del convenio. Para "
+                    help="Lo retenido por encima del límite del convenio. Para "
                          "recuperarlo hay que reclamar al pais de origen, un "
-                         "tramite que en cantidades pequenas cuesta mas de lo "
+                         "tramite que en cantidades pequeñas cuesta más de lo "
                          "que devuelve.")
 
         if div.pais == "US":
             st.caption(
                 "EE. UU. retiene el **15 %** con el formulario W-8BEN "
                 "presentado y el **30 %** sin el. Lo pide tu broker al abrir la "
-                "cuenta y **caduca cada tres anos**: cuando caduca, la "
-                "retencion sube sin avisar."
+                "cuenta y **caduca cada tres años**: cuando caduca, la "
+                "retención sube sin avisar."
             )
         if div.perdido_pct > 5:
             st.warning(
                 f"En {div.pais} se retiene el {div.retencion_pct:.1f} % y solo "
                 f"se puede deducir hasta el {div.recuperable_pct:.1f} %: "
                 f"**{div.perdido_pct:.1f} puntos no vuelven**. Un dividendo "
-                "alto ahi puede rentar menos que uno mas bajo en otro sitio.",
+                "alto ahí puede rentar menos que uno más bajo en otro sitio.",
                 icon=":material/paid:",
             )
 
@@ -163,19 +163,19 @@ def render_cost_panel(ticker: str, currency: str = "EUR",
         for aviso in resumen.dos_meses.avisos:
             pct = estimado.get(aviso.vendido_el)
             if pct is None:
-                cuanto = ("No hay precio de aquel dia para estimar el resultado, "
-                          "asi que **puede que fuera con perdidas**.")
+                cuanto = ("No hay precio de aquel día para estimar el resultado, "
+                          "así que **puede que fuera con pérdidas**.")
             else:
                 cuanto = (f"Estimamos que la cerraste en torno al **{pct:+.1f} %** "
-                          "(con el cierre de aquel dia, que no es el precio exacto "
+                          "(con el cierre de aquel día, que no es el precio exacto "
                           "de tu venta).")
             st.error(
                 f"Vendiste **{ticker}** el {aviso.vendido_el:%d/%m/%Y}, hace "
-                f"{aviso.dias_desde_venta} dias. {cuanto} **Si fue con perdidas**, "
+                f"{aviso.dias_desde_venta} días. {cuanto} **Si fue con pérdidas**, "
                 "recomprar ahora te impide compensarla este ejercicio "
-                f"(art. 33.5 LIRPF). Quedan **{aviso.dias_que_faltan} dias**: a "
+                f"(art. 33.5 LIRPF). Quedan **{aviso.dias_que_faltan} días**: a "
                 f"partir del {aviso.libre_el:%d/%m/%Y} ya no aplica.\n\n"
-                "La perdida no se pierde, queda aplazada hasta que vendas lo "
+                "La pérdida no se pierde, queda aplazada hasta que vendas lo "
                 "que compres ahora. Pero si vendiste para hacer caja fiscal, "
                 "recomprar ahora anula justo lo que buscabas.",
                 icon=":material/gavel:",

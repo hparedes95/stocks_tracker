@@ -1,4 +1,4 @@
-"""Pagina 8 — Estado de los datos.
+"""Página 8 — Estado de los datos.
 
 Sirve para responder a "por que el dashboard muestra esto": que se descargo,
 cuando, que fallo y que valores tienen datos viejos.
@@ -19,11 +19,11 @@ info = da.data_freshness()
 
 cols = st.columns(4)
 cols[0].metric(
-    "Ultima cotizacion",
+    "Última cotización",
     info["last_price_date"].strftime("%d/%m/%Y") if info["last_price_date"] else "—",
 )
 cols[1].metric(
-    "Ultima actualizacion",
+    "Última actualización",
     f"hace {info['hours_since_run']:.0f} h" if info["hours_since_run"] is not None else "—",
 )
 cols[2].metric("Descargas fallidas", info["failures"])
@@ -31,7 +31,7 @@ cols[3].metric("Instrumentos", len(da.instruments()))
 
 if info["is_stale"]:
     st.warning(
-        "Los datos llevan mas tiempo del previsto sin actualizarse. "
+        "Los datos llevan más tiempo del previsto sin actualizarse. "
         "Ejecuta `make ingest && make compute`.",
         icon=":material/schedule:",
     )
@@ -40,7 +40,7 @@ st.divider()
 st.subheader("Contenido del almacen")
 st.dataframe(table_counts(), hide_index=True, height=420)
 
-st.subheader("Cobertura de simbolos de TradingView")
+st.subheader("Cobertura de símbolos de TradingView")
 instruments = da.instruments()
 if not instruments.empty:
     mapped = instruments["tv_symbol"].notna().sum()
@@ -50,8 +50,8 @@ if not instruments.empty:
     unmapped = instruments[instruments["tv_symbol"].isna()]
     if not unmapped.empty:
         st.caption(
-            "Estos valores usan nuestro propio grafico en lugar del widget. "
-            "No es un fallo: es la degradacion prevista."
+            "Estos valores usan nuestro propio gráfico en lugar del widget. "
+            "No es un fallo: es la degradación prevista."
         )
         st.dataframe(
             unmapped[["ticker", "name", "asset_class"]],
@@ -61,9 +61,9 @@ if not instruments.empty:
 st.divider()
 st.subheader("Calidad de los datos por universo")
 st.caption(
-    "El score penaliza la falta de datos, pero esa penalizacion no se ve. "
-    "Aqui si: un universo con cobertura baja compite en desventaja, y conviene "
-    "saberlo antes de extranarse de que apenas aparezcan sus valores."
+    "El score penaliza la falta de datos, pero esa penalización no se ve. "
+    "Aquí si: un universo con cobertura baja compite en desventaja, y conviene "
+    "saberlo antes de extrañarse de que apenas aparezcan sus valores."
 )
 coverage = da.coverage_by_universe()
 if coverage.empty:
@@ -93,7 +93,7 @@ else:
             ),
             "Cobertura media": st.column_config.ProgressColumn(
                 min_value=0.0, max_value=100.0, format="%.0f%%",
-                help="Fraccion media de campos fundamentales disponibles.",
+                help="Fracción media de campos fundamentales disponibles.",
             ),
         },
     )
@@ -128,29 +128,29 @@ mixed = da.mixed_source_series()
 if not mixed.empty:
     st.warning(
         f"{len(mixed)} series mezclan varias fuentes de precios. Yahoo ajusta "
-        "el cierre por dividendos y Stooq no, asi que en el dia del relevo hay "
+        "el cierre por dividendos y Stooq no, así que en el día del relevo hay "
         "un salto que no es un movimiento real del mercado. Reconstruyelas con "
         "`make repair`.",
         icon=":material/call_split:",
     )
     st.dataframe(
         mixed.rename(columns={"ticker": "Valor", "fuentes": "Fuentes",
-                              "n_fuentes": "Cuantas"}),
+                              "n_fuentes": "Cuántas"}),
         hide_index=True, height=min(240, 42 + 35 * len(mixed)),
     )
 else:
     st.caption(
-        ":grey[Ninguna serie mezcla fuentes: todas tienen la misma convencion "
+        ":grey[Ninguna serie mezcla fuentes: todas tienen la misma convención "
         "de ajuste.]"
     )
 
 st.divider()
 st.subheader("Fundamentales que se contradicen")
 st.caption(
-    "Los ratios vienen de un **unico proveedor gratuito**, y un proveedor "
+    "Los ratios vienen de un **único proveedor gratuito**, y un proveedor "
     "gratuito se equivoca. Ninguno de esos errores da un fallo: entran en el "
-    "ranking, suben al valor a los primeros puestos y ahi se quedan con la "
-    "misma pinta que los datos buenos. Aqui se contrastan de tres formas: "
+    "ranking, suben al valor a los primeros puestos y ahí se quedan con la "
+    "misma pinta que los datos buenos. Aquí se contrastan de tres formas: "
     "contra nuestros propios precios, contra las identidades contables que "
     "tienen que cumplir entre si, y contra la descarga anterior."
 )
@@ -158,7 +158,7 @@ st.caption(
 sospechosos = da.review_all_fundamentals()
 if sospechosos.empty:
     st.success(
-        "Ningun valor tiene fundamentales que se contradigan. No garantiza que "
+        "Ningún valor tiene fundamentales que se contradigan. No garantiza que "
         "sean correctos: garantiza que no se ha encontrado nada que los "
         "contradiga, que es otra cosa.",
         icon=":material/check_circle:",
@@ -180,9 +180,9 @@ else:
         },
     )
     st.caption(
-        "**No se corrige nada automaticamente.** Cuando dos datos se "
-        "contradicen no se sabe cual es el equivocado, y elegir uno seria peor "
-        "que avisar de los dos. El detalle de cada uno esta en la pestana "
+        "**No se corrige nada automáticamente.** Cuando dos datos se "
+        "contradicen no se sabe cual es el equivocado, y elegir uno sería peor "
+        "que avisar de los dos. El detalle de cada uno está en la pestaña "
         "Fundamentales de su ficha."
     )
 
@@ -215,14 +215,14 @@ st.divider()
 st.subheader("Como actualizar")
 st.code(
     "make ingest           # datos reales (Yahoo, con Stooq de respaldo)\n"
-    "make ingest-demo      # datos sinteticos, sin red\n"
-    "make compute          # indicadores, senales, factores y amplitud\n"
-    "make compute-presets  # puntua con todos los estilos de inversion\n"
+    "make ingest-demo      # datos sintéticos, sin red\n"
+    "make compute          # indicadores, señales, factores y amplitud\n"
+    "make compute-presets  # puntua con todos los estilos de inversión\n"
     "make repair           # reconstruye series con fuentes mezcladas",
     language="bash",
 )
 st.caption(
-    "La descarga se hace por lotes y sin hilos a proposito: la concurrencia es "
+    "La descarga se hace por lotes y sin hilos a propósito: la concurrencia es "
     "lo que dispara el bloqueo de Yahoo. Un universo de 750 valores son unas 16 "
     "peticiones, no 750. Si Yahoo deja de responder para algunos valores, se "
     "le piden a Stooq: el relevo queda anotado en el registro de arriba."

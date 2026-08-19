@@ -1,11 +1,11 @@
-"""Paleta y estilo comun de los graficos.
+"""Paleta y estilo comun de los gráficos.
 
-Un unico sitio donde viven los colores, para que todo el dashboard se lea como
-un mismo sistema y para poder cambiar de tema sin tocar cada grafico.
+Un único sitio donde viven los colores, para que todo el dashboard se lea como
+un mismo sistema y para poder cambiar de tema sin tocar cada gráfico.
 
-La paleta categorica esta validada para daltonismo: el ORDEN de los colores es
-el mecanismo de seguridad, no una decision estetica. Nunca reordenar los slots
-ni generar colores nuevos por codigo; a partir del noveno, agrupar en "Otros".
+La paleta categórica esta validada para daltonismo: el ORDEN de los colores es
+el mecanismo de seguridad, no una decisión estetica. Nunca reordenar los slots
+ni generar colores nuevos por código; a partir del noveno, agrupar en "Otros".
 """
 
 from __future__ import annotations
@@ -88,10 +88,10 @@ def is_dark() -> bool:
     `st.context.theme` es la fuente fiable: refleja el tema que el navegador
     esta usando de verdad, incluido el heredado del sistema operativo.
     `st.get_option("theme.base")` solo devuelve algo si hay un tema declarado en
-    `config.toml`, y es None en la configuracion por defecto.
+    `config.toml`, y es None en la configuración por defecto.
 
     Ante la duda se asume tema CLARO. Equivocarse hacia oscuro pinta texto
-    blanco sobre fondo blanco y hace desaparecer cifras enteras del grafico;
+    blanco sobre fondo blanco y hace desaparecer cifras enteras del gráfico;
     equivocarse hacia claro deja texto oscuro, que al menos se lee.
     """
     try:
@@ -117,14 +117,14 @@ def palette() -> dict:
 
 def series_color(index: int) -> str:
     """Color de la serie n, en orden fijo. A partir del octavo, se repite el
-    ultimo en lugar de inventar un tono nuevo: si hay tantas series, el problema
-    es el grafico, no la paleta."""
+    último en lugar de inventar un tono nuevo: si hay tantas series, el problema
+    es el gráfico, no la paleta."""
     colors = palette()["categorical"]
     return colors[index] if index < len(colors) else colors[-1]
 
 
 def change_color(value: float | None) -> str:
-    """Color para una variacion. Siempre acompanado de signo en el texto."""
+    """Color para una variación. Siempre acompañado de signo en el texto."""
     if value is None:
         return palette()["muted"]
     if value > 0:
@@ -165,7 +165,7 @@ def apply_layout(fig, height: int = 320, showlegend: bool = False, **kwargs):
 
 def format_pct(value, decimals: int = 1, with_sign: bool = True) -> str:
     """Porcentaje con signo explicito. El signo es el canal accesible que
-    acompana al color: sin el, un daltonico no distingue subida de bajada."""
+    acompaña al color: sin el, un daltónico no distingue subida de bajada."""
     if value is None:
         return "—"
     try:

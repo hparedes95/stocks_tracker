@@ -1,6 +1,6 @@
 """Convierte z-scores en frases legibles.
 
-Es lo que separa un ranking util de una tabla de numeros opacos: cada candidato
+Es lo que separa un ranking útil de una tabla de números opacos: cada candidato
 aparece con sus motivos en castellano y con sus pegas, no con un score a secas.
 
 Sin LLM: plantillas deterministas de `config/explanations.yaml`. La misma
@@ -21,7 +21,7 @@ MAX_PROS = 5
 MAX_CONS = 3
 
 INSUFFICIENT_DATA = (
-    "Aparece por su puntuacion tecnica agregada; "
+    "Aparece por su puntuación técnica agregada; "
     "datos fundamentales insuficientes para justificarlo mejor."
 )
 
@@ -85,8 +85,8 @@ def build_reasons(
 ) -> Reasons:
     """Motivos a favor y en contra de un valor.
 
-    `contributions` ordena por importancia (el factor que mas suma se explica
-    primero); si no se pasa, se recorre el catalogo en orden de fichero.
+    `contributions` ordena por importancia (el factor que más suma se explica
+    primero); si no se pasa, se recorre el catálogo en orden de fichero.
     """
     cfg = get_explanations()
     submetrics: dict = cfg.get("submetrics") or {}

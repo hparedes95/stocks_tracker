@@ -1,9 +1,9 @@
-"""El semaforo de deterioro de la cartera, posicion a posicion.
+"""El semáforo de deterioro de la cartera, posición a posición.
 
-Va en la pagina de la cartera, justo debajo del resumen y por encima del
-detalle. Lo importante es que se vea sin buscarlo: una posicion que gana un
+Va en la página de la cartera, justo debajo del resumen y por encima del
+detalle. Lo importante es que se vea sin buscarlo: una posición que gana un
 15 % con el margen desplomandose es exactamente la que no se mira, porque el
-numero verde de al lado dice que todo va bien.
+número verde de al lado dice que todo va bien.
 
 Se ordena por gravedad y no por peso ni por alfabeto: lo que hay que mirar,
 primero.
@@ -30,7 +30,7 @@ ORDEN = {Nivel.ROJO: 0, Nivel.AMBAR: 1, Nivel.GRIS: 2, Nivel.VERDE: 3}
 
 
 def _fila(datos: pd.Series) -> dict:
-    """Parte la fila ancha en el 'hoy' y el 'entonces' que espera el nucleo."""
+    """Parte la fila ancha en el 'hoy' y el 'entonces' que espera el núcleo."""
     hoy, entonces = {}, {}
     for col, valor in datos.items():
         nombre = str(col)
@@ -42,7 +42,7 @@ def _fila(datos: pd.Series) -> dict:
 
 
 def diagnosticos(salud: pd.DataFrame) -> list:
-    """Un diagnostico por posicion, ordenados por lo que hay que mirar antes."""
+    """Un diagnóstico por posición, ordenados por lo que hay que mirar antes."""
     fuera = []
     for _, fila in salud.iterrows():
         partes = _fila(fila)
@@ -62,13 +62,13 @@ def render_health_panel(salud: pd.DataFrame, nombres: dict | None = None) -> Non
     diags = diagnosticos(salud)
     nombres = nombres or {}
 
-    st.subheader("Que ha cambiado desde que compraste")
+    st.subheader("Qué ha cambiado desde que compraste")
     st.caption(
-        "Compara cada posicion con el dia en que la compraste, no con unos "
+        "Compara cada posición con el día en que la compraste, no con unos "
         "umbrales generales. **No predice nada y no dice que vendas**: dice que "
-        "ha cambiado y cuanto, con el numero delante, para que decidas mirando "
+        "ha cambiado y cuanto, con el número delante, para que decidas mirando "
         "el motivo y no el color. Verde significa que se ha mirado y no hay "
-        "nada; **gris significa que no habia datos para mirar**."
+        "nada; **gris significa que no había datos para mirar**."
     )
 
     cuenta = {nivel: sum(1 for d in diags if d.nivel is nivel) for nivel in Nivel}
@@ -80,8 +80,8 @@ def render_health_panel(salud: pd.DataFrame, nombres: dict | None = None) -> Non
     pendientes = [d for d in diags if d.senales]
     if not pendientes:
         st.success(
-            "Ninguna posicion ha empeorado de forma medible desde que la "
-            "compraste. Que no haya senales no significa que no pueda caer: "
+            "Ninguna posición ha empeorado de forma medible desde que la "
+            "compraste. Que no haya señales no significa que no pueda caer: "
             "significa que no hay nada que estas comprobaciones sepan ver.",
             icon=":material/check_circle:",
         )
@@ -98,20 +98,20 @@ def render_health_panel(salud: pd.DataFrame, nombres: dict | None = None) -> Non
             if d.nivel is Nivel.GRIS:
                 if d.hay_datos and not d.comparado:
                     st.info(
-                        "Hay datos de hoy pero ninguno del dia en que "
-                        "compraste, asi que **no se ha podido comparar**. No "
+                        "Hay datos de hoy pero ninguno del día en que "
+                        "compraste, así que **no se ha podido comparar**. No "
                         "es que no haya cambiado nada: es que no se sabe. Pasa "
                         "con las posiciones compradas antes de que el programa "
-                        "empezara a guardar el historico, y se arregla solo con "
+                        "empezara a guardar el histórico, y se arregla solo con "
                         "el tiempo.",
                         icon=":material/help:",
                     )
                 else:
                     st.info(
-                        "No hay datos para comprobar esta posicion. No es que "
+                        "No hay datos para comprobar esta posición. No es que "
                         "este bien: es que no se ha podido mirar. Suele pasar "
-                        "con indices, ETF y cripto, que no publican "
-                        "fundamentales, y con valores recien anadidos. Se "
+                        "con índices, ETF y cripto, que no publican "
+                        "fundamentales, y con valores recien añadidos. Se "
                         "rellena con `stocks.ps1 update`.",
                         icon=":material/help:",
                     )
@@ -129,7 +129,7 @@ def render_health_panel(salud: pd.DataFrame, nombres: dict | None = None) -> Non
             if d.comparado_con is not None and pd.notna(d.comparado_con):
                 st.caption(
                     f"Comparado con el {pd.Timestamp(d.comparado_con):%d/%m/%Y}, "
-                    "el dia de la compra."
+                    "el día de la compra."
                 )
             else:
                 st.caption(

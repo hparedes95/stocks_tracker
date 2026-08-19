@@ -1,12 +1,12 @@
-"""Graficos propios (Plotly).
+"""Gráficos propios (Plotly).
 
-Ambito deliberadamente reducido: aqui solo va lo que TradingView no puede
-mostrar porque son NUESTROS calculos (amplitud, factores, contribuciones,
+Ámbito deliberadamente reducido: aquí solo va lo que TradingView no puede
+mostrar porque son NUESTROS cálculos (amplitud, factores, contribuciones,
 rendimiento por sector) o lo que no es una serie de precio.
 
-Regla de accesibilidad que atraviesa el modulo: el color nunca es el unico
+Regla de accesibilidad que atraviesa el módulo: el color nunca es el único
 portador del significado. Toda subida o bajada lleva signo explicito, y las
-series categoricas van con leyenda o etiqueta directa.
+series categóricas van con leyenda o etiqueta directa.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from .theme import (
 
 
 def sparkline(values: pd.Series, height: int = 60, positive: bool | None = None) -> go.Figure:
-    """Mini-grafico sin ejes, para ir dentro de una tarjeta o una celda."""
+    """Mini-gráfico sin ejes, para ir dentro de una tarjeta o una celda."""
     p = palette()
     if positive is None:
         positive = len(values) > 1 and float(values.iloc[-1]) >= float(values.iloc[0])
@@ -51,10 +51,10 @@ def sparkline(values: pd.Series, height: int = 60, positive: bool | None = None)
 
 
 def risk_gauge(score: float, regime: str, height: int = 220) -> go.Figure:
-    """Semaforo risk-on / risk-off.
+    """Semáforo risk-on / risk-off.
 
-    Un unico numero con contexto. El texto del regimen acompana siempre al color:
-    "risk_off" en letra es lo que hace legible el grafico sin depender del tono.
+    Un único número con contexto. El texto del regimen acompaña siempre al color:
+    "risk_off" en letra es lo que hace legible el gráfico sin depender del tono.
     """
     p = palette()
     color = (
@@ -103,12 +103,12 @@ def fear_greed_strip(value: float, bands: list[tuple[float, float, str]],
                      height: int = 120) -> go.Figure:
     """Miedo y codicia como una franja 0-100 con un marcador.
 
-    Deliberadamente NO es un medidor. Es la misma cifra que el semaforo de
-    riesgo en otra escala, y ponerle un segundo dial al lado la convertiria
+    Deliberadamente NO es un medidor. Es la misma cifra que el semáforo de
+    riesgo en otra escala, y ponerle un segundo dial al lado la convertiría
     visualmente en un segundo indicador: dos agujas que no coinciden del todo
-    no informan mas, solo siembran la duda de a cual hacer caso.
+    no informan más, solo siembran la duda de a cual hacer caso.
 
-    Los tramos van rotulados con su nombre, asi que el color no carga con el
+    Los tramos van rotulados con su nombre, así que el color no carga con el
     significado el solo.
     """
     p = palette()
@@ -149,7 +149,7 @@ def fear_greed_strip(value: float, bands: list[tuple[float, float, str]],
 def sector_bars(df: pd.DataFrame, value_col: str, height: int = 380) -> go.Figure:
     """Rendimiento por sector: barras divergentes ordenadas.
 
-    Las barras llevan el valor etiquetado al extremo, asi que el color solo
+    Las barras llevan el valor etiquetado al extremo, así que el color solo
     refuerza el signo, no lo comunica.
     """
     p = palette()
@@ -181,11 +181,11 @@ def sector_bars(df: pd.DataFrame, value_col: str, height: int = 380) -> go.Figur
 
 
 def weight_bars(weights: pd.Series, height: int = 240) -> go.Figure:
-    """Exposicion por categoria: barras desde cero, de un solo color.
+    """Exposición por categoría: barras desde cero, de un solo color.
 
     Deliberadamente distinto de `sector_bars`: un peso no puede ser negativo,
-    asi que un eje divergente y el par rojo/verde sugeririan una lectura de
-    rendimiento que aqui no existe.
+    así que un eje divergente y el par rojo/verde sugerirían una lectura de
+    rendimiento que aquí no existe.
     """
     p = palette()
     data = weights.dropna().sort_values()
@@ -253,7 +253,7 @@ def breadth_lines(df: pd.DataFrame, height: int = 300) -> go.Figure:
 def advance_decline(df: pd.DataFrame, height: int = 260) -> go.Figure:
     """Linea avance-descenso acumulada.
 
-    Su divergencia con el indice es el aviso clasico de que una subida se esta
+    Su divergencia con el índice es el aviso clásico de que una subida se esta
     quedando sin participantes.
     """
     if df.empty or "ad_line" not in df.columns:
@@ -275,7 +275,7 @@ def factor_radar(scores: dict[str, float], height: int = 320) -> go.Figure:
     labels = {
         "value_z": "Valor", "growth_z": "Crecimiento", "quality_z": "Calidad",
         "momentum_z": "Momentum", "lowvol_z": "Estabilidad",
-        "dividend_z": "Dividendo", "technical_z": "Tecnico",
+        "dividend_z": "Dividendo", "technical_z": "Técnico",
     }
     keys = [k for k in labels if k in scores and scores[k] is not None
             and np.isfinite(scores.get(k, np.nan))]
@@ -312,7 +312,7 @@ def factor_radar(scores: dict[str, float], height: int = 320) -> go.Figure:
 
 
 def contribution_bars(contributions: pd.DataFrame, height: int = 260) -> go.Figure:
-    """Que factores suman y cuales restan al score. La respuesta a "por que"."""
+    """Qué factores suman y cuáles restan al score. La respuesta a "por que"."""
     p = palette()
     if contributions.empty:
         return apply_layout(go.Figure(), height=height)
@@ -320,7 +320,7 @@ def contribution_bars(contributions: pd.DataFrame, height: int = 260) -> go.Figu
     labels = {
         "value": "Valor", "growth": "Crecimiento", "quality": "Calidad",
         "momentum": "Momentum", "lowvol": "Estabilidad",
-        "dividend": "Dividendo", "technical": "Tecnico",
+        "dividend": "Dividendo", "technical": "Técnico",
     }
     data = contributions.dropna(subset=["contribution"]).copy()
     data["nombre"] = data["factor"].map(lambda f: labels.get(f, f))
@@ -354,9 +354,9 @@ def price_with_signals(
     prices: pd.DataFrame, indicators: pd.DataFrame,
     signals: pd.DataFrame | None = None, height: int = 460,
 ) -> go.Figure:
-    """Velas con NUESTRAS medias y NUESTRAS senales marcadas.
+    """Velas con NUESTRAS medias y NUESTRAS señales marcadas.
 
-    Esto es lo que ningun widget de TradingView puede dar: sus graficos son una
+    Esto es lo que ningún widget de TradingView puede dar: sus gráficos son una
     caja negra con sus datos, y no admiten que dibujemos nada encima.
     """
     p = palette()
@@ -417,7 +417,7 @@ def price_with_signals(
             fig.add_trace(
                 go.Scatter(
                     x=x_vals, y=y_vals, mode="markers",
-                    name="Senales alcistas" if direction == "bullish" else "Senales bajistas",
+                    name="Señales alcistas" if direction == "bullish" else "Señales bajistas",
                     marker=dict(symbol=symbol, size=9, color=color,
                                 line=dict(width=1.5, color=p["surface"])),
                     text=texts,
@@ -460,7 +460,7 @@ def heatmap_sector_horizon(df: pd.DataFrame, height: int = 380) -> go.Figure:
     """Sector por horizonte temporal. Escala divergente centrada en cero."""
     p = palette()
     horizons = [
-        ("ret_1d", "1 dia"), ("ret_5d", "1 semana"), ("ret_1m", "1 mes"),
+        ("ret_1d", "1 día"), ("ret_5d", "1 semana"), ("ret_1m", "1 mes"),
         ("ret_3m", "3 meses"), ("ret_12m", "12 meses"),
     ]
     cols = [c for c, _ in horizons if c in df.columns]
@@ -493,14 +493,14 @@ def heatmap_sector_horizon(df: pd.DataFrame, height: int = 380) -> go.Figure:
 
 def rotation_chart(df: pd.DataFrame, height: int = 520,
                    trails_for: list[str] | None = None) -> go.Figure:
-    """Grafico de rotacion sectorial (estilo RRG).
+    """Gráfico de rotación sectorial (estilo RRG).
 
-    Eje X: fuerza relativa frente al indice. Eje Y: si esa ventaja se acelera o
+    Eje X: fuerza relativa frente al índice. Eje Y: si esa ventaja se acelera o
     se agota. Los cuadrantes describen DONDE ESTA cada sector ahora; la estela
     muestra por donde ha pasado. Nada de esto dice hacia donde ira.
 
     Cada punto lleva su etiqueta directa: con once sectores, una leyenda de once
-    colores seria indescifrable.
+    colores sería indescifrable.
     """
     p = palette()
     if df.empty:
@@ -576,7 +576,7 @@ def rotation_chart(df: pd.DataFrame, height: int = 520,
     fig.add_vline(x=100, line=dict(color=p["axis"], width=1))
 
     fig = apply_layout(fig, height=height)
-    fig.update_xaxes(title="Fuerza relativa frente al indice", showgrid=False,
+    fig.update_xaxes(title="Fuerza relativa frente al índice", showgrid=False,
                      title_font=dict(size=11, color=p["muted"]))
     fig.update_yaxes(title="Momentum de esa fuerza", showgrid=False,
                      title_font=dict(size=11, color=p["muted"]))
@@ -585,10 +585,10 @@ def rotation_chart(df: pd.DataFrame, height: int = 520,
 
 def sector_treemap(df: pd.DataFrame, group_col: str = "gics_sector",
                    height: int = 480) -> go.Figure:
-    """Mapa de superficie: tamano por capitalizacion, color por rendimiento.
+    """Mapa de superficie: tamaño por capitalización, color por rendimiento.
 
     Complementa al mapa de TradingView porque puede agrupar por **tipo de
-    inversion**, dimension que aquel no ofrece.
+    inversión**, dimensión que aquel no ofrece.
     """
     p = palette()
     needed = {group_col, "ticker", "market_cap", "ret_1d"}
@@ -629,7 +629,7 @@ def sector_treemap(df: pd.DataFrame, group_col: str = "gics_sector",
 
 
 def correlation_line(df: pd.DataFrame, height: int = 260) -> go.Figure:
-    """Correlacion media entre pares.
+    """Correlación media entre pares.
 
     Cuando sube, el mercado se mueve en bloque por razones macro y elegir
     valores concretos aporta poco: casi todo sube o baja junto.
@@ -645,9 +645,9 @@ def correlation_line(df: pd.DataFrame, height: int = 260) -> go.Figure:
     fig = go.Figure(
         go.Scatter(
             x=pd.to_datetime(data["date"]), y=data["avg_pairwise_corr"],
-            mode="lines", name="Correlacion media",
+            mode="lines", name="Correlación media",
             line=dict(color=series_color(0), width=2),
-            hovertemplate="%{x|%d %b %Y}<br>Correlacion media: %{y:.2f}<extra></extra>",
+            hovertemplate="%{x|%d %b %Y}<br>Correlación media: %{y:.2f}<extra></extra>",
         )
     )
     fig.add_hline(
@@ -664,10 +664,10 @@ def macro_series(df: pd.DataFrame, title: str, zero_line: bool = False,
                  mark_negative: bool = False, height: int = 240) -> go.Figure:
     """Serie macro simple.
 
-    `zero_line` dibuja la referencia del cero. `mark_negative` marca ademas los
+    `zero_line` dibuja la referencia del cero. `mark_negative` marca además los
     tramos por debajo, y solo se activa donde ese tramo significa algo concreto
     (la curva de tipos invertida). Aplicarlo a cualquier serie que cruce el cero
-    llena el grafico de puntos rojos que no dicen nada.
+    llena el gráfico de puntos rojos que no dicen nada.
     """
     p = palette()
     if df.empty:
@@ -700,7 +700,7 @@ def macro_series(df: pd.DataFrame, title: str, zero_line: bool = False,
 
 def score_distribution(scores: pd.Series, highlight: float | None = None,
                        height: int = 200) -> go.Figure:
-    """Donde cae un valor dentro de la distribucion de scores del universo."""
+    """Donde cae un valor dentro de la distribución de scores del universo."""
     p = palette()
     data = scores.dropna()
     if data.empty:

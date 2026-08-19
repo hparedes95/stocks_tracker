@@ -1,16 +1,16 @@
 """El diario de decisiones: por que compraste, escrito antes de saber el final.
 
-El sesgo retrospectivo no se corrige con buena intencion. Cuando algo sale
-bien, el recuerdo del motivo se reescribe solo para que encaje —"ya decia yo
-que"— y se aprende una leccion que nunca ocurrio. Cuando sale mal, pasa lo
-mismo al reves. La unica defensa conocida es dejarlo por escrito ANTES y
-releerlo despues sin retocarlo.
+El sesgo retrospectivo no se corrige con buena intención. Cuando algo sale
+bien, el recuerdo del motivo se reescribe solo para que encaje —"ya decía yo
+que"— y se aprende una lección que nunca ocurrió. Cuando sale mal, pasa lo
+mismo al reves. La única defensa conocida es dejarlo por escrito ANTES y
+releerlo después sin retocarlo.
 
-De ahi las tres reglas que gobiernan este modulo:
+De ahí las tres reglas que gobiernan este módulo:
 
 1. **El resultado no es el veredicto.** Que una compra suba no dice que la
-   decision fuera buena: dice que subio. Aqui se calcula el resultado —un
-   numero— y se ofrecen los cuatro veredictos, pero NINGUNA funcion deduce el
+   decisión fuera buena: dice que subió. Aquí se calcula el resultado —un
+   número— y se ofrecen los cuatro veredictos, pero NINGUNA función deduce el
    veredicto del resultado. Esa parte la tiene que poner una persona, porque es
    justo la que el sesgo se lleva por delante.
 
@@ -19,7 +19,7 @@ De ahi las tres reglas que gobiernan este modulo:
    diario que solo guarda compras solo puede registrar aciertos.
 
 3. **La foto del momento no se teclea.** Precio, percentil, RSI y regimen se
-   guardan solos: es lo que de verdad se sabia ese dia, no lo que se recuerda
+   guardan solos: es lo que de verdad se sabía ese día, no lo que se recuerda
    haber sabido.
 """
 
@@ -70,22 +70,22 @@ class Veredicto(StrEnum):
 # archiva como metodo que funciona y se repite hasta que deja de funcionar.
 DESCRIPCION_VEREDICTO = {
     Veredicto.ACIERTO: (
-        "Salio bien Y por el motivo que escribiste",
-        "El proceso funciono. Es el unico caso en el que repetirlo tiene sentido.",
+        "Salió bien Y por el motivo que escribiste",
+        "El proceso funcionó. Es el único caso en el que repetirlo tiene sentido.",
     ),
     Veredicto.SUERTE: (
-        "Salio bien pero por otra cosa",
-        "El resultado no valida el metodo. Es el mas peligroso de los cuatro: "
+        "Salió bien pero por otra cosa",
+        "El resultado no valida el método. Es el más peligroso de los cuatro: "
         "se archiva como acierto y se repite hasta que deja de funcionar.",
     ),
     Veredicto.MALA_SUERTE: (
-        "Salio mal por algo que no podias saber",
-        "El proceso esta bien. Cambiarlo por este resultado seria aprender lo "
+        "Salió mal por algo que no podías saber",
+        "El proceso está bien. Cambiarlo por este resultado sería aprender lo "
         "contrario de lo que paso.",
     ),
     Veredicto.ERROR: (
-        "Salio mal por algo que estaba delante",
-        "Aqui es donde se aprende. Merece la pena escribir que se paso por alto.",
+        "Salió mal por algo que estaba delante",
+        "Aquí es donde se aprende. Merece la pena escribir que se paso por alto.",
     ),
 }
 
@@ -95,7 +95,7 @@ PROCESO_BUENO = frozenset({Veredicto.ACIERTO, Veredicto.MALA_SUERTE})
 
 @dataclass(frozen=True)
 class Entrada:
-    """Una decision registrada. Lo escrito no se toca; la revision se anade."""
+    """Una decisión registrada. Lo escrito no se toca; la revisión se añade."""
 
     id: str
     created_at: datetime
@@ -127,7 +127,7 @@ class Entrada:
         return self.fecha + timedelta(days=max(0, self.horizonte_dias))
 
     def toca_revisar(self, hoy: date | None = None) -> bool:
-        """Si ya se cumplio el plazo que TU te diste y sigue sin revisar."""
+        """Si ya se cumplió el plazo que TU te diste y sigue sin revisar."""
         if self.revisada:
             return False
         return (hoy or date.today()) >= self.vence_el() + timedelta(
@@ -135,7 +135,7 @@ class Entrada:
 
     # -- El resultado, que NO es el veredicto -------------------------------
     def movimiento(self, precio_hoy: float | None) -> float | None:
-        """Cuanto se ha movido el valor desde el dia de la decision."""
+        """Cuanto se ha movido el valor desde el día de la decisión."""
         if precio_hoy is None or self.precio is None or self.precio <= 0:
             return None
         if not math.isfinite(precio_hoy) or not math.isfinite(self.precio):
@@ -143,12 +143,12 @@ class Entrada:
         return precio_hoy / self.precio - 1.0
 
     def resultado(self, precio_hoy: float | None) -> float | None:
-        """Lo que la DECISION te ha dado, con el signo que le corresponde.
+        """Lo que la DECISIÓN te ha dado, con el signo que le corresponde.
 
-        Para una compra es lo que subio el valor. Para una venta o un "no
-        compro" es lo contrario: si el valor se desploma despues de que decidas
-        no comprarlo, la decision fue buena aunque el numero del valor sea
-        negativo. Sin invertir el signo, esquivar una ruina se archivaria como
+        Para una compra es lo que subió el valor. Para una venta o un "no
+        compro" es lo contrario: si el valor se desploma después de que decidas
+        no comprarlo, la decisión fue buena aunque el número del valor sea
+        negativo. Sin invertir el signo, esquivar una ruina se archivaría como
         fracaso.
         """
         movido = self.movimiento(precio_hoy)
@@ -161,8 +161,8 @@ class Entrada:
         """El resultado descontando lo que hizo el mercado en el mismo periodo.
 
         Comprar bien en un mercado que sube un 30 % no demuestra nada, y no
-        comprar en uno que cae tampoco. Es el mismo motivo que en la atribucion:
-        sin descontar la marea, cada decision se califica por el ano que le toco.
+        comprar en uno que cae tampoco. Es el mismo motivo que en la atribución:
+        sin descontar la marea, cada decisión se califica por el año que le toco.
         """
         propio = self.resultado(precio_hoy)
         if propio is None or mercado_hoy is None or self.precio_mercado is None:
@@ -176,7 +176,7 @@ class Entrada:
 
 
 def pendientes(entradas: list[Entrada], hoy: date | None = None) -> list[Entrada]:
-    """Las que ya cumplieron su plazo y siguen sin revisar, la mas vieja antes."""
+    """Las que ya cumplieron su plazo y siguen sin revisar, la más vieja antes."""
     return sorted((e for e in entradas if e.toca_revisar(hoy)),
                   key=lambda e: e.vence_el())
 
@@ -208,11 +208,11 @@ class Balance:
 
     @property
     def por_suerte(self) -> float | None:
-        """Que fraccion de lo que salio bien fue por otra cosa.
+        """Que fracción de lo que salió bien fue por otra cosa.
 
-        Es el numero mas incomodo del diario y el que mas ensena: si la mayoria
-        de los aciertos son por motivos que no habias escrito, lo que funciona
-        no es el metodo.
+        Es el número más incomodo del diario y el que más enseña: si la mayoría
+        de los aciertos son por motivos que no habías escrito, lo que funciona
+        no es el método.
         """
         if not self.buenos_resultados:
             return None
@@ -222,8 +222,8 @@ class Balance:
 def calibracion_por_conviccion(revisadas: list[Entrada]) -> dict:
     """Si tus decisiones muy convencidas salen mejor que las dudosas.
 
-    Si no salen mejor, la conviccion no esta midiendo nada y conviene saberlo:
-    es lo que hace apostar mas fuerte justo donde no toca.
+    Si no salen mejor, la convicción no esta midiendo nada y conviene saberlo:
+    es lo que hace apostar más fuerte justo donde no toca.
     """
     fuera: dict = {}
     for nivel in (1, 2, 3, 4, 5):

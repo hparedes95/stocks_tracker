@@ -1,6 +1,6 @@
 """Unica capa de lectura de la base de datos desde la interfaz.
 
-Ninguna pagina escribe SQL suelto: todo pasa por aqui, cacheado. Asi la UI
+Ninguna página escribe SQL suelto: todo pasa por aqui, cacheado. Asi la UI
 responde en milisegundos y se puede cambiar el esquema en un solo sitio.
 """
 
@@ -39,7 +39,7 @@ def default_preset() -> str:
 def available_presets() -> list[str]:
     """Perfiles con scores ya calculados en el almacen.
 
-    Ofrecer en el selector un perfil que nadie ha calculado dejaria la pagina
+    Ofrecer en el selector un perfil que nadie ha calculado dejaria la página
     vacia sin explicar por que.
     """
     stored = set(_fetch("SELECT DISTINCT weights_hash FROM factor_scores")["weights_hash"])
@@ -121,7 +121,7 @@ def get_tv_symbol(ticker: str) -> str | None:
 
     Devolver None NO es un fallo: la interfaz dibuja entonces nuestro propio
     grafico. Nunca se renderiza un widget con simbolo invalido, porque mostraria
-    "Invalid symbol" y pareceria que la aplicacion esta rota.
+    "Invalid symbol" y pareceria que la aplicacion está rota.
     """
     df = _fetch("SELECT tv_symbol FROM instruments WHERE ticker = ?", [ticker])
     if df.empty or pd.isna(df.iloc[0]["tv_symbol"]):
@@ -300,7 +300,7 @@ def get_sector_performance() -> pd.DataFrame:
 
 @st.cache_data(ttl=TTL, show_spinner=False)
 def get_breadth(scope: str | None = None, days: int = 400) -> pd.DataFrame:
-    """Serie de amplitud. Sin ambito, el configurado en `universe.yaml`."""
+    """Serie de amplitud. Sin ámbito, el configurado en `universe.yaml`."""
     return _fetch(
         """
         SELECT * FROM breadth_daily
@@ -391,7 +391,7 @@ def get_macro_prices(tickers: tuple[str, ...]) -> pd.DataFrame:
 
 @st.cache_data(ttl=TTL, show_spinner=False)
 def get_signal_evidence(scope: str | None = None) -> pd.DataFrame:
-    """Etiquetas de evidencia historica por senal, ambito y horizonte."""
+    """Etiquetas de evidencia historica por señal, ámbito y horizonte."""
     if scope:
         return _fetch(
             """
@@ -405,7 +405,7 @@ def get_signal_evidence(scope: str | None = None) -> pd.DataFrame:
 
 @st.cache_data(ttl=TTL, show_spinner=False)
 def evidence_by_signal(scope: str = "equity_us", horizon: int = 21) -> dict[str, str]:
-    """Mapa senal -> etiqueta, para marcar en gris las que no estan validadas."""
+    """Mapa señal -> etiqueta, para marcar en gris las que no estan validadas."""
     df = _fetch(
         """
         SELECT signal_id, evidence FROM signal_evidence
@@ -435,7 +435,7 @@ def get_regime(days: int = 400) -> pd.DataFrame:
 def coverage_by_universe() -> pd.DataFrame:
     """Cuanta informacion fundamental hay, por universo.
 
-    Es el diagnostico que mas falta hacia para Europa: Yahoo deja muchos
+    Es el diagnóstico que mas falta hacia para Europa: Yahoo deja muchos
     campos vacios fuera de Estados Unidos, y un valor con la mitad de los
     datos no compite en igualdad con uno que los tiene todos. El score ya
     penaliza por cobertura, pero sin verlo aqui no hay forma de saber si un
@@ -479,7 +479,7 @@ def data_origin() -> dict:
 
     Existe por un fallo real de confianza: alguien instalo el programa, vio el
     S&P 500 a 8.489 cuando el mercado habia cerrado a 7.757, y penso —con toda
-    la razon— que los calculos estaban mal. No lo estaban: eran los datos de
+    la razón— que los calculos estaban mal. No lo estaban: eran los datos de
     prueba que genera el instalador. Un dashboard financiero que no distingue a
     simple vista un precio real de uno inventado no vale para nada, por bien
     que calcule.
@@ -659,7 +659,7 @@ def get_sector_medians(sector: str) -> pd.Series:
 
     El parametro se normaliza aqui ademas de en quien llama: es la ultima
     frontera antes de la base de datos, y un hueco de pandas colandose como
-    parametro tumba la pagina con un error sobre conversiones a DOUBLE que no
+    parametro tumba la página con un error sobre conversiones a DOUBLE que no
     menciona ni el sector ni el ticker.
     """
     sector = as_text(sector)
@@ -974,7 +974,7 @@ def get_position_health() -> pd.DataFrame:
     de hoy en los dos lados no compararia nada y todo saldria en verde.
 
     Una posicion comprada antes de que existiera el historico de fundamentales
-    no tiene columnas `_entonces`: salen nulas, y el diagnostico se queda en lo
+    no tiene columnas `_entonces`: salen nulas, y el diagnóstico se queda en lo
     que se puede mirar solo con el presente.
     """
     fund = ", ".join(f"f.{c} AS {c}_entonces" for c in _CAMPOS_FUND)
@@ -1030,7 +1030,7 @@ def get_attribution_inputs() -> pd.DataFrame:
     """Cada posicion con lo que hicieron el mercado y su sector MIENTRAS la tenias.
 
     Las referencias se miden en la ventana de cada posicion, desde su
-    `opened_at` hasta hoy. Compararlas todas contra el mismo periodo —el ano
+    `opened_at` hasta hoy. Compararlas todas contra el mismo periodo —el año
     del indice, pongamos— daria un numero limpio y sin sentido: una compra de
     hace un mes no compite contra doce meses de mercado.
 
@@ -1292,13 +1292,13 @@ def review_all_fundamentals(limit: int = 2000) -> pd.DataFrame:
     inventado de 3 te hace comprar.
 
     Tres consultas en total y no tres por valor. Con una consulta por ticker
-    esto tardaba minuto y medio con 600 instrumentos y la pagina se quedaba en
+    esto tardaba minuto y medio con 600 instrumentos y la página se quedaba en
     blanco mientras tanto — que es indistinguible de estar rota.
 
     La beta se deja fuera del barrido a proposito: exige cruzar los retornos de
     cada valor con los del mercado uno a uno, y es lo que hacia lento el
-    recorrido. Ese contraste esta en la ficha de cada valor, donde se calcula
-    solo el que se esta mirando.
+    recorrido. Ese contraste está en la ficha de cada valor, donde se calcula
+    solo el que se está mirando.
     """
     from ..core.consistency import revisar
 

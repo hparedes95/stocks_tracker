@@ -19,7 +19,7 @@
       claves    Muestra que credenciales faltan y como conseguirlas
       mercados  Estado de Kraken y Polymarket: que falta para operar
       polymarket Comprueba la lectura de Polymarket (no necesita wallet)
-      calibracion ¿Se equivoca Polymarket lo bastante como para apostar?
+      calibracion Se equivoca Polymarket lo bastante como para apostar?
       cripto    Historico de cripto (Yahoo) y comparacion con Kraken
       pendientes Ordenes que el freno de mano dejo esperando tu visto bueno
       ciclo     Un ciclo del bot de cripto (lo llama el programador)
@@ -306,7 +306,7 @@ switch ($Task) {
         # --- El bot de cripto -------------------------------------------------
         # Cada seis horas y no una vez al dia: cripto no cierra, y un stop que
         # solo se mira a las 23:15 no es un stop, es una consulta. Seis horas
-        # tampoco es proteccion de verdad —eso serian minutos— pero es lo que
+        # tampoco es proteccion de verdad  - eso serian minutos -  pero es lo que
         # da un ordenador personal sin tenerlo encendido a proposito.
         #
         # No a la hora en punto: si coincidiera con la actualizacion de datos,
@@ -451,7 +451,7 @@ switch ($Task) {
         # espera. No necesita wallet ni clave: solo lee.
         #
         # Existe porque el lector se escribio sin poder llamar a Polymarket
-        # —la red del entorno de desarrollo lo bloquea—, asi que la primera
+        #  - la red del entorno de desarrollo lo bloquea - , asi que la primera
         # vez que se ejecuta de verdad es aqui. Mejor que lo diga esto, con
         # nombre y apellidos del campo que no cuadra, a que reviente luego.
         Assert-Venv
@@ -497,8 +497,8 @@ switch ($Task) {
 
     'pendientes' {
         # Lo que el freno de mano dejo esperando. En 'guarded' el bot opera
-        # solo salvo lo que cruce un freno —importe anormal, primera orden con
-        # dinero real, abrir estando en perdidas— y eso espera aqui.
+        # solo salvo lo que cruce un freno  - importe anormal, primera orden con
+        # dinero real, abrir estando en perdidas -  y eso espera aqui.
         #
         # Aprobar NO se salta el riesgo: la orden ya paso por el mandato. Lo
         # que estaba en pausa era el ultimo paso, y el precio se comprueba de

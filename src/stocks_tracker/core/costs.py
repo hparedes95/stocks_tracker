@@ -2,20 +2,20 @@
 
 Tres capas, y conviene no mezclarlas porque se pagan en momentos distintos:
 
-1. **Al comprar y al vender**: comision del broker y cambio de divisa. Se pagan
+1. **Al comprar y al vender**: comisión del broker y cambio de divisa. Se pagan
    en el momento, salgan las cosas bien o mal.
-2. **Cada dividendo**: retencion en el pais de la empresa. Parte se recupera en
-   la declaracion del ano siguiente, parte no se recupera nunca.
-3. **Al vender con ganancia**: IRPF sobre la plusvalia, por tramos.
+2. **Cada dividendo**: retención en el pais de la empresa. Parte se recupera en
+   la declaración del año siguiente, parte no se recupera nunca.
+3. **Al vender con ganancia**: IRPF sobre la plusvalía, por tramos.
 
 **Esto no es asesoramiento fiscal.** Son las reglas generales de un residente en
-Espana que invierte por cuenta propia, y sirven para COMPARAR alternativas antes
-de comprar. Los tipos cambian, tu situacion puede tener minusvalias pendientes
-de otros ejercicios, y la declaracion la hace Hacienda con sus datos.
+España que invierte por cuenta propia, y sirven para COMPARAR alternativas antes
+de comprar. Los tipos cambian, tu situación puede tener minusvalias pendientes
+de otros ejercicios, y la declaración la hace Hacienda con sus datos.
 
-Por que existe este modulo: un valor estadounidense con un 3 % de dividendo no
-renta un 3 %. Renta un 2,55 % despues de la retencion en origen, y menos aun
-despues del IRPF. Comparar ese 3 % con el 3 % de un valor britanico —que no
+Por que existe este módulo: un valor estadounidense con un 3 % de dividendo no
+renta un 3 %. Renta un 2,55 % después de la retención en origen, y menos aun
+después del IRPF. Comparar ese 3 % con el 3 % de un valor británico —que no
 retiene nada— es comparar dos cosas distintas creyendo que son la misma.
 """
 
@@ -44,7 +44,7 @@ def _broker() -> dict:
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class CosteOperacion:
-    """Lo que cuesta ejecutar una operacion, en euros."""
+    """Lo que cuesta ejecutar una operación, en euros."""
 
     importe: float
     comision: float
@@ -58,26 +58,26 @@ class CosteOperacion:
 
     @property
     def pct(self) -> float:
-        """Coste sobre el importe. Es el numero que se compara entre opciones."""
+        """Coste sobre el importe. Es el número que se compara entre opciones."""
         return (self.total / self.importe * 100.0) if self.importe > 0 else 0.0
 
     @property
     def ida_y_vuelta_pct(self) -> float:
         """Comprar Y vender. Es lo que de verdad tienes que recuperar.
 
-        Mirar solo la compra hace parecer barata una operacion que cuesta el
+        Mirar solo la compra hace parecer barata una operación que cuesta el
         doble: nadie compra para no vender nunca.
         """
         return self.pct * 2.0
 
 
 def coste_operacion(importe_eur: float, moneda: str = "EUR") -> CosteOperacion:
-    """Comision, cambio de divisa y canon de una operacion.
+    """Comisión, cambio de divisa y canon de una operación.
 
     El cambio de divisa se aplica sobre el IMPORTE ENTERO, no sobre el
-    beneficio, y solo si la moneda no es la de la cuenta. Es el coste que mas
-    sorprende: en una compra de 1.000 EUR en dolares al 0,25 % son 2,50 EUR de
-    ida y otros 2,50 de vuelta, mas que muchas comisiones.
+    beneficio, y solo si la moneda no es la de la cuenta. Es el coste que más
+    sorprende: en una compra de 1.000 EUR en dólares al 0,25 % son 2,50 EUR de
+    ida y otros 2,50 de vuelta, más que muchas comisiones.
     """
     cfg = _broker()
     importe = max(0.0, float(importe_eur))
@@ -111,32 +111,32 @@ class Dividendo:
 
     @property
     def perdido_pct(self) -> float:
-        """Lo retenido que NO se recupera ni en la declaracion.
+        """Lo retenido que NO se recupera ni en la declaración.
 
         Es dinero que no vuelve: para recuperarlo hay que reclamar al pais de
-        origen, un tramite que casi nadie hace y que en cantidades pequenas
-        cuesta mas de lo que devuelve.
+        origen, un tramite que casi nadie hace y que en cantidades pequeñas
+        cuesta más de lo que devuelve.
         """
         return max(0.0, self.retencion_pct - self.recuperable_pct)
 
     @property
     def neto_inmediato_pct(self) -> float:
-        """Lo que llega a tu cuenta el dia del pago, antes del IRPF."""
+        """Lo que llega a tu cuenta el día del pago, antes del IRPF."""
         return self.bruto_pct * (1.0 - self.retencion_pct / 100.0)
 
     @property
     def neto_tras_declaracion_pct(self) -> float:
-        """Contando la deduccion por doble imposicion, antes del IRPF espanol."""
+        """Contando la deducción por doble imposición, antes del IRPF español."""
         return self.bruto_pct * (1.0 - self.perdido_pct / 100.0)
 
 
 def dividendo_neto(bruto_pct: float, pais: str = "desconocido",
                    con_w8ben: bool = True) -> Dividendo:
-    """Que queda de un dividendo despues de la retencion en origen.
+    """Que queda de un dividendo después de la retención en origen.
 
     `con_w8ben` solo cambia EE. UU., y cambia mucho: 15 % frente a 30 %. El
     formulario lo suele pedir el broker al abrir la cuenta y se renueva cada
-    tres anos; si caduca, la retencion sube al 30 sin avisar.
+    tres años; si caduca, la retención sube al 30 sin avisar.
     """
     cfg = get_costs_config()
     clave = (pais or "desconocido").upper()
@@ -166,9 +166,9 @@ def impuesto_plusvalia(ganancia_eur: float,
     """IRPF de la base del ahorro, por tramos y de forma acumulativa.
 
     `ganancias_previas_eur` son las que ya tienes en el mismo ejercicio: los
-    tramos se aplican al TOTAL del ano, no a cada venta por separado. Sin
-    tenerlas en cuenta, cada venta se calcularia desde el 19 % y el resultado
-    saldria bajo justo cuando mas importa.
+    tramos se aplican al TOTAL del año, no a cada venta por separado. Sin
+    tenerlas en cuenta, cada venta se calcularía desde el 19 % y el resultado
+    saldría bajo justo cuando más importa.
     """
     if ganancia_eur <= 0:
         return 0.0
@@ -206,7 +206,7 @@ def tipo_efectivo_pct(ganancia_eur: float,
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class AvisoDosMeses:
-    """Una recompra que dejaria una perdida sin poder compensar."""
+    """Una recompra que dejaría una pérdida sin poder compensar."""
 
     ticker: str
     vendido_el: date
@@ -216,11 +216,11 @@ class AvisoDosMeses:
 
     @property
     def libre_el(self) -> date:
-        """El primer dia en que recomprar ya no arrastra la perdida.
+        """El primer día en que recomprar ya no arrastra la pérdida.
 
-        Un dia MAS que la ventana. El articulo habla de los dos meses
-        anteriores o posteriores, asi que el dia 60 todavia esta dentro:
-        diciendo que el 60 ya se puede, el aviso salia el mismo dia en que se
+        Un día MÁS que la ventana. El articulo habla de los dos meses
+        anteriores o posteriores, así que el día 60 todavía esta dentro:
+        diciendo que el 60 ya se puede, el aviso salía el mismo día en que se
         anunciaba que dejaba de aplicar, contradiciendose solo.
         """
         return self.vendido_el + timedelta(days=self.dias_desde_venta
@@ -239,16 +239,16 @@ class ReglaDosMeses:
 def comprobar_dos_meses(ticker: str, ventas_con_perdida: list[dict],
                         hoy: date | None = None,
                         cotizado: bool = True) -> ReglaDosMeses:
-    """Si recomprar hoy dejaria una perdida reciente sin poder compensar.
+    """Si recomprar hoy dejaría una pérdida reciente sin poder compensar.
 
-    Art. 33.5 LIRPF: una perdida por transmision de valores no se computa si
+    Art. 33.5 LIRPF: una pérdida por transmisión de valores no se computa si
     se compran valores homogeneos dentro de los dos meses anteriores o
-    posteriores. La perdida no se pierde —queda aplazada hasta que vendas lo
+    posteriores. La pérdida no se pierde —queda aplazada hasta que vendas lo
     nuevo— pero no sirve para compensar este ejercicio, que suele ser justo
-    para lo que se vendio.
+    para lo que se vendió.
 
-    Es el error mas facil de cometer sin enterarse: vendes en perdidas para
-    hacer caja fiscal y recompras a los diez dias porque el valor te sigue
+    Es el error más fácil de cometer sin enterarse: vendes en pérdidas para
+    hacer caja fiscal y recompras a los diez días porque el valor te sigue
     gustando.
 
     `ventas_con_perdida` son diccionarios con `closed_at` y `perdida_eur`.
@@ -293,9 +293,9 @@ class CosteTotal:
     def cuanto_tiene_que_subir_pct(self) -> float:
         """Cuanto tiene que subir el valor solo para no perder dinero.
 
-        Es el numero mas util de todo esto: convierte los costes en el listón
+        Es el número más útil de todo esto: convierte los costes en el listón
         que hay que superar. Con comisiones de ida y vuelta del 0,5 %, una
-        operacion que sube un 0,4 % pierde dinero aunque la pantalla la pinte
+        operación que sube un 0,4 % pierde dinero aunque la pantalla la pinte
         en verde.
         """
         return self.operacion.ida_y_vuelta_pct

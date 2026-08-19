@@ -1,10 +1,10 @@
-"""Importacion de la cartera desde un extracto del broker.
+"""Importación de la cartera desde un extracto del broker.
 
-Vive en su propio modulo porque el flujo tiene tres pasos —leer, comprobar,
+Vive en su propio módulo porque el flujo tiene tres pasos —leer, comprobar,
 guardar— y el paso del medio es el que importa: **nunca se guarda nada sin
-ensenar antes lo que se va a guardar**. Un extracto mal interpretado mete
-precios equivocados en la cartera, y a partir de ahi todo lo que se calcula
-encima esta mal sin que nada avise.
+enseñar antes lo que se va a guardar**. Un extracto mal interpretado mete
+precios equivocados en la cartera, y a partir de ahí todo lo que se calcula
+encima está mal sin que nada avise.
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from .. import data_access as da
 _HELP = """
 **Ninguno de los dos brokers permite conectarse.** eToro no da API de lectura
 de cartera a particulares y Trade Republic no tiene API publica. Existen
-clientes no oficiales para Trade Republic, pero piden tu telefono y tu PIN, e
-incumplen sus condiciones de uso: no se usan aqui.
+clientes no oficiales para Trade Republic, pero piden tu teléfono y tu PIN, e
+incumplen sus condiciones de uso: no se usan aquí.
 
-Asi que se exporta y se importa. Es manual, pero no le entregas tus
+Así que se exporta y se importa. Es manual, pero no le entregas tus
 credenciales a nadie.
 
 **eToro** · Menu de la cuenta → *Historial* → icono de descarga → *Extracto de
@@ -29,7 +29,7 @@ cuenta*. Baja un XLSX; sube ese fichero tal cual.
 
 **Trade Republic** · Perfil → *Documentos* / *Informes*. Si solo consigues PDF,
 usa el boton de abajo para escribir las posiciones a mano en una tabla, que
-para diez o quince valores va mas rapido que pelearse con el PDF.
+para diez o quince valores va más rápido que pelearse con el PDF.
 """
 
 
@@ -71,7 +71,7 @@ def render_broker_import() -> None:
     # equivocado en la cartera.
     with st.expander("Revisar que columna es cada cosa", expanded=not guess.get("qty")):
         labels = {
-            "ticker": "Simbolo", "isin": "ISIN", "name": "Nombre",
+            "ticker": "Símbolo", "isin": "ISIN", "name": "Nombre",
             "qty": "Cantidad", "avg_cost": "Precio medio de compra",
             "currency": "Divisa",
         }
@@ -107,7 +107,7 @@ def render_broker_import() -> None:
         st.markdown("**Sin equivalencia**")
         st.caption(
             "Estos valores no se pueden importar porque no sabemos a que "
-            "ticker corresponden. Anade su ISIN en `config/isin_map.yaml` y "
+            "ticker corresponden. Añade su ISIN en `config/isin_map.yaml` y "
             "vuelve a subir el fichero."
         )
         st.dataframe(
@@ -125,7 +125,7 @@ def render_broker_import() -> None:
     st.markdown("**Esto es lo que se va a guardar**")
     st.caption(
         "Comprueba sobre todo los precios medios: es donde un fichero mal "
-        "interpretado hace mas dano y menos ruido."
+        "interpretado hace más daño y menos ruido."
     )
     preview = result.positions.rename(
         columns={"ticker": "Valor", "name": "Nombre", "isin": "ISIN",
@@ -143,7 +143,7 @@ def render_broker_import() -> None:
     invested = float((result.positions["qty"] * result.positions["avg_cost"]).sum())
     currencies = sorted(set(result.positions["currency"]))
     st.metric(
-        "Invertido segun el extracto",
+        "Invertido según el extracto",
         f"{invested:,.2f} {currencies[0] if len(currencies) == 1 else ''}".strip(),
         help="Suma de titulos por precio medio. Comparalo con lo que dice tu "
              "broker: si no cuadra, algo se ha interpretado mal.",
@@ -159,7 +159,7 @@ def render_broker_import() -> None:
         st.warning(
             f"Tienes {len(existing)} posiciones registradas y **se van a "
             "reemplazar** por estas. Un extracto es una foto completa de tu "
-            "cartera, asi que anadirlas duplicaria lo que ya tienes.",
+            "cartera, así que anadirlas duplicaría lo que ya tienes.",
             icon=":material/swap_horiz:",
         )
 
@@ -171,8 +171,8 @@ def render_broker_import() -> None:
 def render_manual_table() -> None:
     """Alternativa para cuando el broker solo da PDF."""
     st.caption(
-        "Escribe las posiciones a mano. Para diez o quince valores va mas "
-        "rapido que pelearse con un PDF."
+        "Escribe las posiciones a mano. Para diez o quince valores va más "
+        "rápido que pelearse con un PDF."
     )
     template = pd.DataFrame(
         {"Valor": pd.Series(dtype="str"), "Titulos": pd.Series(dtype="float"),

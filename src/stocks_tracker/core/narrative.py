@@ -22,7 +22,7 @@ MAX_SENTENCES = 5
 FORBIDDEN_TERMS = [
     "subira", "subirá", "bajara", "bajará", "va a subir", "va a bajar",
     "predice", "prediccion", "predicción", "recomendamos", "recomendacion",
-    "recomendación", "deberias comprar", "deberías comprar", "garantiza",
+    "recomendación", "deberías comprar", "deberías comprar", "garantiza",
 ]
 
 
@@ -53,7 +53,7 @@ def _finite(value) -> bool:
 
 
 def render_market_summary(ctx: MarketContext, signal_labels: dict | None = None) -> list[str]:
-    """Frases del resumen, en orden de prioridad y como maximo cinco."""
+    """Frases del resumen, en orden de prioridad y como máximo cinco."""
     labels = signal_labels or {}
     out: list[str] = []
 
@@ -62,7 +62,7 @@ def render_market_summary(ctx: MarketContext, signal_labels: dict | None = None)
         lead_name, lead_ret = ctx.sector_leaders[0]
         lag_name, lag_ret = ctx.sector_laggards[0]
         out.append(
-            f"Hoy lidera **{lead_name}** ({lead_ret:+.1%}) y se queda atras "
+            f"Hoy lidera **{lead_name}** ({lead_ret:+.1%}) y se queda atrás "
             f"**{lag_name}** ({lag_ret:+.1%})."
         )
 
@@ -73,7 +73,7 @@ def render_market_summary(ctx: MarketContext, signal_labels: dict | None = None)
         and ctx.declines > ctx.advances > 0
     ):
         out.append(
-            f"El indice sube ({ctx.index_ret_1d:+.1%}) pero **caen mas valores de los "
+            f"El índice sube ({ctx.index_ret_1d:+.1%}) pero **caen más valores de los "
             f"que suben** ({ctx.declines} frente a {ctx.advances}): la subida esta "
             "concentrada en pocos nombres."
         )
@@ -85,7 +85,7 @@ def render_market_summary(ctx: MarketContext, signal_labels: dict | None = None)
             zona = "extrema baja" if pct < 30 else "de euforia"
             out.append(
                 f"Amplitud en zona **{zona}** ({pct:.0f} % de los valores sobre su "
-                "MM200); historicamente estas lecturas coinciden con movimientos "
+                "MM200); históricamente estas lecturas coinciden con movimientos "
                 "amplios en ambos sentidos."
             )
         elif _finite(ctx.pct_above_sma200_prev_week):
@@ -101,7 +101,7 @@ def render_market_summary(ctx: MarketContext, signal_labels: dict | None = None)
     if ctx.regime and _finite(ctx.risk_score) and _finite(ctx.risk_score_prev):
         if abs(float(ctx.risk_score) - float(ctx.risk_score_prev)) > 20:
             out.append(
-                f"El semaforo de riesgo esta en **{ctx.regime}** "
+                f"El semáforo de riesgo está en **{ctx.regime}** "
                 f"(score {float(ctx.risk_score):+.0f}, antes "
                 f"{float(ctx.risk_score_prev):+.0f})."
             )
@@ -109,8 +109,8 @@ def render_market_summary(ctx: MarketContext, signal_labels: dict | None = None)
     # BREAKOUTS
     if ctx.n_breakouts_high >= 3 or ctx.n_breakouts_low >= 3:
         out.append(
-            f"{ctx.n_breakouts_high} valores rompen maximos anuales frente a "
-            f"{ctx.n_breakouts_low} en minimos."
+            f"{ctx.n_breakouts_high} valores rompen máximos anuales frente a "
+            f"{ctx.n_breakouts_low} en mínimos."
         )
 
     # VIX en extremo
@@ -118,7 +118,7 @@ def render_market_summary(ctx: MarketContext, signal_labels: dict | None = None)
         p = float(ctx.vix_pctile)
         if p > 0.85 or p < 0.15:
             out.append(
-                f"El VIX esta en {float(ctx.vix):.1f}, percentil {p:.0%} del ultimo ano."
+                f"El VIX está en {float(ctx.vix):.1f}, percentil {p:.0%} del último año."
             )
 
     # SIGNALS con concentracion
@@ -130,12 +130,12 @@ def render_market_summary(ctx: MarketContext, signal_labels: dict | None = None)
     # VOLUME
     if ctx.n_volume_spikes >= 5:
         out.append(
-            f"{ctx.n_volume_spikes} valores negocian mas del doble de su volumen habitual."
+            f"{ctx.n_volume_spikes} valores negocian más del doble de su volumen habitual."
         )
 
     # QUIET: si no ha disparado nada, decirlo es mas util que callar.
     if not out:
-        out.append("Sesion sin movimientos destacables: nada relevante que revisar hoy.")
+        out.append("Sesión sin movimientos destacables: nada relevante que revisar hoy.")
 
     return out[:MAX_SENTENCES]
 

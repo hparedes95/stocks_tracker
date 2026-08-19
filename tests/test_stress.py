@@ -269,7 +269,7 @@ def test_the_crisis_correlation_comes_from_the_config():
 # ---------------------------------------------------------------------------
 def test_the_headline_says_it_fell_when_it_fell():
     r = impacto(ESCENARIO, [posicion()], {"AAA": -0.35}, {})
-    assert "habria caido" in stress.frase_peor(r)
+    assert "habría caído" in stress.frase_peor(r)
 
 
 def test_the_headline_does_not_call_a_gain_a_fall():
@@ -278,7 +278,7 @@ def test_the_headline_does_not_call_a_gain_a_fall():
     y con cualquiera que lleve algo inverso, y es una frase que se cree."""
     r = impacto(ESCENARIO, [posicion()], {"AAA": 0.109}, {})
     frase = stress.frase_peor(r)
-    assert "habria caido" not in frase
+    assert "habría caído" not in frase
     assert "ganado" in frase
 
 

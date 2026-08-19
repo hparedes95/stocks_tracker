@@ -1,6 +1,6 @@
-"""Pagina 3 — Oportunidades.
+"""Página 3 — Oportunidades.
 
-La pagina central del proyecto. La salida no es un score, es un candidato con
+La página central del proyecto. La salida no es un score, es un candidato con
 sus motivos escritos en castellano y con sus pegas al lado.
 """
 
@@ -31,7 +31,7 @@ from stocks_tracker.core.textutils import as_float, as_text
 st.title("Oportunidades")
 st.caption(
     "Ranking relativo dentro del universo filtrado. Indica que valores cumplen "
-    "mas criterios ahora mismo, no que vayan a subir."
+    "más criterios ahora mismo, no que vayan a subir."
 )
 
 filters = sidebar_filters("oport")
@@ -41,11 +41,11 @@ cfg = get_factor_config()
 # Controles
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.subheader("Estilo de inversion")
+    st.subheader("Estilo de inversión")
     presets = da.available_presets()
     if presets:
         style = st.selectbox(
-            "Que factores pesan mas",
+            "Qué factores pesan más",
             options=presets,
             index=presets.index(da.default_preset()) if da.default_preset() in presets
             else 0,
@@ -82,17 +82,17 @@ with st.sidebar:
         help="Evita comprar en tendencia bajista estructural.",
     )
     max_rsi = st.slider(
-        "RSI maximo", min_value=50, max_value=100,
+        "RSI máximo", min_value=50, max_value=100,
         value=int(guards.get("max_rsi14", 75)),
         help="Evita entrar en zona de euforia.",
     )
     min_coverage = st.slider(
-        "Cobertura minima de datos", min_value=0.0, max_value=1.0,
+        "Cobertura mínima de datos", min_value=0.0, max_value=1.0,
         value=float(guards.get("min_coverage", 0.5)), step=0.05,
-        help="Fraccion de campos fundamentales disponibles.",
+        help="Fracción de campos fundamentales disponibles.",
     )
     exclude_deep_drawdown = st.checkbox(
-        "Excluir caidas superiores al 50%", value=True,
+        "Excluir caídas superiores al 50%", value=True,
         help="Un valor en colapso puede seguir cayendo.",
     )
 
@@ -126,7 +126,7 @@ if min_coverage > 0:
     applied.append(f"cobertura ≥ {min_coverage:.0%}")
 if exclude_deep_drawdown:
     filtered = filtered[(filtered["drawdown"].isna()) | (filtered["drawdown"] > -0.50)]
-    applied.append("sin caidas superiores al 50%")
+    applied.append("sin caídas superiores al 50%")
 
 if profile == "conservador":
     filtered = filtered[filtered["lowvol_z"].fillna(0) > -0.5]
@@ -140,7 +140,7 @@ st.caption(
 )
 
 if filtered.empty:
-    st.info("Ningun valor cumple todos los criterios. Prueba a relajar las guardas.")
+    st.info("Ningún valor cumple todos los criterios. Prueba a relajar las guardas.")
     render_disclaimer()
     st.stop()
 
@@ -155,7 +155,7 @@ view_mode = st.segmented_control(
 FACTOR_LABELS = {
     "value_z": "Valor", "growth_z": "Crecimiento", "quality_z": "Calidad",
     "momentum_z": "Momentum", "lowvol_z": "Estabilidad",
-    "dividend_z": "Dividendo", "technical_z": "Tecnico",
+    "dividend_z": "Dividendo", "technical_z": "Técnico",
 }
 
 
@@ -208,7 +208,7 @@ def _render_card(row: pd.Series) -> None:
 
         if reasons.is_empty:
             st.caption(
-                "Aparece por su puntuacion tecnica agregada; datos "
+                "Aparece por su puntuación técnica agregada; datos "
                 "fundamentales insuficientes para justificarlo mejor."
             )
         else:
@@ -236,7 +236,7 @@ def _render_card(row: pd.Series) -> None:
             st.switch_page("pages/4_ficha_valor.py")
         if action_cols[1].button("Guardar", key=f"wl_{ticker}", width="stretch"):
             da.add_to_watchlist(ticker, price=as_float(row.get("close")))
-            st.toast(f"{ticker} anadido a la watchlist")
+            st.toast(f"{ticker} añadido a la watchlist")
 
 
 if view_mode == "Tarjetas":
@@ -256,7 +256,7 @@ else:
             "Nombre": filtered["name"].fillna(""),
             "Sector": filtered["gics_sector"].fillna("—"),
             "Precio": filtered["close"],
-            "Dia": filtered["ret_1d"] * 100,
+            "Día": filtered["ret_1d"] * 100,
             "Score": filtered["composite"],
             "Percentil": filtered["composite_pctile"] * 100,
             **{
@@ -272,7 +272,7 @@ else:
         table, hide_index=True, height=620,
         column_config={
             "Precio": st.column_config.NumberColumn(format="%.2f"),
-            "Dia": st.column_config.NumberColumn(format="%+.2f%%"),
+            "Día": st.column_config.NumberColumn(format="%+.2f%%"),
             "Score": st.column_config.NumberColumn(format="%+.2f"),
             "Percentil": st.column_config.ProgressColumn(
                 min_value=0.0, max_value=100.0, format="%.0f%%"
@@ -293,7 +293,7 @@ else:
         data=table.to_csv(index=False).encode("utf-8"),
         file_name="oportunidades.csv",
         mime="text/csv",
-        help="Incluye el aviso: ranking relativo, no recomendacion de compra.",
+        help="Incluye el aviso: ranking relativo, no recomendación de compra.",
     )
 
 # ---------------------------------------------------------------------------
@@ -303,7 +303,7 @@ st.divider()
 dist_col, screener_col = st.columns([1, 1])
 
 with dist_col:
-    st.subheader("Distribucion de scores")
+    st.subheader("Distribución de scores")
     st.plotly_chart(
         charts.score_distribution(candidates["composite"]),
         width="stretch",
@@ -311,7 +311,7 @@ with dist_col:
     )
     st.caption(
         "Los scores son relativos: la mitad del universo siempre estara por "
-        "debajo de la mediana, tambien en un buen mercado."
+        "debajo de la mediana, también en un buen mercado."
     )
 
 with screener_col:

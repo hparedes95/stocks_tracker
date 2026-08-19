@@ -12,7 +12,7 @@ from .theme import STATUS, format_market_cap, format_pct, palette
 
 
 def render_disclaimer(compact: bool = True) -> None:
-    """Pie legal. Va en TODAS las paginas, sin excepcion."""
+    """Pie legal. Va en TODAS las páginas, sin excepción."""
     if compact:
         st.caption(f":grey[{DISCLAIMER}]")
     else:
@@ -20,7 +20,7 @@ def render_disclaimer(compact: bool = True) -> None:
 
 
 def render_freshness_badge() -> None:
-    """Estado de los datos. Si estan viejos hay que decirlo, no disimularlo."""
+    """Estado de los datos. Si están viejos hay que decirlo, no disimularlo."""
     if da.data_origin()["synthetic"]:
         # El banner grande queda arriba y desaparece al bajar; esto acompana
         # siempre.
@@ -30,7 +30,7 @@ def render_freshness_badge() -> None:
     if last_date is None:
         st.warning(
             "No hay datos cargados. Ejecuta `make ingest` (datos reales) o "
-            "`make ingest-demo` (datos sinteticos) y despues `make compute`.",
+            "`make ingest-demo` (datos sintéticos) y después `make compute`.",
             icon=":material/database_off:",
         )
         return
@@ -38,7 +38,7 @@ def render_freshness_badge() -> None:
     hours = info["hours_since_run"]
     detail = f"Datos hasta el {last_date:%d/%m/%Y}"
     if hours is not None:
-        detail += f" · ultima actualizacion hace {hours:.0f} h"
+        detail += f" · última actualización hace {hours:.0f} h"
 
     if info["is_stale"]:
         st.warning(f"{detail}. Conviene actualizar.", icon=":material/schedule:")
@@ -51,9 +51,9 @@ def render_freshness_badge() -> None:
 def render_data_origin_banner() -> None:
     """Aviso permanente cuando los precios NO son reales.
 
-    Va en `main.py`, fuera de la navegacion, para que salga en TODAS las
-    paginas y no se pueda cerrar. Es deliberadamente aparatoso: un numero
-    inventado con el mismo aspecto que uno real es peor que no tener numero,
+    Va en `main.py`, fuera de la navegación, para que salga en TODAS las
+    páginas y no se pueda cerrar. Es deliberadamente aparatoso: un número
+    inventado con el mismo aspecto que uno real es peor que no tener número,
     porque invita a decidir con el.
     """
     origin = da.data_origin()
@@ -78,7 +78,7 @@ def render_data_origin_banner() -> None:
             + (f"Un **{share:.0%}** de los precios los ha generado el simulador, "
                "no el mercado. " if mixed else
                "Ninguno de los precios que ves viene del mercado real: los ha "
-               "generado el simulador para que puedas probar la aplicacion sin "
+               "generado el simulador para que puedas probar la aplicación sin "
                "esperar la primera descarga. ")
             + "No coinciden con la realidad y **no sirven para decidir nada**.\n\n"
             "Para cargar precios reales, en la carpeta del programa:\n\n"
@@ -97,8 +97,8 @@ def render_data_origin_banner() -> None:
 def render_pending_alerts_badge(target) -> None:
     """Avisos sin revisar. Solo aparece si hay alguno: un contador a cero es ruido.
 
-    `target` es el objeto `st.Page` de la pagina de alertas, no su ruta: con
-    `st.navigation`, `st.page_link` solo entiende paginas ya registradas.
+    `target` es el objeto `st.Page` de la página de alertas, no su ruta: con
+    `st.navigation`, `st.page_link` solo entiende páginas ya registradas.
     """
     pending = da.count_pending_alerts()
     if not pending:
@@ -124,7 +124,7 @@ def sidebar_filters(key_prefix: str = "") -> dict:
             "Sectores",
             options=da.get_sectors(),
             default=[],
-            help="Vacio = todos los sectores",
+            help="Vacío = todos los sectores",
             key=f"{key_prefix}_sectors",
         )
     return {"universe": universe, "sectors": tuple(sectors)}
@@ -133,7 +133,7 @@ def sidebar_filters(key_prefix: str = "") -> dict:
 def metric_row(items: list[dict], columns: int = 5) -> None:
     """Fila de indicadores clave.
 
-    Cada variacion lleva signo explicito: el color refuerza, no comunica.
+    Cada variación lleva signo explicito: el color refuerza, no comunica.
     """
     cols = st.columns(min(columns, max(1, len(items))))
     for i, item in enumerate(items):
@@ -153,9 +153,9 @@ def render_reasons(
 ) -> None:
     """Motivos a favor y en contra, en lenguaje llano.
 
-    Si se pasa `evidence`, las senales sin validacion historica se muestran
-    apagadas. Una senal que no ha demostrado nada no puede presentarse igual que
-    una que si: seria dar la misma autoridad a las dos.
+    Si se pasa `evidence`, las señales sin validación histórica se muestran
+    apagadas. Una señal que no ha demostrado nada no puede presentarse igual que
+    una que si: sería dar la misma autoridad a las dos.
     """
     if reasons.pros:
         st.markdown("**A favor**")
@@ -168,7 +168,7 @@ def render_reasons(
             st.markdown(f"<span style='color:{STATUS['warning']}'>▲</span> {phrase}",
                         unsafe_allow_html=True)
     if show_signals and reasons.signals:
-        st.markdown("**Senales activas hoy**")
+        st.markdown("**Señales activas hoy**")
         st.markdown(render_signal_chips(reasons.signals, evidence, signal_ids),
                     unsafe_allow_html=True)
 
@@ -177,9 +177,9 @@ def render_signal_chips(
     names: list[str], evidence: dict[str, str] | None = None,
     signal_ids: list[str] | None = None,
 ) -> str:
-    """Senales con su estado de validacion.
+    """Señales con su estado de validación.
 
-    Sin validacion historica, una senal es una observacion, no una razon. Se
+    Sin validación histórica, una señal es una observación, no una razón. Se
     marcan en gris con un aviso para que no pesen igual que las validadas.
     """
     if not names:
@@ -198,7 +198,7 @@ def render_signal_chips(
         else:
             note = {
                 "debil": "evidencia debil",
-                "no_validada": "sin evidencia historica",
+                "no_validada": "sin evidencia histórica",
                 "sin_datos": "muestra insuficiente",
             }.get(label, "sin validar")
             parts.append(
@@ -235,7 +235,7 @@ def movers_table(df: pd.DataFrame, height: int = 320) -> None:
             "Nombre": df["name"].fillna(""),
             "Sector": df["gics_sector"].fillna("—"),
             "Precio": df["close"],
-            "Dia": pd.to_numeric(df["ret_1d"], errors="coerce") * 100,
+            "Día": pd.to_numeric(df["ret_1d"], errors="coerce") * 100,
             "Vol. rel.": df.get("rel_volume_20"),
             "Percentil": pd.to_numeric(df.get("composite_pctile"), errors="coerce") * 100,
         }
@@ -246,7 +246,7 @@ def movers_table(df: pd.DataFrame, height: int = 320) -> None:
         height=height,
         column_config={
             "Precio": st.column_config.NumberColumn(format="%.2f"),
-            "Dia": st.column_config.NumberColumn(format="%+.2f%%"),
+            "Día": st.column_config.NumberColumn(format="%+.2f%%"),
             "Vol. rel.": st.column_config.NumberColumn(format="%.1fx"),
             "Percentil": st.column_config.ProgressColumn(
                 min_value=0.0, max_value=100.0, format="%.0f%%"

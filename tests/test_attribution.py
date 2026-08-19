@@ -207,8 +207,8 @@ def test_the_verdict_says_it_plainly_when_you_lost_to_the_market():
     r = resumir([pos(retorno=0.18, retorno_mercado=0.25, retorno_sector=0.22,
                      dias=400) for _ in range(10)])
     texto = veredicto(r)
-    assert "por detras del mercado" in texto
-    assert "el indice" in texto
+    assert "por detrás del mercado" in texto
+    assert "el índice" in texto
 
 
 def test_the_verdict_refuses_to_conclude_without_enough_data():

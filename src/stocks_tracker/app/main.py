@@ -1,8 +1,8 @@
 """Punto de entrada del dashboard.
 
 Se arranca con `make run`, que fija `--server.address 127.0.0.1` de forma
-deliberada: Streamlit no tiene autenticacion, asi que exponerlo en 0.0.0.0
-dejaria la aplicacion abierta a cualquiera en la red. Para acceso remoto, tunel
+deliberada: Streamlit no tiene autenticación, así que exponerlo en 0.0.0.0
+dejaría la aplicación abierta a cualquiera en la red. Para acceso remoto, tunel
 SSH o Tailscale.
 """
 
@@ -43,21 +43,21 @@ alerts_page = st.Page("pages/9_alertas.py", title="Alertas",
 
 pages = {
     "Mercado": [
-        st.Page("pages/1_que_se_mueve_hoy.py", title="Que se mueve hoy",
+        st.Page("pages/1_que_se_mueve_hoy.py", title="Qué se mueve hoy",
                 icon=":material/trending_up:", url_path="hoy", default=True),
-        st.Page("pages/2_sectores.py", title="Sectores y rotacion",
+        st.Page("pages/2_sectores.py", title="Sectores y rotación",
                 icon=":material/donut_large:", url_path="sectores"),
         st.Page("pages/6_macro.py", title="Macro y riesgo",
                 icon=":material/public:", url_path="macro"),
     ],
-    "Seleccion": [
+    "Selección": [
         st.Page("pages/3_oportunidades.py", title="Oportunidades",
                 icon=":material/filter_alt:", url_path="oportunidades"),
         st.Page("pages/4_ficha_valor.py", title="Ficha de valor",
                 icon=":material/search:", url_path="valor"),
     ],
-    "Analisis": [
-        st.Page("pages/7_validacion.py", title="Validacion de senales",
+    "Análisis": [
+        st.Page("pages/7_validacion.py", title="Validación de señales",
                 icon=":material/science:", url_path="validacion"),
     ],
     "Mi cartera": [
@@ -68,7 +68,7 @@ pages = {
         alerts_page,
     ],
     "El bot": [
-        st.Page("pages/10_bot.py", title="Que hace el bot",
+        st.Page("pages/10_bot.py", title="Qué hace el bot",
                 icon=":material/smart_toy:", url_path="bot"),
     ],
     "Sistema": [

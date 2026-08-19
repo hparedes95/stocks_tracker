@@ -1,7 +1,6 @@
-"""Pagina 1 — Que se mueve hoy.
+"""Página 1 — Qué se mueve hoy.
 
-Responde a la pregunta que el usuario se hace al abrir el dashboard: que esta
-pasando y que merece que lo mire. No a "que va a pasar".
+Responde a la pregunta que el usuario se hace al abrir el dashboard: que está pasando y que merece que lo mire. No a "que va a pasar".
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ from stocks_tracker.app.components.theme import STATUS, format_pct
 from stocks_tracker.core.config import get_explanations
 from stocks_tracker.core.narrative import MarketContext, render_market_summary
 
-st.title("Que se mueve hoy")
+st.title("Qué se mueve hoy")
 
 filters = sidebar_filters("mueve")
 universe = filters["universe"]
@@ -118,13 +117,13 @@ if live_tab is not None:
         # la comprobacion que las separa en lugar de dar por buena una.
         st.caption(
             ":grey[Precios **en directo** de TradingView. No alimentan el "
-            "analisis: el ranking, las senales y las alertas se calculan sobre "
-            "el cierre del dia, que es la pestana de al lado. El S&P 500, el "
+            "análisis: el ranking, las señales y las alertas se calculan sobre "
+            "el cierre del día, que es la pestaña de al lado. El S&P 500, el "
             "Nasdaq y el VIX se muestran a traves de contratos que los "
-            "replican, porque los indices oficiales no estan disponibles en la "
-            "version gratuita; fuera del horario de Wall Street pueden marcar "
-            "unas decimas distintas del valor oficial. Si sale un hueco vacio, "
-            "mira el grafico de velas de la ficha de cualquier valor: si ese si "
+            "replican, porque los índices oficiales no están disponibles en la "
+            "versión gratuita; fuera del horario de Wall Street pueden marcar "
+            "unas decimas distintas del valor oficial. Si sale un hueco vacío, "
+            "mira el gráfico de velas de la ficha de cualquier valor: si ese si "
             "se ve, el fallo es de esta pantalla; si tampoco, tu red esta "
             "bloqueando TradingView.]"
         )
@@ -155,8 +154,8 @@ with close_tab:
         if items:
             metric_row(items, columns=min(4, len(items)))
             st.caption(
-                f":grey[Cierre del {last_date:%d/%m/%Y}. Estos son los numeros "
-                "con los que se calculan el ranking, las senales y las alertas.]"
+                f":grey[Cierre del {last_date:%d/%m/%Y}. Estos son los números "
+                "con los que se calculan el ranking, las señales y las alertas.]"
             )
 
 st.divider()
@@ -180,10 +179,10 @@ with pulse_left:
         st.caption(
             "Combina VIX, amplitud, cobre/oro y el comportamiento relativo de "
             "activos ciclicos frente a defensivos. Es una lectura del clima "
-            "actual, no una prevision."
+            "actual, no una previsión."
         )
     else:
-        st.caption("Sin datos de regimen todavia.")
+        st.caption("Sin datos de regimen todavía.")
 
 with pulse_right:
     st.subheader("Amplitud del mercado")
@@ -197,17 +196,17 @@ with pulse_right:
         cols = st.columns(4)
         cols[0].metric("Sobre la MM200", f"{latest['pct_above_sma200']:.0f}%")
         cols[1].metric("Suben / bajan", f"{int(latest['advances'])} / {int(latest['declines'])}")
-        cols[2].metric("Nuevos maximos 52s", int(latest["new_highs_52w"]))
-        cols[3].metric("Nuevos minimos 52s", int(latest["new_lows_52w"]))
+        cols[2].metric("Nuevos máximos 52s", int(latest["new_highs_52w"]))
+        cols[3].metric("Nuevos mínimos 52s", int(latest["new_lows_52w"]))
     else:
-        st.caption("Sin datos de amplitud todavia.")
+        st.caption("Sin datos de amplitud todavía.")
 
 st.divider()
 
 # ---------------------------------------------------------------------------
 # Mayores movimientos
 # ---------------------------------------------------------------------------
-st.subheader("Mayores movimientos del dia")
+st.subheader("Mayores movimientos del día")
 left, right = st.columns(2)
 
 with left:
@@ -232,30 +231,30 @@ tab_break, tab_vol, tab_trend = st.tabs(
 
 with tab_break:
     st.caption(
-        "Valores que hoy rompen su maximo o minimo de 52 semanas. Se excluyen "
-        "los que ya llevaban dias en esa zona: lo informativo es el cruce, no el estado."
+        "Valores que hoy rompen su máximo o mínimo de 52 semanas. Se excluyen "
+        "los que ya llevaban días en esa zona: lo informativo es el cruce, no el estado."
     )
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("**Rompen maximos**")
+        st.markdown("**Rompen máximos**")
         movers_table(breakouts_high, height=260)
     with c2:
-        st.markdown("**Perforan minimos**")
+        st.markdown("**Perforan mínimos**")
         movers_table(breakouts_low, height=260)
 
 with tab_vol:
     st.caption(
-        "Mas del doble de su volumen habitual. El volumen es un evento, no una "
-        "direccion: mira la columna del dia para distinguir acumulacion de capitulacion."
+        "Más del doble de su volumen habitual. El volumen es un evento, no una "
+        "dirección: mira la columna del día para distinguir acumulación de capitulación."
     )
     movers_table(volume_spikes, height=380)
 
 with tab_trend:
     if trend_changes.empty:
-        st.caption("Ninguna senal de cambio de tendencia hoy.")
+        st.caption("Ninguna señal de cambio de tendencia hoy.")
     else:
         st.caption(
-            "Senales disparadas hoy. Sin validacion historica (fase 3) son "
+            "Señales disparadas hoy. Sin validación histórica (fase 3) son "
             "observaciones, no recomendaciones."
         )
         bull = trend_changes[trend_changes["direction"] == "bullish"]
@@ -274,7 +273,7 @@ with tab_trend:
                     {
                         "Ticker": data["ticker"],
                         "Nombre": data["name"].fillna(""),
-                        "Senal": data["signal_id"].map(lambda s: labels.get(s, s)),
+                        "Señal": data["signal_id"].map(lambda s: labels.get(s, s)),
                         "Fuerza": data["strength"],
                     }
                 )
@@ -295,12 +294,12 @@ st.divider()
 st.subheader("Sectores lideres y rezagados")
 
 if sectors.empty:
-    st.caption("Sin datos sectoriales todavia.")
+    st.caption("Sin datos sectoriales todavía.")
 else:
     horizon = st.radio(
         "Horizonte",
         options=["ret_1d", "ret_5d", "ret_1m", "ret_3m"],
-        format_func=lambda c: {"ret_1d": "Dia", "ret_5d": "Semana",
+        format_func=lambda c: {"ret_1d": "Día", "ret_5d": "Semana",
                                "ret_1m": "Mes", "ret_3m": "Trimestre"}[c],
         horizontal=True,
         label_visibility="collapsed",
@@ -311,8 +310,8 @@ else:
         config={"displayModeBar": False},
     )
     st.caption(
-        "Mediana del sector, no media: asi un solo valor disparado por una "
-        "operacion corporativa no arrastra a todo el grupo."
+        "Mediana del sector, no media: así un solo valor disparado por una "
+        "operación corporativa no arrastra a todo el grupo."
     )
 
     if tv_widgets.enabled():

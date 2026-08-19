@@ -1,6 +1,6 @@
-"""Pagina 7 — Validacion de senales.
+"""Página 7 — Validación de señales.
 
-Esta pagina **no predice** nada. Sirve para descartar senales que se comportan
+Esta página **no predice** nada. Sirve para descartar señales que se comportan
 igual que el azar.
 """
 
@@ -23,12 +23,12 @@ from stocks_tracker.backtest import metrics as mx
 from stocks_tracker.backtest import run_backtest as runner
 from stocks_tracker.core.config import get_explanations
 
-st.title("Validacion de senales")
+st.title("Validación de señales")
 
 st.error(
-    "**Esta seccion no predice nada.** Sirve para **descartar** senales que se "
-    "comportan igual que el azar. Una senal solo permanece en el dashboard si, "
-    "despues de costes, bate a la referencia con muestra suficiente. Que haya "
+    "**Esta sección no predice nada.** Sirve para **descartar** señales que se "
+    "comportan igual que el azar. Una señal solo permanece en el dashboard si, "
+    "después de costes, bate a la referencia con muestra suficiente. Que haya "
     "funcionado no garantiza que funcione.",
     icon=":material/warning:",
 )
@@ -46,10 +46,10 @@ EVIDENCE_COLOR = {
 
 if not da.validation_available():
     st.warning(
-        "Todavia no se ha ejecutado ninguna validacion.\n\n"
+        "Todavía no se ha ejecutado ninguna validación.\n\n"
         "Ejecuta `make validate` (o "
         "`python -m stocks_tracker.backtest.run_backtest --tag-signals`) "
-        "y vuelve a esta pagina.",
+        "y vuelve a esta página.",
         icon=":material/science:",
     )
     render_disclaimer()
@@ -58,30 +58,30 @@ if not da.validation_available():
 # ---------------------------------------------------------------------------
 # Advertencias metodologicas: van arriba a proposito
 # ---------------------------------------------------------------------------
-with st.expander("Que sesgos tienen estos resultados", expanded=False):
+with st.expander("Qué sesgos tienen estos resultados", expanded=False):
     st.markdown(
         """
 **Sesgo de supervivencia.** El universo son los constituyentes de **hoy**. Las
-empresas que quebraron o salieron del indice no aparecen, asi que los resultados
-estan sesgados al alza. Trata cualquier cifra como una **cota superior
-optimista**. La composicion se registra a diario, de modo que el sesgo ira
+empresas que quebraron o salieron del índice no aparecen, así que los resultados
+están sesgados al alza. Trata cualquier cifra como una **cota superior
+optimista**. La composición se registra a diario, de modo que el sesgo ira
 desapareciendo hacia adelante.
 
-**Solo senales tecnicas.** Los fundamentales que guardamos son una foto actual,
-no una serie historica: no sabemos que PER tenia una empresa hace tres anos.
-Validar factores fundamentales con los datos de hoy seria hacer trampa, asi que
-aqui solo se validan senales tecnicas.
+**Solo señales técnicas.** Los fundamentales que guardamos son una foto actual,
+no una serie histórica: no sabemos que PER tenía una empresa hace tres años.
+Validar factores fundamentales con los datos de hoy sería hacer trampa, así que
+aquí solo se validan señales técnicas.
 
-**Entrada retardada.** Una senal detectada al cierre no se puede comprar a ese
-cierre. Todos los retornos se miden entrando al cierre del dia **siguiente**.
+**Entrada retardada.** Una señal detectada al cierre no se puede comprar a ese
+cierre. Todos los retornos se miden entrando al cierre del día **siguiente**.
 
-**Costes incluidos.** Se descuentan comision y deslizamiento en la ida y en la
-vuelta. Sin costes, cualquier estrategia de alta rotacion parece rentable.
+**Costes incluidos.** Se descuentan comisión y deslizamiento en la ida y en la
+vuelta. Sin costes, cualquier estrategia de alta rotación parece rentable.
 
 **Referencia obligatoria.** El exceso se mide contra el **universo
-equiponderado**, no contra un indice. Comparar contra un indice mezclaria el
-aporte de la senal con la diferencia estructural entre estas acciones y ese
-indice — un error con firma reconocible: senales opuestas saliendo ambas
+equiponderado**, no contra un índice. Comparar contra un índice mezclaría el
+aporte de la señal con la diferencia estructural entre estas acciones y ese
+índice — un error con firma reconocible: señales opuestas saliendo ambas
 ganadoras.
         """
     )
@@ -100,19 +100,19 @@ with control_left:
             eng.SCOPE_CRYPTO: "Cripto",
         }[s],
         help=(
-            "Una senal validada en un ambito NO esta validada en otro: los "
+            "Una señal validada en un ámbito NO esta validada en otro: los "
             "regimenes y la microestructura no se parecen."
         ),
     )
 with control_right:
     horizon = st.selectbox(
         "Horizonte (sesiones)", options=list(eng.DEFAULT_HORIZONS), index=2,
-        help="Cuantas sesiones se mantiene la posicion tras la senal.",
+        help="Cuántas sesiones se mantiene la posición tras la señal.",
     )
 
 evidence = da.get_signal_evidence(scope)
 if evidence.empty:
-    st.info(f"Sin resultados para el ambito seleccionado. Ejecuta `make validate --scope {scope}`.")
+    st.info(f"Sin resultados para el ámbito seleccionado. Ejecuta `make validate --scope {scope}`.")
     render_disclaimer()
     st.stop()
 
@@ -129,21 +129,21 @@ for i, key in enumerate([eng.VALIDATED, eng.WEAK, eng.NOT_VALIDATED, eng.NO_DATA
 
 if int(counts.get(eng.VALIDATED, 0)) == 0:
     st.info(
-        "Ninguna senal supera la validacion en este ambito y horizonte. **Es un "
+        "Ninguna señal supera la validación en este ámbito y horizonte. **Es un "
         "resultado, no un fallo**: significa que, con los datos disponibles, "
-        "ninguna se distingue del azar despues de costes. Operar cualquiera de "
-        "ellas seria apostar.",
+        "ninguna se distingue del azar después de costes. Operar cualquiera de "
+        "ellas sería apostar.",
         icon=":material/info:",
     )
 
 # ---------------------------------------------------------------------------
 # Tabla de resultados
 # ---------------------------------------------------------------------------
-st.subheader("Resultados por senal")
+st.subheader("Resultados por señal")
 
 table = pd.DataFrame(
     {
-        "Senal": subset["signal_id"].map(lambda s: labels.get(s, s)),
+        "Señal": subset["signal_id"].map(lambda s: labels.get(s, s)),
         "Eventos": subset["n_obs"],
         "Acierto": subset["hit_rate"] * 100,
         "Exceso medio": subset["avg_excess_ret"] * 100,
@@ -154,7 +154,7 @@ st.dataframe(
     table, hide_index=True, height=min(430, 42 + 35 * len(table)),
     column_config={
         "Eventos": st.column_config.NumberColumn(
-            format="%d", help="Por debajo de 100 cualquier conclusion es anecdota."
+            format="%d", help="Por debajo de 100 cualquier conclusión es anecdota."
         ),
         "Acierto": st.column_config.ProgressColumn(
             min_value=0.0, max_value=100.0, format="%.0f%%",
@@ -167,19 +167,19 @@ st.dataframe(
     },
 )
 st.caption(
-    "El **acierto** no basta: en un mercado alcista casi cualquier senal acierta "
-    "mas de la mitad de las veces. Lo que importa es el **exceso** sobre lo que "
-    "habria dado comprar cualquier valor del universo ese mismo dia."
+    "El **acierto** no basta: en un mercado alcista casi cualquier señal acierta "
+    "más de la mitad de las veces. Lo que importa es el **exceso** sobre lo que "
+    "habría dado comprar cualquier valor del universo ese mismo día."
 )
 
 # ---------------------------------------------------------------------------
 # Detalle de una senal
 # ---------------------------------------------------------------------------
 st.divider()
-st.subheader("Detalle de una senal")
+st.subheader("Detalle de una señal")
 
 options = subset["signal_id"].tolist()
-chosen = st.selectbox("Senal", options=options, format_func=lambda s: labels.get(s, s))
+chosen = st.selectbox("Señal", options=options, format_func=lambda s: labels.get(s, s))
 row = subset[subset["signal_id"] == chosen].iloc[0]
 
 badge_col, metrics_col = st.columns([1, 3])
@@ -222,7 +222,7 @@ st.caption(period)
 # Distribucion de retornos: senal frente al resto
 # ---------------------------------------------------------------------------
 st.divider()
-st.subheader("Distribucion de retornos posteriores")
+st.subheader("Distribución de retornos posteriores")
 
 
 @st.cache_data(ttl=900, show_spinner="Calculando el estudio de eventos...")
@@ -230,7 +230,7 @@ def _event_detail(signal_id: str, scope_key: str, horizon_days: int) -> pd.DataF
     """Recalcula el detalle evento a evento para el histograma.
 
     No se guarda en el almacen: es mucho volumen para algo que solo se mira
-    cuando alguien abre esta pagina.
+    cuando alguien abre esta página.
     """
     prices, signals = runner.load_data(scope_key)
     if prices.empty or signals.empty:
@@ -247,13 +247,13 @@ def _event_detail(signal_id: str, scope_key: str, horizon_days: int) -> pd.DataF
 detail = _event_detail(chosen, scope, int(horizon))
 
 if detail.empty:
-    st.caption("Sin detalle disponible para esta senal.")
+    st.caption("Sin detalle disponible para esta señal.")
 else:
     p = palette()
     fig = go.Figure()
     fig.add_trace(
         go.Histogram(
-            x=detail["retorno"] * 100, nbinsx=60, name="Tras la senal",
+            x=detail["retorno"] * 100, nbinsx=60, name="Tras la señal",
             marker=dict(color=series_color(0), line=dict(width=0)), opacity=0.75,
             hovertemplate="Retorno %{x:.1f}%: %{y} eventos<extra></extra>",
         )
@@ -269,15 +269,15 @@ else:
     fig.add_vline(
         x=float(detail["retorno"].mean() * 100),
         line=dict(color=STATUS["good"], width=2, dash="dash"),
-        annotation_text="media tras la senal", annotation_position="top",
+        annotation_text="media tras la señal", annotation_position="top",
         annotation_font=dict(size=10, color=p["text_secondary"]),
     )
     fig = apply_layout(fig, height=320, showlegend=True, barmode="overlay")
     fig.update_xaxes(ticksuffix="%")
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     st.caption(
-        "Si las dos distribuciones se solapan casi por completo, la senal no "
-        "aporta informacion: lo que ocurre despues es lo mismo que habria "
+        "Si las dos distribuciones se solapan casi por completo, la señal no "
+        "aporta información: lo que ocurre después es lo mismo que habría "
         "ocurrido sin ella."
     )
 
@@ -313,16 +313,16 @@ else:
         )
         positive = sum(1 for f in folds if f.avg_excess > 0)
         st.caption(
-            f"Positiva en **{positive} de {len(folds)}** ventanas. Una senal que "
-            "solo funciona en un tramo del historico no es una senal: es una "
-            "fotografia de ese tramo."
+            f"Positiva en **{positive} de {len(folds)}** ventanas. Una señal que "
+            "solo funciona en un tramo del histórico no es una señal: es una "
+            "fotografía de ese tramo."
         )
 
 # ---------------------------------------------------------------------------
 # Comparativa de horizontes
 # ---------------------------------------------------------------------------
 st.divider()
-st.subheader("La misma senal a distintos horizontes")
+st.subheader("La misma señal a distintos horizontes")
 
 across = evidence[evidence["signal_id"] == chosen].sort_values("horizon_days")
 if len(across) > 1:
@@ -345,8 +345,8 @@ if len(across) > 1:
     fig.update_yaxes(ticksuffix="%", zeroline=True, zerolinecolor=p["axis"])
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     st.caption(
-        "Una senal que solo funciona en un horizonte muy concreto es "
-        "sospechosa: suele ser casualidad de la muestra mas que un efecto real."
+        "Una señal que solo funciona en un horizonte muy concreto es "
+        "sospechosa: suele ser casualidad de la muestra más que un efecto real."
     )
 
 st.divider()

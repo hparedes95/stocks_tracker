@@ -1,4 +1,4 @@
-"""Pagina 6 — Macro y riesgo.
+"""Página 6 — Macro y riesgo.
 
 El contexto en el que se mueve todo lo demas. Nada de esto sirve para acertar
 un movimiento concreto: sirve para saber si el viento sopla a favor o en contra.
@@ -50,11 +50,11 @@ with gauge_col:
         )
 
 with detail_col:
-    st.subheader("Que empuja el semaforo")
+    st.subheader("Qué empuja el semáforo")
     st.caption(
-        "El semaforo es la media de varios componentes normalizados de -100 a "
+        "El semáforo es la media de varios componentes normalizados de -100 a "
         "+100. Miedo y codicia **es la misma cifra** en la escala 0-100 a la "
-        "que acostumbra el indice de CNN: no son dos indicadores, es uno "
+        "que acostumbra el índice de CNN: no son dos indicadores, es uno "
         "leido de dos maneras."
     )
 
@@ -74,7 +74,7 @@ with detail_col:
             column_config={
                 "Lectura": st.column_config.NumberColumn(
                     format="%+.0f",
-                    help="De -100 (aversion maxima) a +100 (apetito maximo).",
+                    help="De -100 (aversion máxima) a +100 (apetito máximo).",
                 )
             },
         )
@@ -85,7 +85,7 @@ with detail_col:
     metrics[1].metric(
         "Percentil del VIX",
         f"{float(pctile):.0%}" if pd.notna(pctile) else "—",
-        help="Posicion del VIX dentro del ultimo ano.",
+        help="Posición del VIX dentro del último año.",
     )
     metrics[2].metric(
         "Valores sobre la MM200",
@@ -100,7 +100,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 # Historico del semaforo
 # ---------------------------------------------------------------------------
-st.subheader("Historico del semaforo")
+st.subheader("Histórico del semáforo")
 history = regime.rename(columns={"risk_score": "value"})[["date", "value"]]
 st.plotly_chart(
     charts.macro_series(history, "Score de riesgo (-100 aversion / +100 apetito)",
@@ -112,16 +112,16 @@ st.plotly_chart(
 # Series de FRED
 # ---------------------------------------------------------------------------
 st.divider()
-st.subheader("Tipos, credito y actividad")
+st.subheader("Tipos, crédito y actividad")
 
 if not has_fred:
     st.info(
-        "Las series de tipos, credito y actividad vienen de FRED y necesitan una "
+        "Las series de tipos, crédito y actividad vienen de FRED y necesitan una "
         "clave gratuita.\n\n"
         "1. Consiguela en https://fred.stlouisfed.org/docs/api/api_key.html\n"
         "2. Ponla en `.env` como `FRED_API_KEY=...`\n"
         "3. Ejecuta `make ingest`\n\n"
-        "El resto del dashboard funciona sin ella: ningun calculo del nucleo "
+        "El resto del dashboard funciona sin ella: ningún cálculo del núcleo "
         "depende de esta clave.",
         icon=":material/key:",
     )
@@ -131,7 +131,7 @@ else:
         groups.setdefault(spec.get("group", "otros"), []).append(series_id)
 
     group_labels = {
-        "tipos": "Tipos y curva", "riesgo": "Credito y estres",
+        "tipos": "Tipos y curva", "riesgo": "Crédito y estres",
         "actividad": "Actividad y precios", "divisa": "Divisa",
     }
     tabs = st.tabs([group_labels.get(g, g.title()) for g in groups])
@@ -166,7 +166,7 @@ else:
 st.divider()
 st.subheader("Termometros de mercado")
 st.caption(
-    "Estos salen de los precios, asi que estan disponibles siempre, con o sin "
+    "Estos salen de los precios, así que están disponibles siempre, con o sin "
     "clave de FRED."
 )
 
@@ -178,7 +178,7 @@ if macro_prices.empty:
 else:
     names = {
         "GC=F": "Oro", "HG=F": "Cobre", "CL=F": "Petroleo",
-        "DX-Y.NYB": "Dolar", "BTC-USD": "Bitcoin", "^VIX": "VIX",
+        "DX-Y.NYB": "Dólar", "BTC-USD": "Bitcoin", "^VIX": "VIX",
     }
     kpis = []
     for ticker in macro_tickers:
@@ -223,20 +223,20 @@ else:
 breadth = da.get_breadth()
 if not breadth.empty and breadth["avg_pairwise_corr"].notna().any():
     st.divider()
-    st.subheader("Correlacion media entre valores")
+    st.subheader("Correlación media entre valores")
     st.plotly_chart(
         charts.correlation_line(breadth, height=260),
         width="stretch", config={"displayModeBar": False},
     )
     st.caption(
-        "Cuando la correlacion sube, el mercado se mueve en bloque por razones "
+        "Cuando la correlación sube, el mercado se mueve en bloque por razones "
         "macro y elegir valores concretos aporta poco: casi todo sube o baja "
-        "junto. Cuando baja, las diferencias entre empresas pesan mas."
+        "junto. Cuando baja, las diferencias entre empresas pesan más."
     )
 
 if tv_widgets.enabled():
     st.divider()
-    with st.expander("Calendario economico (TradingView)"):
+    with st.expander("Calendario económico (TradingView)"):
         tv_widgets.economic_calendar(height=520)
 
 st.divider()

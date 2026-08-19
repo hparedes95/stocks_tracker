@@ -1,17 +1,17 @@
 """Widgets embebidos de TradingView.
 
-Unica puerta a los widgets: ninguna pagina escribe HTML de iframe directamente.
+Única puerta a los widgets: ninguna página escribe HTML de iframe directamente.
 
 Tres reglas que no se pueden saltar:
 
-1. La atribucion a TradingView es condicion de la licencia de uso gratuito. Se
-   inyecta siempre y ninguna pagina puede desactivarla.
+1. La atribución a TradingView es condición de la licencia de uso gratuito. Se
+   inyecta siempre y ninguna página puede desactivarla.
 2. El `key` incluye el tema y se incrusta en el HTML. Sin esa diferencia el
    iframe no se vuelve a montar y el widget se queda con el tema anterior al
    pasar de claro a oscuro.
-3. Sin simbolo equivalente NO se renderiza el widget. Se llama al `fallback`, que
-   dibuja nuestro propio grafico. Un iframe con simbolo invalido muestra
-   "Invalid symbol" y hace parecer que la aplicacion esta rota.
+3. Sin símbolo equivalente NO se renderiza el widget. Se llama al `fallback`, que
+   dibuja nuestro propio gráfico. Un iframe con símbolo inválido muestra
+   "Invalid symbol" y hace parecer que la aplicación está rota.
 """
 
 from __future__ import annotations
@@ -63,22 +63,22 @@ def _locale_defaults() -> dict:
 
 
 def _render(widget: str, config: dict, height: int, key: str) -> None:
-    """Monta el widget con su atribucion, dandole EXACTAMENTE `height` px.
+    """Monta el widget con su atribución, dandole EXACTAMENTE `height` px.
 
     `height` es el alto del widget, no el del contenedor. Antes era lo segundo
-    y cada widget restaba por su cuenta 30 px en su configuracion mientras el
-    div reservaba 32: el widget se dibujaba dos pixeles mas alto que su caja y
-    aparecia una barra de scroll interna en todos.
+    y cada widget restaba por su cuenta 30 px en su configuración mientras el
+    div reservaba 32: el widget se dibujaba dos pixeles más alto que su caja y
+    aparecía una barra de scroll interna en todos.
 
-    Dos cosas mas que salieron al medirlo en el navegador:
+    Dos cosas más que salieron al medirlo en el navegador:
 
     - El documento del iframe trae `body { margin: 8px }` por defecto. Son 16 px
-      verticales que nadie habia contado, asi que el contenedor no cabia en el
+      verticales que nadie había contado, así que el contenedor no cabía en el
       iframe y se recortaba por abajo. Se pone el margen a cero.
     - `overflow:hidden` en el body evita la barra de scroll que asomaba por el
       pixel de diferencia al redondear.
 
-    El `key` se incrusta como atributo del contenedor a proposito: hace que el
+    El `key` se incrusta como atributo del contenedor a propósito: hace que el
     HTML difiera entre temas, y con ello Streamlit vuelve a montar el iframe.
     Sin eso, al pasar de claro a oscuro el widget se queda con el tema anterior.
     """
@@ -96,7 +96,7 @@ def _render(widget: str, config: dict, height: int, key: str) -> None:
            style="font:11px system-ui,-apple-system,sans-serif;
                   color:#898781;text-align:right">
         <a href="https://es.tradingview.com/" rel="noopener nofollow" target="_blank"
-           style="color:#898781;text-decoration:none">Datos y graficos por TradingView</a>
+           style="color:#898781;text-decoration:none">Datos y gráficos por TradingView</a>
       </div>
       <script type="text/javascript" src="{_BASE}{widget}.js" async>
       {payload}
@@ -123,7 +123,7 @@ def _unavailable(fallback: Callable[[], None] | None, message: str) -> None:
 # Widgets
 # --------------------------------------------------------------------------
 def ticker_tape(symbols: list[dict] | None = None, compact: bool = True) -> None:
-    """Cinta de cotizaciones. Va en la cabecera global, fuera de la navegacion."""
+    """Cinta de cotizaciones. Va en la cabecera global, fuera de la navegación."""
     if not enabled():
         return
     # Mismo criterio de simbolos que `market_overview`: los indices de EE. UU.
@@ -167,15 +167,15 @@ def ticker_tape(symbols: list[dict] | None = None, compact: bool = True) -> None
 
 
 def market_overview(height: int = 400, groups: list[dict] | None = None) -> None:
-    """Panel de indices y activos macro, con precio EN VIVO.
+    """Panel de índices y activos macro, con precio EN VIVO.
 
     Complementa a las tarjetas propias, no las sustituye. Las nuestras salen de
     los cierres del almacen y llevan el contexto que calculamos —distancia a
-    maximos, percentil del VIX, amplitud—; este widget no sabe nada de eso,
+    máximos, percentil del VIX, amplitud—; este widget no sabe nada de eso,
     pero se mueve mientras miras.
 
-    Los datos viven dentro del iframe: no se pueden leer desde aqui (politica
-    de mismo origen del navegador) ni alimentan ningun calculo. Es una ventana,
+    Los datos viven dentro del iframe: no se pueden leer desde aquí (politica
+    de mismo origen del navegador) ni alimentan ningún cálculo. Es una ventana,
     no una fuente.
     """
     if not enabled():
@@ -189,8 +189,8 @@ def market_overview(height: int = 400, groups: list[dict] | None = None) -> None
     # pantalla la primera vez, y por eso hay un test que vigila las claves.
     groups = groups or [
         {
-            "title": "Indices",
-            "originalTitle": "Indices",
+            "title": "Índices",
+            "originalTitle": "Índices",
             "symbols": [
                 # Los indices de EE. UU. van por su contrato replicante, no por
                 # el indice al contado. `SP:SPX` y `NASDAQ:NDX` son datos bajo
@@ -217,7 +217,7 @@ def market_overview(height: int = 400, groups: list[dict] | None = None) -> None
                 {"s": "TVC:GOLD", "d": "Oro"},
                 {"s": "TVC:USOIL", "d": "Petroleo"},
                 {"s": "FX:EURUSD", "d": "EUR/USD"},
-                {"s": "TVC:DXY", "d": "Dolar"},
+                {"s": "TVC:DXY", "d": "Dólar"},
             ],
         },
         {
@@ -258,18 +258,18 @@ def advanced_chart(
     tv_symbol: str | None, height: int = 720, interval: str = "D",
     studies: list[str] | None = None, fallback: Callable[[], None] | None = None,
 ) -> None:
-    """Grafico principal de velas. Es la herramienta familiar del usuario.
+    """Gráfico principal de velas. Es la herramienta familiar del usuario.
 
-    Alto generoso a proposito: con la barra lateral de dibujo, la de tiempos y
+    Alto generoso a propósito: con la barra lateral de dibujo, la de tiempos y
     dos indicadores debajo, por debajo de unos 700 px el area de velas queda en
     una franja donde no se distingue nada.
     """
     if not enabled() or not tv_symbol:
         _unavailable(
             fallback,
-            "Sin equivalencia en TradingView; se muestra nuestro grafico."
+            "Sin equivalencia en TradingView; se muestra nuestro gráfico."
             if not tv_symbol
-            else "Widgets de TradingView desactivados; se muestra nuestro grafico.",
+            else "Widgets de TradingView desactivados; se muestra nuestro gráfico.",
         )
         return
     config = {
@@ -297,10 +297,10 @@ def advanced_chart(
 
 def technical_analysis(tv_symbol: str | None, height: int = 400,
                        interval: str = "1D") -> None:
-    """Medidor tecnico de TradingView.
+    """Medidor técnico de TradingView.
 
-    Lleva rotulo obligatorio: es la opinion de un tercero, no nuestra senal. Sin
-    esa aclaracion, un "STRONG BUY" en pantalla se lee como recomendacion de
+    Lleva rotulo obligatorio: es la opinion de un tercero, no nuestra señal. Sin
+    esa aclaración, un "STRONG BUY" en pantalla se lee como recomendación de
     esta herramienta, que es justo lo que no queremos.
     """
     if not enabled() or not tv_symbol:
@@ -317,8 +317,8 @@ def technical_analysis(tv_symbol: str | None, height: int = 400,
     }
     _render("technical-analysis", config, height, _key("ta", tv_symbol))
     st.caption(
-        "Opinion tecnica de TradingView. Contraste externo, "
-        "no es nuestra senal ni una recomendacion."
+        "Opinion técnica de TradingView. Contraste externo, "
+        "no es nuestra señal ni una recomendación."
     )
 
 
@@ -352,7 +352,7 @@ def company_profile(tv_symbol: str | None, height: int = 400) -> None:
 
 
 def stock_heatmap(data_source: str = "SPX500", height: int = 560) -> None:
-    """Mapa de calor por sectores. Confirmacion visual de que sector tira hoy."""
+    """Mapa de calor por sectores. Confirmación visual de que sector tira hoy."""
     if not enabled():
         return
     config = {
@@ -414,7 +414,7 @@ def screener(market: str = "america", height: int = 520) -> None:
     """Screener de TradingView.
 
     Complemento, nunca sustituto del nuestro: el nuestro explica por que aparece
-    cada valor, este no. Por eso va siempre en una pestana secundaria.
+    cada valor, este no. Por eso va siempre en una pestaña secundaria.
     """
     if not enabled():
         return

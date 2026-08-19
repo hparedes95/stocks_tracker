@@ -1,8 +1,8 @@
-"""Que le habria pasado a tu cartera en caidas que de verdad ocurrieron.
+"""Qué le habría pasado a tu cartera en caídas que de verdad ocurrieron.
 
-Va debajo del diagnostico de concentracion porque responde a la misma pregunta
-con datos en vez de con intuicion: el grafico de sectores sugiere que estas
-concentrado, esto dice cuanto dinero cuesta esa concentracion el dia malo.
+Va debajo del diagnóstico de concentración porque responde a la misma pregunta
+con datos en vez de con intuición: el gráfico de sectores sugiere que estas
+concentrado, esto dice cuanto dinero cuesta esa concentración el día malo.
 """
 
 from __future__ import annotations
@@ -27,13 +27,13 @@ def _mercado(desde, hasta) -> float | None:
 
 
 def render_stress_panel(positions: pd.DataFrame) -> None:
-    st.subheader("Que pasaria si volviera a pasar")
+    st.subheader("Qué pasaría si volviera a pasar")
     st.caption(
-        "No es una simulacion: a cada posicion que tienes hoy se le aplica lo "
+        "No es una simulación: a cada posición que tienes hoy se le aplica lo "
         "que de verdad hizo ese valor entre dos fechas reales. **No es el peor "
         "caso** — el peor caso siempre es peor que lo peor que ha pasado, y en "
-        "2007 nadie tenia 2008 en su lista. Sirve para ver donde esta "
-        "concentrado el riesgo, no para poner un suelo a las perdidas."
+        "2007 nadie tenía 2008 en su lista. Sirve para ver donde esta "
+        "concentrado el riesgo, no para poner un suelo a las pérdidas."
     )
 
     if positions.empty:
@@ -74,7 +74,7 @@ def render_stress_panel(positions: pd.DataFrame) -> None:
         filas.append({
             "Escenario": esc.nombre,
             "Tu cartera": res.retorno * 100,
-            "El indice": (res.retorno_mercado * 100
+            "El índice": (res.retorno_mercado * 100
                           if res.retorno_mercado is not None else None),
             "En euros": res.perdida,
             "Calculado con datos propios": res.cobertura * 100,
@@ -85,7 +85,7 @@ def render_stress_panel(positions: pd.DataFrame) -> None:
             pd.DataFrame(filas), hide_index=True,
             column_config={
                 "Tu cartera": st.column_config.NumberColumn(format="%+.1f%%"),
-                "El indice": st.column_config.NumberColumn(format="%+.1f%%"),
+                "El índice": st.column_config.NumberColumn(format="%+.1f%%"),
                 "En euros": st.column_config.NumberColumn(format="%+.0f"),
                 "Calculado con datos propios": st.column_config.ProgressColumn(
                     min_value=0.0, max_value=100.0, format="%.0f%%"
@@ -98,8 +98,8 @@ def render_stress_panel(positions: pd.DataFrame) -> None:
             st.warning(
                 f"En **{peor.escenario.nombre}** solo el "
                 f"{peor.cobertura:.0%} de tu dinero se calcula con el "
-                "historico de tus propios valores; el resto se estima con su "
-                "sector o con el indice. Ese numero dice mas del mercado de "
+                "histórico de tus propios valores; el resto se estima con su "
+                "sector o con el índice. Ese número dice más del mercado de "
                 "entonces que de tu cartera de ahora.",
                 icon=":material/help:",
             )
@@ -117,49 +117,49 @@ def render_stress_panel(positions: pd.DataFrame) -> None:
                 if peor_que is not None:
                     if peor_que < 0:
                         st.markdown(
-                            f"Tu cartera lo habria pasado **{abs(peor_que):.1%} "
-                            "peor que el indice**."
+                            f"Tu cartera lo habría pasado **{abs(peor_que):.1%} "
+                            "peor que el índice**."
                         )
                     else:
                         st.markdown(
-                            f"Tu cartera habria aguantado **{peor_que:.1%} mejor "
-                            "que el indice**."
+                            f"Tu cartera habría aguantado **{peor_que:.1%} mejor "
+                            "que el índice**."
                         )
                 st.dataframe(
                     pd.DataFrame([
                         {"Ticker": p.ticker,
-                         "Caida": p.retorno * 100,
+                         "Caída": p.retorno * 100,
                          "En euros": p.perdida,
                          "Calculado con": ETIQUETA_FUENTE[p.fuente]}
                         for p in res.peores[:12]
                     ]),
                     hide_index=True,
                     column_config={
-                        "Caida": st.column_config.NumberColumn(format="%+.1f%%"),
+                        "Caída": st.column_config.NumberColumn(format="%+.1f%%"),
                         "En euros": st.column_config.NumberColumn(format="%+.0f"),
                     },
                 )
                 estimadas = sum(1 for p in res.posiciones if p.estimado)
                 if estimadas:
                     st.caption(
-                        f"{estimadas} posicion(es) estimadas con su sector o "
-                        "con el indice porque no cotizaban o no hay historico "
+                        f"{estimadas} posición(es) estimadas con su sector o "
+                        "con el índice porque no cotizaban o no hay histórico "
                         "suyo de esas fechas."
                     )
 
     if sin_datos:
         nombres = ", ".join(e.nombre for e in sin_datos)
         st.info(
-            f"Sin historico para: **{nombres}**. No se rellena con una "
-            "estimacion a proposito: un numero inventado se leeria igual de "
-            "convincente que uno real. Se descargan 10 anos por defecto; para "
-            "llegar mas atras, sube `ingest.backfill_years` en "
+            f"Sin histórico para: **{nombres}**. No se rellena con una "
+            "estimación a propósito: un número inventado se leería igual de "
+            "convincente que uno real. Se descargan 10 años por defecto; para "
+            "llegar más atrás, sube `ingest.backfill_years` en "
             "`config/settings.yaml` y vuelve a ejecutar `stocks.ps1 ingest`.",
             icon=":material/history:",
         )
 
     # --- La diversificacion que desaparece ---------------------------------
-    st.markdown("**¿Cuantas apuestas tienes de verdad?**")
+    st.markdown("**¿Cuántas apuestas tienes de verdad?**")
     # Se SUMAN los lotes del mismo valor. Con un diccionario por comprension,
     # la segunda compra de un valor pisaba a la primera y la cartera parecia
     # menos concentrada de lo que es — justo lo contrario de lo que este panel
@@ -173,7 +173,7 @@ def render_stress_panel(positions: pd.DataFrame) -> None:
 
     if div is None:
         st.caption(
-            "Hacen falta al menos dos posiciones con historico comun para "
+            "Hacen falta al menos dos posiciones con histórico comun para "
             "medir si se mueven juntas."
         )
     else:
@@ -182,27 +182,27 @@ def render_stress_panel(positions: pd.DataFrame) -> None:
         cols[1].metric("Apuestas de verdad, hoy", f"{div.efectivas_hoy:.1f}",
                        help="Diez valores que se mueven todos igual son una "
                             "apuesta, no diez.")
-        cols[2].metric("Y en una caida fuerte",
+        cols[2].metric("Y en una caída fuerte",
                        f"{div.efectivas_en_crisis:.1f}",
                        delta=f"-{div.se_pierde:.1f}", delta_color="inverse",
                        help=f"Suponiendo que las correlaciones suban a "
                             f"{div.correlacion_crisis:.0%}, que es lo que se ha "
-                            "visto en las caidas de la tabla de arriba.")
+                            "visto en las caídas de la tabla de arriba.")
 
         if div.ya_esta_concentrada:
             st.warning(
                 f"Tienes {div.n_posiciones} posiciones pero se comportan como "
-                f"**{div.efectivas_hoy:.1f}**: la correlacion media entre ellas "
-                f"es de {div.correlacion_media:.2f}. Anadir otro valor parecido "
-                "no diversifica nada, solo reparte la misma apuesta en mas "
+                f"**{div.efectivas_hoy:.1f}**: la correlación media entre ellas "
+                f"es de {div.correlacion_media:.2f}. Añadir otro valor parecido "
+                "no diversifica nada, solo reparte la misma apuesta en más "
                 "casillas.",
                 icon=":material/join_inner:",
             )
         st.caption(
-            "La diversificacion se calcula con las correlaciones de los "
-            "ultimos meses, que son las de un mercado tranquilo. En una caida "
+            "La diversificación se calcula con las correlaciones de los "
+            "últimos meses, que son las de un mercado tranquilo. En una caída "
             "fuerte lo que normalmente se mueve por separado empieza a moverse "
-            "junto: **la diversificacion desaparece justo el dia que hacia "
+            "junto: **la diversificación desaparece justo el día que hacia "
             "falta**, y esa es la segunda columna."
         )
 

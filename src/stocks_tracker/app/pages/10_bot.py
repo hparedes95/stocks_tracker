@@ -1,11 +1,11 @@
-"""Pagina 10 — El bot: que tiene, que hizo y que espera tu visto bueno.
+"""Página 10 — El bot: que tiene, que hizo y que espera tu visto bueno.
 
-Esta pagina es un REGISTRO, no una lista de recomendaciones. Muestra lo que el
+Esta página es un REGISTRO, no una lista de recomendaciones. Muestra lo que el
 bot ya hizo con su propio dinero asignado y lo que quedo retenido por el freno
-de mano. Nada de lo que aparece aqui es una sugerencia para tu cartera.
+de mano. Nada de lo que aparece aquí es una sugerencia para tu cartera.
 
 Existe porque con el freno puesto hace falta: una orden retenida que no sale
-en ninguna pantalla es una orden perdida.
+en ninguna pantalla es una orden pérdida.
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ st.title("El bot")
 
 st.info(
     "Esto es el **registro** del bot, no una lista de recomendaciones. Son "
-    "operaciones que ya ha hecho con el capital que tiene asignado, y ordenes "
-    "que esperan tu confirmacion. Nada de lo que aparece aqui es una "
+    "operaciones que ya ha hecho con el capital que tiene asignado, y órdenes "
+    "que esperan tu confirmación. Nada de lo que aparece aquí es una "
     "sugerencia para tu cartera.",
     icon=":material/smart_toy:",
 )
@@ -38,14 +38,14 @@ st.subheader("¿Esta validado?")
 
 if _report is None:
     st.info(
-        "La estrategia no se ha validado todavia. Se examina sola los domingos, "
-        "despues de la actualizacion nocturna. Hasta entonces el bot no opera "
+        "La estrategia no se ha validado todavía. Se examina sola los domingos, "
+        "después de la actualización nocturna. Hasta entonces el bot no opera "
         "con dinero, aunque tenga credenciales.",
         icon=":material/schedule:",
     )
 elif _report["blockers"]:
     st.error(
-        "**No se puede certificar.** El resultado del backtest no seria "
+        "**No se puede certificar.** El resultado del backtest no sería "
         "interpretable:\n\n"
         + "\n\n".join(f"- {b}" for b in _report["blockers"]),
         icon=":material/block:",
@@ -53,7 +53,7 @@ elif _report["blockers"]:
 elif _report["passed"]:
     st.success(
         "**Validada.** Esto NO dice que vaya a ganar dinero: dice que no ha "
-        "fallado ninguna comprobacion que sepamos hacer. Es condicion "
+        "fallado ninguna comprobación que sepamos hacer. Es condición "
         "necesaria, nunca suficiente.",
         icon=":material/verified:",
     )
@@ -72,7 +72,7 @@ if _report and _report["checks"]:
 
         st.dataframe(
             _pd.DataFrame([
-                {"": "OK" if c["passed"] else "FALLA", "Comprobacion": c["name"],
+                {"": "OK" if c["passed"] else "FALLA", "Comprobación": c["name"],
                  "Observado": c["observed"], "Umbral": c["required"]}
                 for c in _report["checks"]
             ]),
@@ -84,8 +84,8 @@ st.divider()
 carteras = bot_view.modes()
 if not carteras:
     st.warning(
-        "El bot no ha ejecutado ningun ciclo todavia. Cuando lo haga, aqui "
-        "apareceran sus posiciones, sus ordenes y el motivo de cada decision.",
+        "El bot no ha ejecutado ningún ciclo todavía. Cuando lo haga, aquí "
+        "apareceran sus posiciones, sus órdenes y el motivo de cada decisión.",
         icon=":material/hourglass_empty:",
     )
     render_disclaimer()
@@ -99,9 +99,9 @@ if not carteras:
 # caducase sin que nadie lo viera.
 pendientes = bot_view.pending()
 if not pendientes.empty:
-    st.subheader(f"Esperando tu confirmacion ({len(pendientes)})")
+    st.subheader(f"Esperando tu confirmación ({len(pendientes)})")
     st.warning(
-        "El bot opera solo, pero estas ordenes han cruzado un freno y no "
+        "El bot opera solo, pero estas órdenes han cruzado un freno y no "
         "saldran hasta que las apruebes. **Caducan**: si nadie decide, se "
         "descartan y el bot volvera a proponerlas con el precio de entonces.",
         icon=":material/pan_tool:",
@@ -147,7 +147,7 @@ with col1:
     else:
         st.metric("Estado", "Sin arrancar")
 with col2:
-    st.metric("Ultimo ciclo",
+    st.metric("Último ciclo",
               str((run or {}).get("started_at") or "—")[:16])
 with col3:
     equity = (run or {}).get("equity_end")
@@ -156,7 +156,7 @@ with col3:
 if run and not estado:
     st.caption(
         "El kill switch no tiene registro para esta cartera. Solo se crea en "
-        "los modos que gestionan estado, asi que un ciclo de simulacion "
+        "los modos que gestionan estado, así que un ciclo de simulación "
         "antiguo puede aparecer sin el."
     )
 
@@ -171,7 +171,7 @@ if estado and estado.get("state") not in (None, "RUNNING"):
 
 # ---------------------------------------------------------------------------
 tab_pos, tab_ord, tab_dec = st.tabs(
-    ["Posiciones abiertas", "Ordenes", "Por que hizo cada cosa"]
+    ["Posiciones abiertas", "Órdenes", "Por qué hizo cada cosa"]
 )
 
 with tab_pos:
@@ -184,19 +184,19 @@ with tab_pos:
                 "ticker": "valor", "qty": "cantidad",
                 "avg_entry_price": "entrada media", "stop_price": "stop",
                 "opened_at": "abierta el",
-                "highest_close_since_entry": "maximo desde entrada",
+                "highest_close_since_entry": "máximo desde entrada",
             }),
             hide_index=True, use_container_width=True,
         )
         st.caption(
-            "El stop es **sintetico**: lo vigila este programa, no el "
+            "El stop es **sintético**: lo vigila este programa, no el "
             "exchange. Con el ordenador apagado no se dispara."
         )
 
 with tab_ord:
     ordenes = bot_view.orders(cartera)
     if ordenes.empty:
-        st.caption("Todavia no ha enviado ninguna orden.")
+        st.caption("Todavía no ha enviado ninguna orden.")
     else:
         st.dataframe(
             ordenes.rename(columns={
@@ -218,7 +218,7 @@ with tab_dec:
         st.dataframe(
             decisiones.rename(columns={
                 "logged_at": "cuando", "ticker": "valor",
-                "decision": "decision", "reason_code": "codigo",
+                "decision": "decisión", "reason_code": "código",
                 "reason_text": "motivo",
             }),
             hide_index=True, use_container_width=True,

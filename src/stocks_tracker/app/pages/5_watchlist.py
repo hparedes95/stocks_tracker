@@ -1,7 +1,7 @@
-"""Pagina 5 — Cartera y watchlist.
+"""Página 5 — Cartera y watchlist.
 
-La watchlist es lo que sigues; la cartera, lo que tienes. El diagnostico de
-concentracion es lo que mas aporta aqui: una cartera de ocho valores que se
+La watchlist es lo que sigues; la cartera, lo que tienes. El diagnóstico de
+concentración es lo que más aporta aquí: una cartera de ocho valores que se
 mueven todos igual esta menos diversificada de lo que parece.
 """
 
@@ -33,10 +33,10 @@ tab_portfolio, tab_watchlist = st.tabs(["Cartera", "Watchlist"])
 with tab_portfolio:
     positions = da.get_positions()
 
-    with st.expander("Anadir una posicion"):
+    with st.expander("Añadir una posición"):
         st.caption(
-            "Para una posicion suelta. Si tienes la cartera en eToro o Trade "
-            "Republic, usa la importacion de abajo."
+            "Para una posición suelta. Si tienes la cartera en eToro o Trade "
+            "Republic, usa la importación de abajo."
         )
         form_cols = st.columns([2, 1, 1, 1])
         with form_cols[0]:
@@ -50,7 +50,7 @@ with tab_portfolio:
             new_cost = st.number_input("Precio medio", min_value=0.0, value=0.0, step=0.01)
         with form_cols[3]:
             new_currency = st.selectbox("Divisa", options=["USD", "EUR", "GBP"])
-        if st.button("Anadir", type="primary", disabled=not (new_ticker and new_qty > 0)):
+        if st.button("Añadir", type="primary", disabled=not (new_ticker and new_qty > 0)):
             da.add_position(new_ticker, new_qty, new_cost, new_currency)
             st.rerun()
 
@@ -62,7 +62,7 @@ with tab_portfolio:
             render_manual_table()
 
     if positions.empty:
-        st.info("Sin posiciones registradas. Anade la primera arriba.")
+        st.info("Sin posiciones registradas. Añade la primera arriba.")
     else:
         positions = positions.copy()
         positions["valor"] = positions["qty"] * positions["close"]
@@ -163,19 +163,19 @@ with tab_portfolio:
         # Diagnostico de concentracion
         # -------------------------------------------------------------------
         st.divider()
-        st.subheader("Diagnostico de concentracion")
+        st.subheader("Diagnóstico de concentración")
 
         diag_left, diag_right = st.columns(2)
 
         with diag_left:
-            st.markdown("**Exposicion por sector**")
+            st.markdown("**Exposición por sector**")
             known = positions[positions["gics_sector"].notna()]
             if known.empty:
                 # Sin sector no hay diagnostico posible, y decir "Sin sector:
                 # 100%" sonaria a una concentracion que en realidad no sabemos
                 # si existe.
                 st.info(
-                    "Tus posiciones no tienen sector asignado todavia. Se "
+                    "Tus posiciones no tienen sector asignado todavía. Se "
                     "rellena con `make ingest`, que descarga la ficha de cada "
                     "valor.",
                     icon=":material/help:",
@@ -203,9 +203,9 @@ with tab_portfolio:
                 if top_weight > 0.40:
                     st.warning(
                         f"**{by_sector.index[0]}** pesa el {top_weight:.0%} de "
-                        "la cartera. Una concentracion asi hace que el "
-                        "resultado dependa de un solo sector mas que de tu "
-                        "seleccion de valores.",
+                        "la cartera. Una concentración así hace que el "
+                        "resultado dependa de un solo sector más que de tu "
+                        "selección de valores.",
                         icon=":material/warning:",
                     )
 
@@ -230,7 +230,7 @@ with tab_portfolio:
                     "value_z": "valor", "growth_z": "crecimiento",
                     "quality_z": "calidad", "momentum_z": "momentum",
                     "lowvol_z": "estabilidad", "dividend_z": "dividendo",
-                    "technical_z": "tecnico",
+                    "technical_z": "técnico",
                 }
                 if abs(dominant[1]) > 0.5:
                     direction = "hacia" if dominant[1] > 0 else "en contra de"
@@ -241,7 +241,7 @@ with tab_portfolio:
                         "apuesta implicita que conviene conocer."
                     )
             else:
-                st.caption("Sin puntuacion factorial suficiente para el perfil.")
+                st.caption("Sin puntuación factorial suficiente para el perfil.")
 
         # -------------------------------------------------------------------
         # Stress test
@@ -266,9 +266,9 @@ with tab_portfolio:
                 for row in positions.itertuples()
             }
             to_close = st.selectbox(
-                "Cerrar posicion", options=list(labels),
+                "Cerrar posición", options=list(labels),
                 format_func=lambda i: labels[i], index=None,
-                placeholder="Elige una posicion",
+                placeholder="Elige una posición",
             )
             if to_close and st.button("Cerrar"):
                 da.close_position(to_close)
@@ -287,10 +287,10 @@ with tab_watchlist:
         options = [t for t in da.all_tickers() if t not in set(watchlist["ticker"])]
         if options:
             new_ticker = st.selectbox(
-                "Anadir un valor", options=options, index=None,
+                "Añadir un valor", options=options, index=None,
                 placeholder="Busca un ticker", key="wl_ticker",
             )
-            if new_ticker and st.button("Anadir a la watchlist", type="primary"):
+            if new_ticker and st.button("Añadir a la watchlist", type="primary"):
                 history = da.get_price_history(new_ticker, days=1)
                 price = float(history.iloc[-1]["close"]) if not history.empty else None
                 da.add_to_watchlist(new_ticker, price=price)
@@ -298,8 +298,8 @@ with tab_watchlist:
 
     if watchlist.empty:
         st.info(
-            "Watchlist vacia. Anade valores desde aqui o con el boton "
-            "**Guardar** de la pagina de oportunidades."
+            "Watchlist vacía. Añade valores desde aquí o con el boton "
+            "**Guardar** de la página de oportunidades."
         )
     else:
         watchlist = watchlist.copy()
@@ -316,17 +316,17 @@ with tab_watchlist:
                 "Nombre": watchlist["name"].fillna(""),
                 "Sector": watchlist["gics_sector"].fillna("—"),
                 "Precio": watchlist["close"],
-                "Dia": watchlist["ret_1d"] * 100,
+                "Día": watchlist["ret_1d"] * 100,
                 "Desde alta": watchlist["desde_alta"] * 100,
                 "Percentil": watchlist["composite_pctile"] * 100,
-                "Anadido": pd.to_datetime(watchlist["added_at"]).dt.strftime("%d/%m/%Y"),
+                "Añadido": pd.to_datetime(watchlist["added_at"]).dt.strftime("%d/%m/%Y"),
             }
         )
         st.dataframe(
             view, hide_index=True, height=380,
             column_config={
                 "Precio": st.column_config.NumberColumn(format="%.2f"),
-                "Dia": st.column_config.NumberColumn(format="%+.2f%%"),
+                "Día": st.column_config.NumberColumn(format="%+.2f%%"),
                 "Desde alta": st.column_config.NumberColumn(format="%+.2f%%"),
                 "Percentil": st.column_config.ProgressColumn(
                     min_value=0.0, max_value=100.0, format="%.0f%%"
@@ -339,7 +339,7 @@ with tab_watchlist:
         positive = int((watchlist["desde_alta"] > 0).sum())
         summary[0].metric("Valores seguidos", tracked)
         summary[1].metric("En positivo desde el alta", f"{positive} de {tracked}")
-        summary[2].metric("Variacion media", format_pct(watchlist["desde_alta"].mean()))
+        summary[2].metric("Variación media", format_pct(watchlist["desde_alta"].mean()))
 
         st.divider()
         detail_col, remove_col = st.columns([3, 1])
@@ -354,7 +354,7 @@ with tab_watchlist:
                 st.rerun()
 
         with detail_col:
-            st.subheader("Vistazo rapido")
+            st.subheader("Vistazo rápido")
             chosen = st.selectbox(
                 "Valor", options=watchlist["ticker"].tolist(), key="preview_ticker"
             )

@@ -239,7 +239,7 @@ Write-Step 3 8 "Instalando en $InstallDir"
 
 # Copia de seguridad en un sitio ESTABLE y con nombre, no en una carpeta
 # temporal con nombre aleatorio. Si el proceso se corta entre el borrado y la
-# restauracion —y el borrado es lo mas destructivo que hace este script— los
+# restauracion  - y el borrado es lo mas destructivo que hace este script -  los
 # datos del usuario tienen que poder recuperarse sin adivinar en que carpeta de
 # %TEMP% quedaron.
 $backup = Join-Path $env:LOCALAPPDATA 'StocksTracker.backup'
