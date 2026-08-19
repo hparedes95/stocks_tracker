@@ -750,6 +750,49 @@ def compute_regime() -> int:
     return n
 
 
+def puerta_de_calidad() -> bool:
+    """Comprueba los precios antes de calcular sobre ellos. Devuelve si se sigue.
+
+    Solo para lo que invalida el resultado: precios imposibles (un maximo por
+    debajo del minimo, un cierre fuera del rango) y reescrituras masivas del
+    historico. Los huecos y los tickers desaparecidos ensucian pero no
+    invalidan, asi que avisan y dejan pasar.
+
+    La linea esta ahi a proposito. Una puerta que se cierra a menudo se acaba
+    abriendo con `--ignorar-calidad` por costumbre, y entonces deja de existir.
+    """
+    from ..core.ids import ulid
+    from ..core.quality import COMPROBACIONES, bloqueantes, evaluar, guardar, resumen
+
+    with connect(read_only=True) as conn:
+        precios = conn.execute(
+            "SELECT ticker, date, open, high, low, close, volume FROM prices_daily"
+        ).fetchdf()
+    if precios.empty:
+        return True
+
+    hallazgos = evaluar(precios)
+    run_id = ulid()
+    with connect() as conn:
+        guardar(conn, hallazgos, run_id, list(COMPROBACIONES))
+
+    graves = bloqueantes(hallazgos)
+    if not graves:
+        if hallazgos:
+            console.print(f"[dim]Calidad de los datos: {resumen(hallazgos)}.[/]")
+        return True
+
+    console.print("[bold red]No se calcula: los datos tienen problemas graves.[/]")
+    for h in graves:
+        console.print(f"  [red]{h.check}:[/] {h.detail}")
+    console.print(
+        "[dim]Calcular sobre esto daria numeros con buena pinta y sin sentido. "
+        "Vuelve a descargar los precios afectados, o usa --ignorar-calidad si "
+        "lo que quieres es diagnosticar.[/]"
+    )
+    return False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Calculo de indicadores, factores y scores")
     parser.add_argument("--only", default=None,
@@ -770,9 +813,17 @@ def main() -> None:
         help="Calcula el ranking historico del preset del bot, necesario para "
              "validar la estrategia. Solo factores de precio.",
     )
+    parser.add_argument(
+        "--ignorar-calidad", action="store_true",
+        help="Calcula aunque los datos tengan problemas graves. Los resultados "
+             "no seran fiables; existe para poder diagnosticar.",
+    )
     args = parser.parse_args()
 
     migrate()
+
+    if not args.ignorar_calidad and not puerta_de_calidad():
+        return
 
     if args.history:
         compute_score_history(preset=args.preset or "bot_core", years=args.history)

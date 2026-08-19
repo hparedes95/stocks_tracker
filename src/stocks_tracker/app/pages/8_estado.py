@@ -187,6 +187,63 @@ else:
     )
 
 st.divider()
+st.subheader("Calidad de los datos")
+st.caption(
+    "Comprobaciones que se ejecutan **antes** de calcular nada. La que más "
+    "importa detecta que el proveedor haya reescrito precios del pasado: no da "
+    "ningún error, no se nota en pantalla, y deja cualquier backtest anterior "
+    "sin poder reproducirse."
+)
+with connect(read_only=True) as conn:
+    ultima = conn.execute("SELECT MAX(checked_at) FROM data_quality").fetchone()
+    calidad = conn.execute(
+        """
+        SELECT check_name, ticker, severity, detail, checked_at
+        FROM data_quality
+        WHERE NOT passed AND checked_at >= (SELECT MAX(checked_at) FROM data_quality)
+        ORDER BY CASE severity WHEN 'bloquea' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END
+        LIMIT 60
+        """
+    ).fetchdf()
+    pasadas = conn.execute(
+        """
+        SELECT COUNT(DISTINCT check_name) FROM data_quality
+        WHERE passed AND checked_at >= (SELECT MAX(checked_at) FROM data_quality)
+        """
+    ).fetchone()
+
+if ultima is None or ultima[0] is None:
+    st.caption(
+        "Todavía no se ha comprobado nada. Se comprueba solo al descargar "
+        "datos o al calcular."
+    )
+elif calidad.empty:
+    st.success(
+        f"Las {int(pasadas[0])} comprobaciones pasaron el "
+        f"{pd.to_datetime(ultima[0]).strftime('%d/%m/%Y a las %H:%M')}. "
+        "Que pasen no quiere decir que los datos sean buenos: quiere decir que "
+        "no tienen ninguna de las formas que sabemos reconocer como rotas.",
+        icon=":material/check_circle:",
+    )
+else:
+    graves = calidad[calidad["severity"] == "bloquea"]
+    if not graves.empty:
+        st.error(
+            f"**{len(graves)} problemas graves.** El cálculo no se ejecutará "
+            "hasta que se resuelvan: hacerlo daría números con buena pinta y "
+            "sin sentido.",
+            icon=":material/error:",
+        )
+    st.dataframe(
+        calidad[["check_name", "ticker", "severity", "detail"]].rename(
+            columns={"check_name": "Comprobación", "ticker": "Valor",
+                     "severity": "Gravedad", "detail": "Qué pasa"}
+        ),
+        hide_index=True, height=min(320, 42 + 35 * len(calidad)),
+        column_config={"Qué pasa": st.column_config.TextColumn(width="large")},
+    )
+
+st.divider()
 st.subheader("Registro de ingesta")
 with connect(read_only=True) as conn:
     log = conn.execute(

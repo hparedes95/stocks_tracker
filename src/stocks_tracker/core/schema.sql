@@ -328,12 +328,19 @@ CREATE TABLE IF NOT EXISTS ingest_log (
   error        VARCHAR
 );
 
+-- Que problemas tienen los datos, comprobado ANTES de calcular con ellos.
+-- Se guarda historico y no solo el estado de hoy: la pregunta que hay que
+-- poder contestar es "¿desde cuando pasa esto?", y con una foto del ultimo
+-- momento no se contesta.
 CREATE TABLE IF NOT EXISTS data_quality (
-  date       DATE,
-  ticker     VARCHAR,
+  date       DATE,                  -- a que fecha se refiere el problema
+  ticker     VARCHAR,               -- NULL si afecta al conjunto
   check_name VARCHAR,
   passed     BOOLEAN,
-  detail     VARCHAR
+  detail     VARCHAR,
+  severity   VARCHAR,               -- info|aviso|bloquea
+  checked_at TIMESTAMP,
+  run_id     VARCHAR
 );
 
 -- ============ BOT DE TRADING (fase 6) ============
@@ -628,3 +635,6 @@ ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS q_value DOUBLE;
 ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS n_tests INTEGER;
 ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS ci_low DOUBLE;
 ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS ci_high DOUBLE;
+ALTER TABLE data_quality ADD COLUMN IF NOT EXISTS severity VARCHAR;
+ALTER TABLE data_quality ADD COLUMN IF NOT EXISTS checked_at TIMESTAMP;
+ALTER TABLE data_quality ADD COLUMN IF NOT EXISTS run_id VARCHAR;

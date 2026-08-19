@@ -17,6 +17,7 @@ from datetime import date, timedelta
 import pandas as pd
 from rich.console import Console
 
+from ..core import quality
 from ..core.config import (
     all_active_tickers,
     get_active_universes,
@@ -303,6 +304,8 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
         return 0
 
     total = 0
+    revisiones_totales = 0
+    problemas: list = []
     for start, group in sorted(by_start.items()):
         console.print(f"[cyan]Descargando[/] {len(group)} tickers desde {start}")
         df = provider.fetch_ohlcv(group, start, today + timedelta(days=1))
@@ -326,17 +329,73 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
             notes.append(f"relevo -> {by_provider}")
 
         with connect() as conn:
+            # ANTES de escribir: comparar lo que llega con lo que ya hay. Es el
+            # unico momento en que se puede. Despues del UPSERT el valor viejo
+            # ya no existe en ninguna parte y la reescritura es indetectable
+            # para siempre.
+            revisadas = _revisiones_del_lote(conn, df)
             n = upsert_df(conn, "prices_daily", df, keys=["ticker", "date"])
+            if not revisadas.empty:
+                notes.append(f"{len(revisadas)} valores reescritos por el proveedor")
             status = "PARTIAL" if failed else "OK"
             _log(conn, run_id, "prices", str(start), status, rows=n,
                  requests=df.attrs.get("requests_used", 0),
                  error="; ".join(notes))
+            hallazgos = quality.evaluar(df, revisadas, filas_lote=len(df))
+            quality.guardar(conn, hallazgos, run_id, list(quality.COMPROBACIONES))
         total += n
+        revisiones_totales += len(revisadas)
+        problemas.extend(hallazgos)
         console.print(f"  [green]{n} filas[/]")
         if notes:
             console.print(f"  [yellow]{'; '.join(notes)}[/]")
 
+    _avisar_de_la_calidad(problemas, revisiones_totales)
     return total
+
+
+def _revisiones_del_lote(conn, df: pd.DataFrame) -> pd.DataFrame:
+    """Lo que ya estaba guardado para las mismas (ticker, fecha) del lote.
+
+    Se piden solo esas filas y no la tabla entera: un lote son unos miles de
+    filas y `prices_daily` puede tener millones.
+    """
+    if df.empty:
+        return pd.DataFrame()
+    try:
+        conn.register("_lote", df[["ticker", "date"]])
+        existente = conn.execute(
+            "SELECT p.ticker, p.date, p.open, p.high, p.low, p.close, p.volume "
+            "FROM prices_daily p JOIN _lote l "
+            "ON p.ticker = l.ticker AND p.date = l.date"
+        ).fetchdf()
+    finally:
+        conn.unregister("_lote")
+    return quality.revisiones(df, existente)
+
+
+def _avisar_de_la_calidad(problemas: list, revisiones_totales: int) -> None:
+    """Lo dice en pantalla, y con lo que significa.
+
+    Un aviso que solo dice "34 filas revisadas" se ignora. Lo que hay que decir
+    es que cualquier resultado calculado antes de esta descarga ya no se puede
+    reproducir, porque esa es la consecuencia.
+    """
+    if revisiones_totales:
+        console.print(
+            f"[yellow]Aviso:[/] el proveedor ha cambiado {revisiones_totales} "
+            "valores que ya estaban guardados. El precio al que cotizo algo un "
+            "dia concreto no cambia, asi que o corrigio un error suyo o metio "
+            "otro. Los backtests y las validaciones anteriores a esta descarga "
+            "ya no se reproducen: conviene volver a ejecutarlos."
+        )
+    bloqueos = quality.bloqueantes(problemas)
+    if bloqueos:
+        console.print(f"[red]Calidad de datos: {len(bloqueos)} problemas graves.[/]")
+        for h in bloqueos[:5]:
+            console.print(f"  [red]{h.check}:[/] {h.detail}")
+    elif problemas:
+        console.print(f"[dim]Calidad de datos: {quality.resumen(problemas)}.[/]")
 
 
 def ingest_fundamentals(provider_name: str | None = None, all_tickers: bool = False) -> int:
