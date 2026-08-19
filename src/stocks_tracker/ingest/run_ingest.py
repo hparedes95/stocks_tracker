@@ -17,7 +17,7 @@ from datetime import date, timedelta
 import pandas as pd
 from rich.console import Console
 
-from ..core import quality
+from ..core import membership, quality
 from ..core.config import (
     all_active_tickers,
     get_active_universes,
@@ -203,20 +203,29 @@ def ingest_universe(provider_name: str | None = None) -> int:
     enriched["investment_type"] = enriched["asset_class"]
     enriched["updated_at"] = utcnow()
 
-    # La composicion se guarda con fecha: es lo que permite que, con el tiempo,
-    # los backtests dejen de sufrir sesgo de supervivencia hacia adelante.
-    membership_rows = [
-        {"universe": key, "ticker": t, "valid_from": date.today(), "valid_to": None}
-        for key, members in resolved.items()
-        for t in members
-    ]
-
     with connect() as conn:
         n = upsert_df(conn, "instruments", enriched, keys=["ticker"])
-        upsert_df(
-            conn, "universe_membership", pd.DataFrame(membership_rows),
-            keys=["universe", "ticker", "valid_from"],
-        )
+
+        # La composicion se guarda como INTERVALOS con fecha de entrada y de
+        # salida, no como una foto diaria. Antes se insertaba una fila por
+        # ticker y por dia con `valid_to` siempre a NULL, de modo que
+        # `WHERE valid_to IS NULL` devolvia todos los tickers que habian
+        # estado alguna vez: la tabla que existe para evitar el sesgo de
+        # supervivencia lo estaba produciendo. Ver core/membership.py.
+        colapsadas = membership.compactar(conn)
+        if colapsadas:
+            console.print(
+                f"  [dim]Composicion: {colapsadas} filas duplicadas colapsadas "
+                "en intervalos[/]"
+            )
+        for key, members in resolved.items():
+            cambios = membership.actualizar(conn, key, members, date.today())
+            if cambios["entran"] or cambios["salen"]:
+                console.print(
+                    f"  [yellow]{key}:[/] entran {len(cambios['entran'])}, "
+                    f"salen {len(cambios['salen'])}"
+                    + (f" ({', '.join(cambios['salen'][:5])})" if cambios["salen"] else "")
+                )
         _log(conn, run_id, "universe", "all", "OK", rows=n)
 
     unmapped = enriched["tv_symbol"].isna().sum()

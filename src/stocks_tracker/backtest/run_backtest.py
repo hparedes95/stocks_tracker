@@ -17,7 +17,7 @@ import pandas as pd
 from rich.console import Console
 from rich.table import Table
 
-from ..core import lineage
+from ..core import lineage, membership
 from ..core.db import connect, migrate, upsert_df
 from ..core.timeutils import utcnow
 from . import engine as eng
@@ -49,18 +49,31 @@ def scope_of(ticker: str) -> str:
     return eng.SCOPE_EQUITY_US
 
 
-def load_data(scope: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_data(scope: str | None = None,
+              pit: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Precios y senales del ambito indicado.
 
     No se carga ningun indice: la referencia de la validacion es el propio
     universo equiponderado, que se calcula despues a partir de estos precios.
+
+    `pit` restringe cada fecha a los valores que pertenecian al universo ESE
+    DIA, en vez de a los de hoy. Va apagado por defecto y no por comodidad: la
+    tabla de composicion empieza el dia que se ejecuto la primera ingesta, asi
+    que encenderlo hoy dejaria el backtest con unos pocos dias de datos. Ver
+    `core/membership.py` para lo que esto corrige y lo que no.
     """
+    filtro_pit = """
+            JOIN universe_membership m ON m.ticker = p.ticker
+                 AND m.valid_from <= p.date
+                 AND (m.valid_to IS NULL OR m.valid_to > p.date)
+    """ if pit else ""
     with connect(read_only=True) as conn:
         prices = conn.execute(
-            """
-            SELECT p.ticker, p.date, p.adj_close
+            f"""
+            SELECT DISTINCT p.ticker, p.date, p.adj_close
             FROM prices_daily p
             JOIN instruments i USING (ticker)
+            {filtro_pit}
             WHERE i.asset_class IN ('equity', 'etf')
             ORDER BY p.ticker, p.date
             """
@@ -90,10 +103,11 @@ def run(
     horizons: tuple[int, ...] = eng.DEFAULT_HORIZONS,
     cost_bps: float = DEFAULT_COST_BPS,
     tag: bool = False,
+    pit: bool = False,
 ) -> pd.DataFrame:
     """Valida todas las senales del ambito y devuelve la tabla de resultados."""
     migrate()
-    prices, signals = load_data(scope)
+    prices, signals = load_data(scope, pit=pit)
 
     if prices.empty or signals.empty:
         console.print("[yellow]Sin datos suficientes. Ejecuta la ingesta y el calculo.[/]")
@@ -103,6 +117,8 @@ def run(
         f"[cyan]Validando[/] ambito '{scope}': {prices['ticker'].nunique()} valores, "
         f"{len(signals)} eventos, coste {cost_bps:.0f} pb por pata"
     )
+
+    _avisar_del_sesgo(prices, pit)
 
     fwd = eng.forward_returns(prices, horizons)
 
@@ -128,7 +144,7 @@ def run(
     sello = lineage.sellar(
         {"horizontes": list(horizons), "coste_bps": cost_bps, "ambito": scope,
          "fdr_q": mt.FDR_Q, "min_fechas": eng.mx.MIN_DATES,
-         "min_eventos": eng.mx.MIN_OBSERVATIONS},
+         "min_eventos": eng.mx.MIN_OBSERVATIONS, "universo_pit": pit},
         data_from=prices["date"].min().date(),
         data_to=prices["date"].max().date(),
         n_rows=len(prices),
@@ -180,6 +196,30 @@ def run(
         console.print(f"[green]Etiquetadas {n} combinaciones senal/horizonte.[/]")
 
     return table
+
+
+def _avisar_del_sesgo(prices: pd.DataFrame, pit: bool) -> None:
+    """Dice cuanta composicion real hay, con numeros de esta instalacion.
+
+    El aviso de siempre —"los resultados estan sesgados por supervivencia"— es
+    verdad y no sirve de nada: no se puede actuar sobre el ni saber si mejora.
+    Decir "hay 0,03 anos de composicion real y el periodo son 10" es la misma
+    advertencia convertida en algo comprobable, y que ademas se ve crecer con
+    cada ingesta.
+    """
+    anos_datos = (prices["date"].max() - prices["date"].min()).days / 365.25
+    with connect(read_only=True) as conn:
+        anos_composicion = membership.anos_de_composicion(conn)
+    console.print(
+        f"[dim]{membership.aviso_de_supervivencia(anos_composicion, anos_datos)}[/]"
+    )
+    if pit and anos_composicion < anos_datos:
+        console.print(
+            "[yellow]--universo-historico solo tiene efecto en el tramo con "
+            "composicion guardada; antes de esa fecha no hay filas y esos "
+            "valores quedan FUERA del universo, que no es lo mismo que "
+            "corregir el sesgo.[/]"
+        )
 
 
 def _print_report(table: pd.DataFrame, horizons: tuple[int, ...]) -> None:
@@ -262,10 +302,17 @@ def main() -> None:
                         help="escribe las etiquetas en signal_evidence")
     parser.add_argument("--cost-bps", type=float, default=DEFAULT_COST_BPS)
     parser.add_argument("--horizons", type=str, default="5,10,21,63")
+    parser.add_argument(
+        "--universo-historico", action="store_true", dest="pit",
+        help="Restringe cada fecha a los valores que pertenecian al universo "
+             "ESE DIA. Reduce el sesgo de supervivencia, pero solo funciona "
+             "para el periodo del que hay composicion guardada.",
+    )
     args = parser.parse_args()
 
     horizons = tuple(int(h) for h in args.horizons.split(",") if h.strip())
-    run(scope=args.scope, horizons=horizons, cost_bps=args.cost_bps, tag=args.tag_signals)
+    run(scope=args.scope, horizons=horizons, cost_bps=args.cost_bps,
+        tag=args.tag_signals, pit=args.pit)
 
 
 if __name__ == "__main__":

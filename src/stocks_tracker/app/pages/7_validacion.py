@@ -61,12 +61,22 @@ if not da.validation_available():
 # ---------------------------------------------------------------------------
 with st.expander("Qué sesgos tienen estos resultados", expanded=False):
     st.markdown(
-        """
+        f"""
 **Sesgo de supervivencia.** El universo son los constituyentes de **hoy**. Las
 empresas que quebraron o salieron del índice no aparecen, así que los resultados
 están sesgados al alza. Trata cualquier cifra como una **cota superior
-optimista**. La composición se registra a diario, de modo que el sesgo ira
-desapareciendo hacia adelante.
+optimista**.
+
+Cuánta composición real hay guardada, hoy, en esta instalación:
+**{da.anos_de_composicion():.2f} años**. Es el dato que convierte la advertencia
+en algo comprobable: crece solo con cada ingesta, y cuando cubra el periodo
+analizado se podrá activar el universo histórico con
+`--universo-historico`.
+
+Aun así no lo arreglará del todo, y conviene saberlo: aunque supiéramos qué
+empresas estaban en el índice en 2015, **el proveedor no da precios de las que
+desaparecieron**. Aplicar la composición histórica sin esos precios no elimina
+el sesgo, solo hace el universo más pequeño.
 
 **Solo señales técnicas.** Los fundamentales que guardamos son una foto actual,
 no una serie histórica: no sabemos que PER tenía una empresa hace tres años.

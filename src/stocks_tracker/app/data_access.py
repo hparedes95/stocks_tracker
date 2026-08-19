@@ -1393,3 +1393,20 @@ def get_watchlist() -> pd.DataFrame:
         """,
         [_preset_hash(None)],
     )
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def anos_de_composicion() -> float:
+    """Años de composición de universo realmente guardados.
+
+    Es el número que permite decir la verdad sobre el sesgo de supervivencia en
+    vez de una promesa: "hay 0,03 años de composición real" se comprueba, "el
+    sesgo irá desapareciendo" no.
+    """
+    from ..core.membership import anos_de_composicion as calcular
+
+    try:
+        with connect(read_only=True) as conn:
+            return calcular(conn)
+    except Exception:  # noqa: BLE001 — almacen viejo o sin la tabla
+        return 0.0
