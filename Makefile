@@ -80,6 +80,16 @@ validate-freeze:
 validate-confirm:
 	$(PY) -m stocks_tracker.backtest.run_backtest --fase confirmacion --tag-signals
 
+# Cruza el precio de la cartera, las senales y una muestra rotatoria contra un
+# segundo proveedor. No audita el universo entero a proposito: 600 valores por
+# tres fuentes al dia son 1.800 peticiones contra APIs gratuitas, y eso no acaba
+# en datos verificados sino en un bloqueo por abuso.
+#
+# Lo que encuentra tiene consecuencias: un precio sin consenso veta la orden en
+# la regla 21 del gestor de riesgo.
+auditar:
+	$(PY) -m stocks_tracker.ingest.run_audit
+
 alerts:
 	$(PY) -m stocks_tracker.alerts.run_alerts
 

@@ -348,6 +348,30 @@ CREATE TABLE IF NOT EXISTS data_quality (
   run_id     VARCHAR
 );
 
+-- Resultado de contrastar el mismo precio entre proveedores. NO se guarda una
+-- fila por cada precio del almacen: solo por los que se han cruzado de verdad
+-- (cartera, senales y muestra aleatoria). Marcar 800.000 filas con un
+-- "verificado" que nadie ha comprobado seria peor que no marcarlas.
+--
+-- `por_fuente` guarda el JSON con lo que dijo cada proveedor, tambien cuando
+-- todos concuerdan: sin los numeros de partida el veredicto es una opinion que
+-- no se puede revisar despues.
+CREATE TABLE IF NOT EXISTS price_consensus (
+  ticker       VARCHAR,
+  date         DATE,
+  valor        DOUBLE,               -- NULL si no hay consenso
+  veredicto    VARCHAR,              -- verificado|aviso|degradado|invalido|desconocido
+  dispersion   DOUBLE,               -- (max-min)/mediana, en fraccion
+  n_fuentes    INTEGER,
+  por_fuente   VARCHAR,              -- JSON {proveedor: precio}
+  discrepantes VARCHAR,
+  checked_at   TIMESTAMP,
+  run_id       VARCHAR,
+  PRIMARY KEY (ticker, date)
+);
+CREATE INDEX IF NOT EXISTS idx_consensus_veredicto
+  ON price_consensus(veredicto, date);
+
 -- Barras concretas cuyo OHLC no puede ser cierto (maximo por debajo del
 -- minimo, cierre fuera del rango). No se borran de `prices_daily`: borrarlas
 -- destruiria la prueba y ademas el proveedor las volveria a mandar identicas en

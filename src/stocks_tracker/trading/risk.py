@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from ..core.config import TradingConfig, get_trading_config
+from ..providers.consensus import Veredicto
 from .context import StrategyContext
 from .intents import (
     _MINT,
@@ -40,6 +41,11 @@ from .intents import (
     Side,
 )
 from .sizing import size_by_atr
+
+# Solo la contradiccion DEMOSTRADA veta. `desconocido` —ninguna fuente sirvio el
+# dato ese dia— no entra: significa que la auditoria no llego, no que el precio
+# este mal, y confundir las dos cosas convierte "no lo he mirado" en "esta mal".
+_CONSENSO_QUE_VETA = frozenset({str(Veredicto.INVALIDO)})
 
 
 @dataclass(frozen=True)
@@ -275,6 +281,11 @@ class RiskManager:
                 f"{max_per_ticker:.0f} por valor y dia.",
             )
 
+        # 21. consensus_gate — el precio no lo confirma nadie
+        veto = self._consensus_gate(intent, ctx)
+        if veto is not None:
+            return veto
+
         # 18. universe_gate
         veto = self._universe_gate(intent, ctx)
         if veto is not None:
@@ -464,6 +475,42 @@ class RiskManager:
         )
 
     # ------------------------------------------------------------------
+    def _consensus_gate(self, intent: Intent,
+                        ctx: StrategyContext) -> RiskVerdict | None:
+        """Veta operar un valor cuyo precio no confirma ninguna otra fuente.
+
+        La auditoria cruzada (`ingest/run_audit`) pide el mismo cierre a varios
+        proveedores. Cuando discrepan y no hay mayoria, el veredicto es
+        INVALIDO y NO hay precio de consenso: no se sabe cual de las dos
+        fuentes miente.
+
+        Mandar una orden ahi es operar sobre un numero que puede estar mal en un
+        porcentaje desconocido. El tamano de la posicion, el stop y el limite
+        salen todos del precio de referencia.
+
+        Solo se veta INVALIDO, no DEGRADADO. Que un valor no se haya podido
+        contrastar —porque la segunda fuente no lo cubre, que pasa con medio
+        mercado europeo— no es una senal de que el precio este mal, y vetar por
+        eso dejaria al bot sin operar casi nada. Lo que se veta es la
+        contradiccion demostrada, no la falta de confirmacion.
+
+        Sin auditoria ninguna, esta regla no hace nada: un diccionario vacio no
+        veta a nadie. Es deliberado. Una regla que bloquea todo cuando el dato
+        que necesita no existe convierte "no lo he mirado" en "esta mal".
+        """
+        veredicto = ctx.consenso.get(intent.ticker)
+        if veredicto is None:
+            return None
+        if veredicto not in _CONSENSO_QUE_VETA:
+            return None
+        return self._veto(
+            intent, "consensus_gate", "NO_CONSENSUS",
+            f"Las fuentes de precio de {intent.ticker} no coinciden y no hay "
+            "mayoria, asi que no se sabe cual es el precio bueno. El tamano, el "
+            "stop y el limite salen todos de ese numero: sin el, la orden no "
+            "sale. El detalle esta en Estado de los datos.",
+        )
+
     def _universe_gate(self, intent: Intent, ctx: StrategyContext) -> RiskVerdict | None:
         ticker = intent.ticker
         if ctx.universe_allowed and ticker not in ctx.universe_allowed:

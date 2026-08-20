@@ -104,6 +104,10 @@ class Settings:
         return self.raw.get("compute", {})
 
     @property
+    def consensus(self) -> dict[str, Any]:
+        return self.raw.get("consensus", {})
+
+    @property
     def ui(self) -> dict[str, Any]:
         return self.raw.get("ui", {})
 

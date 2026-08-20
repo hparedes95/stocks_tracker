@@ -29,6 +29,7 @@
       validate  Valida las senales contra su historico (descubrimiento)
       validate-freeze   Congela lo que llego a estable
       validate-confirm  Lo comprueba en el tramo reservado
+      auditar   Cruza precios con un segundo proveedor y da su veredicto
       alerts    Evalua las reglas de aviso
       watch     Vigila el mercado en vivo
       watchtest Simula un desplome del 8% para probar los avisos
@@ -45,6 +46,7 @@ param(
                  'tiene-universo',
                  'compute', 'presets', 'validate',
                  'validate-freeze', 'validate-confirm',
+                 'auditar',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
@@ -595,6 +597,20 @@ switch ($Task) {
         Assert-Venv
         Write-Step "Gasta el tramo reservado. Solo se puede una vez por senal."
         & $Py -m stocks_tracker.backtest.run_backtest --fase confirmacion --tag-signals
+    }
+
+    'auditar' {
+        Assert-Venv
+        Write-Step "Cruzando precios con un segundo proveedor"
+        Write-Host "  Cartera, valores con senal y una muestra rotatoria."
+        Write-Host "  No se audita el universo entero: los limites gratuitos no dan."
+        & $Py -m stocks_tracker.ingest.run_audit
+        if ($LASTEXITCODE -eq 78) {
+            Write-Host ""
+            Write-Host "  Ninguna fuente ha podido contrastar nada." -ForegroundColor Yellow
+            Write-Host "  Los precios siguen siendo los de siempre; lo que falta"
+            Write-Host "  es la confirmacion de un segundo proveedor."
+        }
     }
 
     'alerts' {

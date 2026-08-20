@@ -53,6 +53,23 @@ compute:
   lookback_sessions: 400
   weights_preset: balanced
 
+# Contraste del mismo precio entre proveedores. No verifica el universo entero:
+# 600 valores x 3 fuentes al dia son 1.800 peticiones contra APIs gratuitas, y
+# eso no acaba en datos verificados sino en un bloqueo por abuso. Se cruza donde
+# el error cuesta dinero (cartera y senales) mas una muestra rotatoria.
+consensus:
+  # Proveedores de CONTRASTE. El almacen ya aporta lo que sirvio Yahoo, asi que
+  # aqui van los demas. `twelve_data` se anadira cuando haya clave de API.
+  providers: [stooq]
+
+  # ATENCION: estos dos umbrales NO estan calibrados contra datos reales. Son un
+  # punto de partida razonado. La auditoria guarda la dispersion observada de
+  # cada comparacion justamente para poder ajustarlos con datos propios; hasta
+  # entonces, un porcentaje alto de veredictos 'invalido' probablemente diga mas
+  # de los umbrales que de los proveedores.
+  tolerancia: 0.005      # 0,5 %: por debajo, dos fuentes "dicen lo mismo"
+  maxima: 0.02           # 2 %: por encima, son datos incompatibles
+
 ui:
   locale: es
   tradingview:

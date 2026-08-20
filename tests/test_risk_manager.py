@@ -463,3 +463,55 @@ def test_a_buy_order_uses_notional_and_a_sell_uses_quantity():
     assert by_ticker["AAA"].notional is not None
     assert by_ticker["BBB"].notional is None
     assert by_ticker["BBB"].qty == pytest.approx(2.0)
+
+
+# ---------------------------------------------------------------------------
+# 21. consensus_gate — el precio que no confirma nadie
+# ---------------------------------------------------------------------------
+# Un sistema de consenso que detecta la discrepancia, la pinta muy bien en una
+# pantalla y deja que la orden salga igual no protege nada: es decoracion. Esto
+# es lo que lo convierte en una proteccion.
+
+def test_no_consensus_vetoes_the_order():
+    """Cuando dos fuentes dan precios incompatibles y no hay mayoria, no se
+    sabe cual es el bueno. El tamano, el stop y el limite salen todos de ese
+    numero."""
+    ctx = make_ctx(consenso={"AAA": "invalido"})
+
+    verdict = only(RiskManager(cfg=cfg()), [buy("AAA")], ctx)
+
+    assert verdict.decision is Decision.VETO
+    assert verdict.reason_code == "NO_CONSENSUS"
+    assert verdict.rule_id == "consensus_gate"
+
+
+def test_a_verified_price_is_not_vetoed():
+    """El contrario, para que el de arriba no pase por otro motivo."""
+    assert only(RiskManager(cfg=cfg()), [buy("AAA")],
+                make_ctx(consenso={"AAA": "verificado"})).approved
+
+
+def test_an_uncontrasted_price_does_not_veto():
+    """DEGRADADO es "no se ha podido contrastar", no "esta mal". Medio mercado
+    europeo no lo cubre la segunda fuente, y vetar por eso dejaria al bot sin
+    operar casi nada. Se veta la contradiccion demostrada, no la falta de
+    confirmacion."""
+    assert only(RiskManager(cfg=cfg()), [buy("AAA")],
+                make_ctx(consenso={"AAA": "degradado"})).approved
+
+
+def test_without_any_audit_the_rule_does_nothing():
+    """Una regla que bloquea todo cuando el dato que necesita no existe
+    convierte "no lo he mirado" en "esta mal". Y la auditoria cruzada no corre
+    en la primera instalacion."""
+    assert only(RiskManager(cfg=cfg()), [buy("AAA")],
+                make_ctx(consenso={})).approved
+
+
+def test_the_veto_is_per_ticker():
+    """Que las fuentes discrepen en AAA no dice nada de BBB."""
+    ctx = make_ctx(consenso={"AAA": "invalido"})
+    verdicts = RiskManager(cfg=cfg()).evaluate([buy("AAA"), buy("BBB")], ctx)
+
+    assert verdicts[0].reason_code == "NO_CONSENSUS"
+    assert verdicts[1].approved

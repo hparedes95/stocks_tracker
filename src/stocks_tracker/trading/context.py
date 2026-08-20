@@ -41,6 +41,10 @@ class StrategyContext:
     indicators: pd.DataFrame = field(default_factory=pd.DataFrame)
     signals: pd.DataFrame = field(default_factory=pd.DataFrame)
     evidence: dict[str, str] = field(default_factory=dict)
+    # ticker -> veredicto del contraste entre proveedores. Vacio mientras no se
+    # haya ejecutado ninguna auditoria cruzada, y entonces la regla 21 no veta a
+    # nadie: no haberlo mirado no es lo mismo que estar mal.
+    consenso: dict[str, str] = field(default_factory=dict)
     sectors: dict[str, str] = field(default_factory=dict)
     dollar_volume_20d: dict[str, float] = field(default_factory=dict)
     earnings: dict[str, list[date]] = field(default_factory=dict)
@@ -233,6 +237,17 @@ def build_context(
             """
         ).fetchall()
 
+        # El veredicto MAS RECIENTE de cada valor, y no el de `as_of`. La
+        # auditoria cruzada no corre todos los dias sobre todos los valores —el
+        # presupuesto de las APIs gratuitas no da—, asi que exigir el del dia
+        # exacto dejaria la regla sin datos casi siempre y sin efecto ninguno.
+        consenso_rows = conn.execute(
+            """
+            SELECT ticker, veredicto FROM price_consensus
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) = 1
+            """
+        ).fetchall()
+
         instruments = conn.execute(
             "SELECT ticker, gics_sector FROM instruments"
         ).fetchdf()
@@ -324,6 +339,7 @@ def build_context(
         indicators=indicators,
         signals=signals,
         evidence={sid: ev for sid, ev in evidence_rows},
+        consenso={str(t): str(v) for t, v in consenso_rows},
         sectors=dict(zip(instruments["ticker"], instruments["gics_sector"], strict=False))
         if not instruments.empty else {},
         dollar_volume_20d=dict(zip(dollar_volume["ticker"], dollar_volume["dv"],
