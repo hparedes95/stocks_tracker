@@ -94,6 +94,44 @@ def render_data_origin_banner() -> None:
     )
 
 
+def render_integrity_badge(target) -> None:
+    """Semaforo de integridad en la barra lateral, visible desde cualquier pagina.
+
+    Va aqui y no solo en la pagina de estado porque el problema que resuelve es
+    justo que nadie entra en esa pagina. Un rojo tiene que verse mientras miras
+    el ranking, que es cuando estas a punto de decidir algo.
+
+    Solo dice el estado y adonde ir. El detalle esta en su pagina: un panel
+    completo en la barra lateral seria ilegible y competiria con lo que el
+    usuario habia venido a mirar.
+    """
+    from stocks_tracker.core import integrity
+    from stocks_tracker.core.db import connect
+
+    try:
+        with connect(read_only=True) as conn:
+            puntos = integrity.revisar(conn)
+    except Exception:  # noqa: BLE001
+        # Un almacen que todavia no existe no es un fallo que merezca una
+        # excepcion en pantalla: es la primera ejecucion.
+        return
+
+    veredicto = integrity.veredicto(puntos)
+    if veredicto == integrity.BIEN:
+        st.page_link(target, label="Integridad: todo comprobado",
+                     icon=":material/verified_user:")
+        return
+
+    sin_verde = integrity.pendientes(puntos)
+    etiqueta = "punto" if len(sin_verde) == 1 else "puntos"
+    st.page_link(
+        target,
+        label=f"{integrity.SEMAFORO[veredicto]} Integridad: {len(sin_verde)} "
+              f"{etiqueta} que revisar",
+        icon=":material/shield:",
+    )
+
+
 def render_pending_alerts_badge(target) -> None:
     """Avisos sin revisar. Solo aparece si hay alguno: un contador a cero es ruido.
 

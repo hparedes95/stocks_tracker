@@ -11,10 +11,63 @@ import streamlit as st
 
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components.common import render_disclaimer
-from stocks_tracker.core import consistency, quarantine
+from stocks_tracker.core import consistency, integrity, quarantine
 from stocks_tracker.core.db import connect, table_counts
 
 st.title("Estado de los datos")
+
+# ---------------------------------------------------------------------------
+# Panel de integridad
+# ---------------------------------------------------------------------------
+# Va lo PRIMERO de la pagina. Las comprobaciones estaban repartidas en ocho
+# secciones y una consola, y para saber si hoy te puedes fiar del programa habia
+# que recorrerlas todas. Aqui estan las ocho en una lista.
+st.subheader("Integridad del sistema")
+
+with connect(read_only=True) as _conn:
+    _puntos = integrity.revisar(_conn)
+
+_veredicto = integrity.veredicto(_puntos)
+_pendientes = integrity.pendientes(_puntos)
+
+if _veredicto == integrity.BIEN:
+    st.success(
+        "Todo comprobado y sin nada que contradiga los datos. **No quiere decir "
+        "que sean correctos**: quiere decir que no se ha encontrado ninguna de "
+        "las formas que sabemos reconocer como rotas.",
+        icon=":material/verified_user:",
+    )
+elif _veredicto == integrity.MAL:
+    st.error(
+        f"**{len(_pendientes)} puntos que revisar**, y alguno impide fiarse de "
+        "lo que muestra el programa.",
+        icon=":material/gpp_maybe:",
+    )
+else:
+    st.warning(f"**{len(_pendientes)} puntos que revisar.**",
+               icon=":material/shield:")
+
+st.dataframe(
+    pd.DataFrame([
+        {"": p.icono, "Comprobación": p.nombre, "Qué pasa": p.detalle,
+         "Dónde mirar": p.donde}
+        for p in _puntos
+    ]),
+    hide_index=True, height=42 + 35 * len(_puntos),
+    column_config={
+        "": st.column_config.TextColumn(width="small"),
+        "Qué pasa": st.column_config.TextColumn(width="large"),
+    },
+)
+st.caption(
+    "⚪ **no es lo mismo que 🟢.** Gris significa que esa comprobación no se ha "
+    "ejecutado; verde, que se ejecutó y no encontró nada. Un panel que pinta de "
+    "verde lo que no ha mirado da tranquilidad sin haberla ganado, así que aquí "
+    "se distinguen. Una comprobación de hace más de "
+    f"{integrity.CADUCA_HORAS} h vuelve a gris: ya no dice nada de hoy."
+)
+
+st.divider()
 
 info = da.data_freshness()
 
