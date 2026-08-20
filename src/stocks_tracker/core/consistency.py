@@ -34,6 +34,7 @@ se sabe cual es la equivocada, y elegir una sería peor que avisar de las dos.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -195,7 +196,31 @@ def _contra_precios(f: Any, precio: float | None,
 # ---------------------------------------------------------------------------
 # 2. Contra si mismos
 # ---------------------------------------------------------------------------
-def _contra_si_mismos(f: Any) -> list[Aviso]:
+def sin_margen_bruto(sector: str | None) -> bool:
+    """Si en ese sector el margen bruto no significa nada.
+
+    Un banco no tiene coste de las ventas. No es que el proveedor se equivoque
+    al calcularlo: es que no existe el concepto, y el numero que publica en ese
+    campo sale de una definicion suya que no es comparable con la de una
+    empresa industrial.
+
+    Importa porque las identidades del margen se apoyan en el bruto. Sin esta
+    excepcion, "el margen neto supera al bruto" salta en practicamente TODOS los
+    bancos y aseguradoras, y como los datos marcados como imposibles se vacian
+    antes de puntuar, el sector financiero entero se quedaria sin margenes en el
+    ranking por una comprobacion mal aplicada. Un falso positivo que borra datos
+    buenos hace mas dano que la fuente que pretendia vigilar.
+
+    Se compara por prefijo porque el sector llega escrito de dos maneras: las
+    listas de Wikipedia usan el nombre GICS ("Financials") y yfinance usa el
+    suyo ("Financial Services").
+    """
+    if not sector:
+        return False
+    return str(sector).strip().casefold().startswith("financ")
+
+
+def _contra_si_mismos(f: Any, sector: str | None = None) -> list[Aviso]:
     fuera: list[Aviso] = []
 
     for campo, (minimo, maximo) in IMPOSIBLES.items():
@@ -216,7 +241,9 @@ def _contra_si_mismos(f: Any) -> list[Aviso]:
     # ese numero estaba contrastado.
     rendimiento = _num(f, "earnings_yield")
 
-    bruto = _num(f, "gross_margin")
+    # En banca y seguros el margen bruto no es una magnitud definida, asi que
+    # las identidades que se apoyan en el no dicen nada. Ver `sin_margen_bruto`.
+    bruto = None if sin_margen_bruto(sector) else _num(f, "gross_margin")
     operativo = _num(f, "operating_margin")
     neto = _num(f, "profit_margin")
     if bruto is not None and neto is not None and neto > bruto:
@@ -296,14 +323,62 @@ def _contra_el_pasado(f: Any, anterior: Any) -> list[Aviso]:
     return fuera
 
 
+# Fraccion de los valores afectados a partir de la cual un mismo campo deja de
+# ser "estas empresas tienen el dato mal" y pasa a ser "el proveedor tiene ese
+# campo mal". Un tercio del universo revisado no se equivoca a la vez.
+CAMPO_SISTEMATICO = 1 / 3
+
+
+def campos_repetidos(campos_por_valor: Iterable[Iterable[str]]
+                     ) -> list[tuple[str, int]]:
+    """Cuantos valores comparten cada campo sospechoso, de mas a menos.
+
+    Sesenta y cuatro filas en una tabla se leen como sesenta y cuatro problemas.
+    Si en las sesenta y cuatro el campo es el mismo, es UN problema: el
+    proveedor ha cambiado la unidad de ese campo, o lo calcula mal para todo un
+    tipo de empresa. Son dos diagnosticos muy distintos y la tabla por valor no
+    permite distinguirlos.
+    """
+    conteo: dict[str, int] = {}
+    for campos in campos_por_valor:
+        # Por VALOR y no por aviso: un valor con el mismo campo roto en dos
+        # comprobaciones no cuenta dos veces, o el campo pareceria mas extendido
+        # de lo que esta.
+        for campo in set(campos):
+            if campo:
+                conteo[campo] = conteo.get(campo, 0) + 1
+    return sorted(conteo.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def campos_rotos(fundamentales: Any, sector: str | None = None) -> set[str]:
+    """Campos cuyo valor no puede ser cierto, mirando el dato contra si mismo.
+
+    Se separa de `revisar` porque es lo unico que el CALCULO puede usar para
+    descartar: no necesita precios, ni beta, ni la foto anterior, asi que sirve
+    igual dentro del ranking que en el dashboard.
+
+    Solo ROTO. Los DUDOSO se quedan fuera a proposito: "estos dos numeros no
+    cuadran" no dice cual de los dos falla, y tirar uno de los dos a cara o cruz
+    seria peor que dejar los dos y avisar.
+    """
+    if fundamentales is None:
+        return set()
+    return {a.campo for a in _contra_si_mismos(fundamentales, sector)
+            if a.gravedad is Gravedad.ROTO}
+
+
 def revisar(ticker: str, fundamentales: Any, *, precio: float | None = None,
             beta_calculada: float | None = None,
-            anterior: Any = None) -> Revision:
+            anterior: Any = None, sector: str | None = None) -> Revision:
     """Todo lo que contradice a los fundamentales de un valor.
 
     Sin fundamentales no hay revisión y NO se devuelve "fiable": no haber
     encontrado nada porque no había nada que mirar no es lo mismo que no haber
     encontrado nada.
+
+    `sector` solo se usa para saber si el margen bruto significa algo en ese
+    negocio. Sin el, las identidades del margen se aplican a todo el mundo y
+    saltan en cada banco. Ver `sin_margen_bruto`.
     """
     if fundamentales is None:
         return Revision(ticker=ticker, avisos=[
@@ -311,7 +386,7 @@ def revisar(ticker: str, fundamentales: Any, *, precio: float | None = None,
 
     return Revision(ticker=ticker, avisos=[
         *_contra_precios(fundamentales, precio, beta_calculada),
-        *_contra_si_mismos(fundamentales),
+        *_contra_si_mismos(fundamentales, sector),
         *_contra_el_pasado(fundamentales, anterior),
     ])
 

@@ -11,6 +11,7 @@ import streamlit as st
 
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components.common import render_disclaimer
+from stocks_tracker.core import consistency, quarantine
 from stocks_tracker.core.db import connect, table_counts
 
 st.title("Estado de los datos")
@@ -179,11 +180,35 @@ else:
             "campos": st.column_config.TextColumn("Campos", width="large"),
         },
     )
+    # Sesenta y cuatro filas se leen como sesenta y cuatro problemas. Si en las
+    # sesenta y cuatro falla el mismo campo, es UNO: el proveedor.
+    repetidos = consistency.campos_repetidos(
+        str(c).split(", ") for c in sospechosos["campos"]
+    )
+    sistematicos = [(campo, n) for campo, n in repetidos
+                    if n >= len(sospechosos) * consistency.CAMPO_SISTEMATICO]
+    if sistematicos:
+        st.warning(
+            "Un mismo campo falla en casi todo el universo, así que el problema "
+            "no son estas empresas: es el proveedor. "
+            + " · ".join(f"**{campo}** en {n} de {len(sospechosos)}"
+                         for campo, n in sistematicos)
+            + ". Lo típico es que hayan cambiado la unidad del campo (publicar "
+              "3,5 donde antes publicaban 0,035) o que lo calculen mal para un "
+              "tipo de empresa entero, como los bancos.",
+            icon=":material/lan:",
+        )
+
     st.caption(
-        "**No se corrige nada automáticamente.** Cuando dos datos se "
-        "contradicen no se sabe cual es el equivocado, y elegir uno sería peor "
-        "que avisar de los dos. El detalle de cada uno está en la pestaña "
-        "Fundamentales de su ficha."
+        "**Los datos imposibles no entran en el ranking.** Se vacían antes de "
+        "puntuar, por dos vías: los que se salen del rango de su factor los "
+        "descarta el propio cálculo desde siempre, y los que incumplen una "
+        "identidad contable —un margen neto por encima del bruto— se descartan "
+        "aquí, porque ningún rango puede cazarlos. Ese valor puntúa con un dato "
+        "menos, nunca con un dato falso. Lo que sí sigue entrando son los que "
+        "solo *no cuadran* entre si, porque ahí no se sabe cual de los dos "
+        "falla y elegir uno sería peor que avisar de los dos. El detalle de "
+        "cada uno está en la pestaña Fundamentales de su ficha."
     )
 
 st.divider()
@@ -261,6 +286,33 @@ else:
         ),
         hide_index=True, height=min(320, 42 + 35 * len(calidad)),
         column_config={"Qué pasa": st.column_config.TextColumn(width="large")},
+    )
+
+# ---------------------------------------------------------------------------
+# Barras apartadas
+# ---------------------------------------------------------------------------
+with connect(read_only=True) as conn:
+    apartadas = quarantine.resumen(conn)
+
+if not apartadas.empty:
+    st.markdown("**Barras apartadas del cálculo**")
+    st.caption(
+        "Sesiones sueltas cuyo OHLC no puede ser cierto: un cierre por encima "
+        "del máximo del día, un máximo por debajo del mínimo. No se borran ni "
+        "se arreglan — nadie sabe cual de los cuatro números es el equivocado —, "
+        "pero su máximo, mínimo y apertura se ignoran al calcular. Todo lo que "
+        "use el rango de esos días (el ATR, sobre todo) sale vacío ahí en vez "
+        "de salir con un número inventado."
+    )
+    vista = apartadas.copy()
+    for col in ("primera", "ultima"):
+        vista[col] = pd.to_datetime(vista[col]).dt.strftime("%d/%m/%Y")
+    st.dataframe(
+        vista.rename(columns={"ticker": "Valor", "barras": "Sesiones",
+                              "primera": "Desde", "ultima": "Hasta",
+                              "motivo": "Qué le pasa"}),
+        hide_index=True, height=min(280, 42 + 35 * len(vista)),
+        column_config={"Qué le pasa": st.column_config.TextColumn(width="large")},
     )
 
 st.divider()

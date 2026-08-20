@@ -1282,9 +1282,13 @@ def review_fundamentals(ticker: str):
                   if not precio.empty and pd.notna(precio.iloc[0]["cierre"])
                   else None)
 
+    sector = _fetch("SELECT gics_sector FROM instruments WHERE ticker = ?", [ticker])
     return revisar(ticker, ultima, precio=cierre,
                    beta_calculada=get_beta_from_prices(ticker),
-                   anterior=anterior)
+                   anterior=anterior,
+                   sector=(str(sector.iloc[0]["gics_sector"])
+                           if not sector.empty and pd.notna(sector.iloc[0]["gics_sector"])
+                           else None))
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
@@ -1338,13 +1342,22 @@ def review_all_fundamentals(limit: int = 2000) -> pd.DataFrame:
                       for r in precios.itertuples()
                       if r.cierre is not None and pd.notna(r.cierre)}
 
+    # El sector hace falta para no aplicar las identidades del margen a bancos
+    # y aseguradoras, donde el margen bruto no significa nada. Sin esto la
+    # tabla se llena de financieras que no tienen ningun problema, y la pagina
+    # entrena a ignorarla. Ver `consistency.sin_margen_bruto`.
+    sectores = {
+        str(r.ticker): (str(r.gics_sector) if pd.notna(r.gics_sector) else None)
+        for r in _fetch("SELECT ticker, gics_sector FROM instruments").itertuples()
+    }
+
     fotos = fotos.sort_values(["ticker", "as_of"], ascending=[True, False])
     filas = []
     for ticker, grupo in fotos.groupby("ticker", sort=False):
         ultima = grupo.iloc[0]
         anterior = grupo.iloc[1] if len(grupo) > 1 else None
         rev = revisar(str(ticker), ultima, precio=por_ticker.get(str(ticker)),
-                      anterior=anterior)
+                      anterior=anterior, sector=sectores.get(str(ticker)))
         if rev.avisos:
             filas.append({
                 "ticker": str(ticker),

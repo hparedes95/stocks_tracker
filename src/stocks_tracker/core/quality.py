@@ -83,6 +83,23 @@ MIN_COBERTURA_CALENDARIO = 0.90
 # Fraccion de nulos en los campos de precio que se tolera.
 MAX_NULOS = 0.02
 
+# Cuando una barra imposible pasa de "apartala y sigue" a "para todo".
+#
+# Cuatro barras de 2021 sobre casi un millon no invalidan el calculo de hoy: se
+# apartan (ver `core/quarantine`) y se sigue. Bloquear por ellas dejaba el
+# programa inutilizado PARA SIEMPRE, porque el proveedor manda la misma barra
+# mala en cada descarga y no hay nada que el usuario pueda hacer.
+#
+# Dos casos si paran el calculo, y por motivos distintos:
+#
+# - Barras imposibles RECIENTES. Sobre esas se decide hoy: entran en el precio
+#   de referencia, en los stops y en lo que el bot mira antes de mandar una
+#   orden. Apartarlas en silencio seria operar sin saberlo con un dia ciego.
+# - Muchas barras imposibles. Deja de ser una rareza del proveedor y pasa a ser
+#   que la descarga entera vino mal.
+SESIONES_RECIENTES_CRITICAS = 10
+MAX_BARRAS_IMPOSIBLES = 0.001
+
 
 @dataclass(frozen=True)
 class Hallazgo:
@@ -344,6 +361,24 @@ def nulos(precios: pd.DataFrame) -> float:
     return float(celdas.isna().to_numpy().mean())
 
 
+def _barras_recientes(malas: pd.DataFrame, precios: pd.DataFrame,
+                      sesiones: int = SESIONES_RECIENTES_CRITICAS) -> pd.DataFrame:
+    """Cuales de las barras malas caen en las ultimas sesiones del mercado.
+
+    El corte se toma sobre las fechas que HAY, no sobre el dia de hoy: un
+    almacen que lleva una semana sin actualizarse tiene sus ultimas sesiones
+    igual de vigentes, y contra la fecha de hoy no saldria ninguna reciente
+    justo cuando los datos estan mas viejos.
+    """
+    if malas.empty or precios.empty:
+        return malas.iloc[0:0]
+    todas = pd.Series(sorted(set(pd.to_datetime(precios["date"]))))
+    if todas.empty:
+        return malas.iloc[0:0]
+    corte = todas.iloc[-min(sesiones, len(todas))]
+    return malas[pd.to_datetime(malas["date"]) >= corte]
+
+
 # ---------------------------------------------------------------------------
 # El veredicto
 # ---------------------------------------------------------------------------
@@ -420,14 +455,43 @@ def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
         if not usan_ohlc.empty:
             afectados = sorted(usan_ohlc["ticker"].unique())
             primera = usan_ohlc.iloc[0]
-            fuera.append(Hallazgo(
-                "ohlc_incoherente", BLOQUEA, None, None,
+            recientes = _barras_recientes(usan_ohlc, precios)
+            fraccion = len(usan_ohlc) / len(precios) if len(precios) else 1.0
+            grave = not recientes.empty or fraccion > MAX_BARRAS_IMPOSIBLES
+
+            donde = (
                 f"{len(usan_ohlc)} sesiones con precios imposibles en "
                 f"{len(afectados)} valores que SI usan el rango del dia. "
                 f"La primera: {primera['ticker']} el "
                 f"{pd.to_datetime(primera['date']).date()}, {primera['motivo']}. "
                 f"Afectados: {', '.join(afectados[:8])}"
-                + (f" y {len(afectados) - 8} mas." if len(afectados) > 8 else "."),
+                + (f" y {len(afectados) - 8} mas." if len(afectados) > 8 else ".")
+            )
+            if not recientes.empty:
+                cual = recientes.iloc[0]
+                porque = (
+                    f" {len(recientes)} de ellas son de las ultimas "
+                    f"{SESIONES_RECIENTES_CRITICAS} sesiones ("
+                    f"{cual['ticker']} el {pd.to_datetime(cual['date']).date()}), "
+                    "y sobre esas se decide hoy: precio de referencia, stops y "
+                    "lo que mira el bot antes de mandar una orden."
+                )
+            elif grave:
+                porque = (
+                    f" Son el {fraccion:.2%} del almacen, por encima del "
+                    f"{MAX_BARRAS_IMPOSIBLES:.2%} que se explica por una rareza "
+                    "suelta del proveedor: esto apunta a una descarga entera mal."
+                )
+            else:
+                porque = (
+                    " Son antiguas y muy pocas, asi que no se para el calculo: "
+                    "se apartan (su maximo, minimo y apertura se ignoran) y todo "
+                    "lo que use el rango de esos dias sale vacio en vez de salir "
+                    "con un numero inventado."
+                )
+            fuera.append(Hallazgo(
+                "ohlc_incoherente", BLOQUEA if grave else AVISO, None, None,
+                donde + porque,
             ))
         if not resto.empty:
             afectados = sorted(resto["ticker"].unique())

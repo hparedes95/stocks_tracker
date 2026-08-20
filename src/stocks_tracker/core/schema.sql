@@ -348,6 +348,21 @@ CREATE TABLE IF NOT EXISTS data_quality (
   run_id     VARCHAR
 );
 
+-- Barras concretas cuyo OHLC no puede ser cierto (maximo por debajo del
+-- minimo, cierre fuera del rango). No se borran de `prices_daily`: borrarlas
+-- destruiria la prueba y ademas el proveedor las volveria a mandar identicas en
+-- la siguiente descarga. Se apuntan aqui y el calculo las trata como si el
+-- rango del dia no existiera, que es lo unico honesto que se puede hacer cuando
+-- no se sabe cual de los cuatro numeros es el equivocado.
+CREATE TABLE IF NOT EXISTS prices_quarantine (
+  ticker      VARCHAR,
+  date        DATE,
+  motivo      VARCHAR,
+  detected_at TIMESTAMP,
+  run_id      VARCHAR,
+  PRIMARY KEY (ticker, date)
+);
+
 -- ============ BOT DE TRADING (fase 6) ============
 -- Herramienta personal de experimentacion. El usuario opera su propio dinero
 -- bajo su exclusiva responsabilidad. Ninguna metrica pasada garantiza

@@ -49,23 +49,32 @@ def _load_prices(conn, lookback: int | None) -> pd.DataFrame:
     validar una estrategia hacen falta los diez anos: sin ellos la puerta 1
     nunca podria comprobar el minimo de cinco, y no por falta de precios sino
     porque los indicadores no llegaban tan atras.
+
+    Las barras en cuarentena salen con el rango del dia a nulo. Se hace AQUI y
+    no en cada calculo porque este es el unico sitio por el que entran los
+    precios: puesto mas arriba, cualquier calculo nuevo que leyera de la tabla
+    directamente se saltaria la cuarentena sin que nadie se diera cuenta.
     """
+    from ..core import quarantine
+
     if lookback is None:
-        return conn.execute(
+        precios = conn.execute(
             """
             SELECT ticker, date, open, high, low, close, adj_close, volume
             FROM prices_daily ORDER BY ticker, date
             """
         ).fetchdf()
-    return conn.execute(
-        """
-        SELECT ticker, date, open, high, low, close, adj_close, volume
-        FROM prices_daily
-        WHERE date >= (SELECT MAX(date) FROM prices_daily) - INTERVAL (?) DAY
-        ORDER BY ticker, date
-        """,
-        [int(lookback * 1.6)],  # margen por fines de semana y festivos
-    ).fetchdf()
+    else:
+        precios = conn.execute(
+            """
+            SELECT ticker, date, open, high, low, close, adj_close, volume
+            FROM prices_daily
+            WHERE date >= (SELECT MAX(date) FROM prices_daily) - INTERVAL (?) DAY
+            ORDER BY ticker, date
+            """,
+            [int(lookback * 1.6)],  # margen por fines de semana y festivos
+        ).fetchdf()
+    return quarantine.aplicar(precios, quarantine.barras(conn))
 
 
 def compute_indicators(lookback: int | None = None, full: bool = False) -> int:
@@ -222,6 +231,64 @@ def _prune_stale_scores(conn, day, whash: str, scored: list[str]) -> int:
     return len(removed)
 
 
+def _descartar_fundamentales_rotos(merged: pd.DataFrame) -> pd.DataFrame:
+    """Vacia los fundamentales que no pueden ser ciertos, antes de puntuar.
+
+    QUE AGUJERO TAPA, EXACTAMENTE
+
+    Hay que ser preciso aqui, porque la mitad de esto ya estaba cubierto y decir
+    lo contrario seria alarmismo.
+
+    `scoring.sanitize` ya tira todo lo que se sale del rango que cada submetrica
+    declara en `factors.yaml`, y esos rangos son MAS estrictos que los de
+    `consistency.IMPOSIBLES` en todos los campos que comparten. Una rentabilidad
+    por dividendo de 3,5 —el 350 %, lo que sale si el proveedor cambia la unidad
+    del campo— nunca ha llegado al ranking: `max_valid: 0.20` la deja a nulo.
+
+    Lo que ningun rango puede cazar son las IDENTIDADES CONTABLES. Un margen
+    neto del 95 % con un margen bruto del 40 % es imposible —no se puede ganar
+    mas de lo que queda despues del coste de lo vendido— y sin embargo el 0,95
+    cae dentro del rango (-2, 1) que declara la submetrica. Se comprobo sobre el
+    calculo real: ese valor sale el PRIMERO del universo, percentil 1,00, por un
+    numero que el proveedor calculo mal.
+
+    Vaciar no es adivinar. El campo se queda a nulo y la cobertura del valor
+    baja, que es exactamente lo que ha pasado: de ese valor sabemos una cosa
+    menos. Lo que NO se hace es sustituirlo por la mediana del sector ni por
+    nada parecido, porque eso lo devolveria al ranking disfrazado de dato.
+
+    Solo los ROTO. Los DUDOSO —dos numeros que no cuadran entre si— siguen
+    entrando: ahi no se sabe cual de los dos falla, y descartar el que se senala
+    primero seria elegir a cara o cruz.
+    """
+    from ..core.consistency import campos_rotos
+
+    if merged.empty:
+        return merged
+
+    salida = merged.copy()
+    contados: dict[str, int] = {}
+    for indice, fila in salida.iterrows():
+        # El sector va SIEMPRE: sin el, las identidades del margen saltan en
+        # todos los bancos y este mismo bucle les vaciaria los margenes al
+        # sector financiero entero. Ver `consistency.sin_margen_bruto`.
+        for campo in campos_rotos(fila, fila.get("gics_sector")):
+            if campo in salida.columns:
+                salida.at[indice, campo] = np.nan
+                contados[campo] = contados.get(campo, 0) + 1
+
+    if contados:
+        detalle = ", ".join(f"{campo} ({n})"
+                            for campo, n in sorted(contados.items(),
+                                                   key=lambda kv: -kv[1]))
+        console.print(
+            f"[yellow]Fundamentales imposibles descartados del ranking:[/] "
+            f"{detalle}. [dim]Esos valores puntuan con un dato menos, no con un "
+            "dato falso.[/]"
+        )
+    return salida
+
+
 def compute_factor_scores(preset: str | None = None, all_presets: bool = False) -> int:
     """Scores para la ultima fecha disponible.
 
@@ -299,6 +366,7 @@ def compute_factor_scores(preset: str | None = None, all_presets: bool = False) 
     merged = snapshot.merge(
         fundamentals.drop(columns=["as_of"], errors="ignore"), on="ticker", how="left"
     )
+    merged = _descartar_fundamentales_rotos(merged)
 
     # Factor tecnico: agregado de estado de tendencia y senales activas del dia.
     signals_by_ticker = (
@@ -818,12 +886,14 @@ def puerta_de_calidad() -> bool:
     La linea esta ahi a proposito. Una puerta que se cierra a menudo se acaba
     abriendo con `--ignorar-calidad` por costumbre, y entonces deja de existir.
     """
+    from ..core import quarantine
     from ..core.ids import ulid
     from ..core.quality import (
         COMPROBACIONES_DEL_ALMACEN,
         bloqueantes,
         evaluar,
         guardar,
+        incoherencias_ohlc,
         resumen,
     )
 
@@ -843,12 +913,26 @@ def puerta_de_calidad() -> bool:
 
     hallazgos = evaluar(precios, instrumentos_ohlc=con_ohlc)
     run_id = ulid()
+
+    # Las barras imposibles de acciones y ETF se apuntan SIEMPRE, bloqueen o no.
+    # Si bloquean, quedan documentadas para quien vaya a mirar por que; si no,
+    # es lo que hace que se aparten del calculo en vez de entrar en el ATR.
+    malas = incoherencias_ohlc(precios)
+    apartar = malas[malas["ticker"].isin(con_ohlc)] if not malas.empty else malas
+
     with connect() as conn:
         # Solo las comprobaciones que ESTA funcion puede hacer. Marcar
         # `precios_revisados` como pasado sin poder compararlo con nada
         # tapaba el hallazgo bloqueante de la ingesta, porque la pagina 8
         # ensena el registro mas reciente de cada comprobacion.
         guardar(conn, hallazgos, run_id, list(COMPROBACIONES_DEL_ALMACEN))
+        nuevas = quarantine.registrar(conn, apartar, run_id)
+    if nuevas:
+        console.print(
+            f"[yellow]{nuevas} barras con precios imposibles apartadas del "
+            f"calculo.[/] [dim]Se conservan en el almacen; lo que se ignora es "
+            "su maximo, minimo y apertura.[/]"
+        )
 
     graves = bloqueantes(hallazgos)
     if not graves:
