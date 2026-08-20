@@ -1,0 +1,845 @@
+{
+  "indicadores": {
+    "ALZA": {
+      "above_sma200": true,
+      "above_sma50": true,
+      "adx14": 25.2216011,
+      "atr14": 2.44983301,
+      "atr_pct": 0.01757109,
+      "bb_lower": 122.05591822,
+      "bb_pctb": 0.7145596,
+      "bb_upper": 134.65498178,
+      "bb_width": 0.09815761,
+      "close": 139.4241,
+      "days_above_sma200": 21,
+      "death_cross": false,
+      "dist_52w_high": -0.01400033,
+      "dist_52w_low": 0.24747997,
+      "drawdown": -0.01400019,
+      "ema12": 130.11653882,
+      "ema26": 127.53121969,
+      "golden_cross": false,
+      "macd": 2.58531914,
+      "macd_hist": 0.11883005,
+      "macd_signal": 2.46648908,
+      "max_dd_1y": -0.1283,
+      "minus_di": 27.11527984,
+      "mom_12_1": 0.1238489,
+      "obv": -22839267.0,
+      "plus_di": 39.61531955,
+      "realized_vol_20": 0.21035554,
+      "realized_vol_252": 0.20336696,
+      "realized_vol_60": 0.21294679,
+      "rel_volume_20": 0.13131846,
+      "resistance_near": null,
+      "ret_1d": -0.01260437,
+      "ret_5d": 0.01526397,
+      "roc_12m": 0.24344825,
+      "roc_1m": 0.10641942,
+      "roc_3m": 0.06245577,
+      "roc_6m": 0.11313849,
+      "rs_vs_bench_3m": null,
+      "rsi14": 59.39850687,
+      "sma20": 128.35545,
+      "sma200": 119.8095335,
+      "sma50": 122.447246,
+      "support_near": 122.96928
+    },
+    "BAJA": {
+      "above_sma200": false,
+      "above_sma50": true,
+      "adx14": 21.83346399,
+      "atr14": 5.31047061,
+      "atr_pct": 0.02532506,
+      "bb_lower": 181.03839036,
+      "bb_pctb": 0.79026789,
+      "bb_upper": 201.37618964,
+      "bb_width": 0.10636519,
+      "close": 209.6923,
+      "days_above_sma200": 0,
+      "death_cross": false,
+      "dist_52w_high": -0.24282845,
+      "dist_52w_low": 0.16073858,
+      "drawdown": -0.24282868,
+      "ema12": 193.53552607,
+      "ema26": 190.01476934,
+      "golden_cross": false,
+      "macd": 3.52075673,
+      "macd_hist": 0.29420089,
+      "macd_signal": 3.22655584,
+      "max_dd_1y": -0.34768103,
+      "minus_di": 24.23654353,
+      "mom_12_1": -0.25819919,
+      "obv": 10800790.0,
+      "plus_di": 34.55417987,
+      "realized_vol_20": 0.28029539,
+      "realized_vol_252": 0.22716027,
+      "realized_vol_60": 0.24716919,
+      "rel_volume_20": 1.29457669,
+      "resistance_near": 226.8663,
+      "ret_1d": 0.00892215,
+      "ret_5d": 0.00623567,
+      "roc_12m": -0.18994094,
+      "roc_1m": 0.09201696,
+      "roc_3m": -0.08313995,
+      "roc_6m": -0.11677041,
+      "rs_vs_bench_3m": null,
+      "rsi14": 61.38314988,
+      "sma20": 191.20729,
+      "sma200": 209.5425395,
+      "sma50": 182.98647,
+      "support_near": 200.7953
+    },
+    "CARO": {
+      "above_sma200": true,
+      "above_sma50": true,
+      "adx14": 24.81148157,
+      "atr14": 31.62464491,
+      "atr_pct": 0.01319682,
+      "bb_lower": 2217.65656966,
+      "bb_pctb": 0.67285873,
+      "bb_upper": 2269.59025034,
+      "bb_width": 0.02314724,
+      "close": 2396.3836,
+      "days_above_sma200": 321,
+      "death_cross": false,
+      "dist_52w_high": -0.00755866,
+      "dist_52w_low": 0.53502729,
+      "drawdown": -0.00755865,
+      "ema12": 2248.6994269,
+      "ema26": 2235.38392525,
+      "golden_cross": false,
+      "macd": 13.31550165,
+      "macd_hist": -0.21418038,
+      "macd_signal": 13.52968204,
+      "max_dd_1y": -0.09170276,
+      "minus_di": 20.04650469,
+      "mom_12_1": 0.49876712,
+      "obv": 289065201.0,
+      "plus_di": 32.64013488,
+      "realized_vol_20": 0.11738641,
+      "realized_vol_252": 0.15511258,
+      "realized_vol_60": 0.13541635,
+      "rel_volume_20": 1.10506708,
+      "resistance_near": 2410.717075,
+      "ret_1d": -0.00755865,
+      "ret_5d": 0.00215027,
+      "roc_12m": 0.51102604,
+      "roc_1m": 0.00817934,
+      "roc_3m": 0.08517598,
+      "roc_6m": 0.09622722,
+      "rs_vs_bench_3m": null,
+      "rsi14": 55.39635787,
+      "sma20": 2243.62341,
+      "sma200": 2071.2424315,
+      "sma50": 2211.128518,
+      "support_near": 2273.8215
+    },
+    "LADO": {
+      "above_sma200": false,
+      "above_sma50": true,
+      "adx14": 20.52070734,
+      "atr14": 0.49825106,
+      "atr_pct": 0.01318616,
+      "bb_lower": 32.91446549,
+      "bb_pctb": 1.02596714,
+      "bb_upper": 35.45288451,
+      "bb_width": 0.07425822,
+      "close": 37.7859,
+      "days_above_sma200": 0,
+      "death_cross": false,
+      "dist_52w_high": -0.1725214,
+      "dist_52w_low": 0.09079493,
+      "drawdown": -0.25737631,
+      "ema12": 34.62368533,
+      "ema26": 34.27164577,
+      "golden_cross": false,
+      "macd": 0.35203955,
+      "macd_hist": 0.15564291,
+      "macd_signal": 0.19639664,
+      "max_dd_1y": -0.24140052,
+      "minus_di": 17.44792945,
+      "mom_12_1": -0.1432038,
+      "obv": -96413795.0,
+      "plus_di": 40.05716238,
+      "realized_vol_20": 0.12856286,
+      "realized_vol_252": 0.14972749,
+      "realized_vol_60": 0.15013709,
+      "rel_volume_20": 1.41608474,
+      "resistance_near": 40.06295,
+      "ret_1d": 0.01606827,
+      "ret_5d": 0.02100137,
+      "roc_12m": -0.0936839,
+      "roc_1m": 0.0577966,
+      "roc_3m": -0.03981185,
+      "roc_6m": -0.03440851,
+      "rs_vs_bench_3m": null,
+      "rsi14": 69.15139576,
+      "sma20": 34.183675,
+      "sma200": 37.4555415,
+      "sma50": 33.87502,
+      "support_near": null
+    },
+    "VOLA": {
+      "above_sma200": true,
+      "above_sma50": true,
+      "adx14": 14.97235817,
+      "atr14": 3.31159222,
+      "atr_pct": 0.05158227,
+      "bb_lower": 54.12339399,
+      "bb_pctb": 0.47626737,
+      "bb_upper": 67.19316601,
+      "bb_width": 0.21546559,
+      "close": 64.2002,
+      "days_above_sma200": 321,
+      "death_cross": false,
+      "dist_52w_high": -0.08557535,
+      "dist_52w_low": 1.84894851,
+      "drawdown": -0.08557666,
+      "ema12": 61.83172317,
+      "ema26": 60.20386963,
+      "golden_cross": false,
+      "macd": 1.62785354,
+      "macd_hist": -0.05941045,
+      "macd_signal": 1.68726398,
+      "max_dd_1y": -0.25403586,
+      "minus_di": 21.46360649,
+      "mom_12_1": 1.04037758,
+      "obv": 253302875.0,
+      "plus_di": 23.67527049,
+      "realized_vol_20": 0.47649159,
+      "realized_vol_252": 0.48530025,
+      "realized_vol_60": 0.47080137,
+      "rel_volume_20": 1.67369445,
+      "resistance_near": 68.7965,
+      "ret_1d": -0.03395124,
+      "ret_5d": -0.05601075,
+      "roc_12m": 1.38846298,
+      "roc_1m": 0.17059853,
+      "roc_3m": 0.00327675,
+      "roc_6m": 0.55829927,
+      "rs_vs_bench_3m": null,
+      "rsi14": 50.64288097,
+      "sma20": 60.65828,
+      "sma200": 45.4275445,
+      "sma50": 58.817176,
+      "support_near": null
+    }
+  },
+  "scores": {
+    "balanced": {
+      "hash_pesos": "b13b5db17c28",
+      "valores": {
+        "ALZA": {
+          "composite": 0.27496652,
+          "composite_pctile": 1.0,
+          "composite_rank_sector": 1,
+          "coverage": 0.95238095,
+          "dividend_z": 0.00030292,
+          "growth_z": 0.8075778,
+          "lowvol_z": 0.25740157,
+          "momentum_z": 0.03564631,
+          "peer_group": "Information Technology",
+          "quality_z": 0.50586807,
+          "technical_z": 1.07051319,
+          "value_z": -0.16884567
+        },
+        "BAJA": {
+          "composite": -0.2277719,
+          "composite_pctile": 0.2,
+          "composite_rank_sector": 1,
+          "coverage": 0.95238095,
+          "dividend_z": 0.67595687,
+          "growth_z": -1.77090408,
+          "lowvol_z": -0.7333403,
+          "momentum_z": -0.71043692,
+          "peer_group": "Energy",
+          "quality_z": -0.34226082,
+          "technical_z": -0.67449076,
+          "value_z": 1.43933073
+        },
+        "CARO": {
+          "composite": 0.24800022,
+          "composite_pctile": 0.8,
+          "composite_rank_sector": 1,
+          "coverage": 0.95238095,
+          "dividend_z": 0.0,
+          "growth_z": 0.180492,
+          "lowvol_z": 0.78318642,
+          "momentum_z": 0.27688827,
+          "peer_group": "Health Care",
+          "quality_z": 0.98030165,
+          "technical_z": 0.36133434,
+          "value_z": -0.63448462
+        },
+        "LADO": {
+          "composite": -0.09570067,
+          "composite_pctile": 0.4,
+          "composite_rank_sector": 1,
+          "coverage": 0.95238095,
+          "dividend_z": 0.04139838,
+          "growth_z": -0.51773738,
+          "lowvol_z": 0.47274389,
+          "momentum_z": -0.47258608,
+          "peer_group": "Consumer Staples",
+          "quality_z": -0.22419823,
+          "technical_z": -0.89610915,
+          "value_z": 0.57354013
+        },
+        "VOLA": {
+          "composite": 0.05614188,
+          "composite_pctile": 0.6,
+          "composite_rank_sector": 2,
+          "coverage": 0.82380952,
+          "dividend_z": 0.15580737,
+          "growth_z": 3.53553391,
+          "lowvol_z": -2.88262652,
+          "momentum_z": 1.54379333,
+          "peer_group": "Information Technology",
+          "quality_z": -1.34966002,
+          "technical_z": 0.0,
+          "value_z": -1.20166476
+        }
+      }
+    },
+    "bot_core": {
+      "hash_pesos": "303cfd37b27c",
+      "valores": {
+        "ALZA": {
+          "composite": 0.34980185,
+          "composite_pctile": 0.8,
+          "composite_rank_sector": 1,
+          "coverage": 0.88888889,
+          "dividend_z": null,
+          "growth_z": null,
+          "lowvol_z": 0.25740157,
+          "momentum_z": 0.03564631,
+          "peer_group": "Information Technology",
+          "quality_z": null,
+          "technical_z": 1.07051319,
+          "value_z": null
+        },
+        "BAJA": {
+          "composite": -0.70717622,
+          "composite_pctile": 0.2,
+          "composite_rank_sector": 1,
+          "coverage": 0.88888889,
+          "dividend_z": null,
+          "growth_z": null,
+          "lowvol_z": -0.7333403,
+          "momentum_z": -0.71043692,
+          "peer_group": "Energy",
+          "quality_z": null,
+          "technical_z": -0.67449076,
+          "value_z": null
+        },
+        "CARO": {
+          "composite": 0.42457433,
+          "composite_pctile": 1.0,
+          "composite_rank_sector": 1,
+          "coverage": 0.88888889,
+          "dividend_z": null,
+          "growth_z": null,
+          "lowvol_z": 0.78318642,
+          "momentum_z": 0.27688827,
+          "peer_group": "Health Care",
+          "quality_z": null,
+          "technical_z": 0.36133434,
+          "value_z": null
+        },
+        "LADO": {
+          "composite": -0.34213436,
+          "composite_pctile": 0.4,
+          "composite_rank_sector": 1,
+          "coverage": 0.88888889,
+          "dividend_z": null,
+          "growth_z": null,
+          "lowvol_z": 0.47274389,
+          "momentum_z": -0.47258608,
+          "peer_group": "Consumer Staples",
+          "quality_z": null,
+          "technical_z": -0.89610915,
+          "value_z": null
+        },
+        "VOLA": {
+          "composite": 0.05124004,
+          "composite_pctile": 0.6,
+          "composite_rank_sector": 2,
+          "coverage": 0.88888889,
+          "dividend_z": null,
+          "growth_z": null,
+          "lowvol_z": -2.88262652,
+          "momentum_z": 1.54379333,
+          "peer_group": "Information Technology",
+          "quality_z": null,
+          "technical_z": 0.0,
+          "value_z": null
+        }
+      }
+    },
+    "dividend": {
+      "hash_pesos": "a41cb61684fa",
+      "valores": {
+        "ALZA": {
+          "composite": 0.13142928,
+          "composite_pctile": 0.4,
+          "composite_rank_sector": 1,
+          "coverage": 1.0,
+          "dividend_z": 0.00030292,
+          "growth_z": null,
+          "lowvol_z": 0.25740157,
+          "momentum_z": null,
+          "peer_group": "Information Technology",
+          "quality_z": 0.50586807,
+          "technical_z": null,
+          "value_z": -0.16884567
+        },
+        "BAJA": {
+          "composite": 0.36268264,
+          "composite_pctile": 1.0,
+          "composite_rank_sector": 1,
+          "coverage": 1.0,
+          "dividend_z": 0.67595687,
+          "growth_z": null,
+          "lowvol_z": -0.7333403,
+          "momentum_z": null,
+          "peer_group": "Energy",
+          "quality_z": -0.34226082,
+          "technical_z": null,
+          "value_z": 1.43933073
+        },
+        "CARO": {
+          "composite": 0.23565645,
+          "composite_pctile": 0.8,
+          "composite_rank_sector": 1,
+          "coverage": 1.0,
+          "dividend_z": 0.0,
+          "growth_z": null,
+          "lowvol_z": 0.78318642,
+          "momentum_z": null,
+          "peer_group": "Health Care",
+          "quality_z": 0.98030165,
+          "technical_z": null,
+          "value_z": -0.63448462
+        },
+        "LADO": {
+          "composite": 0.1461294,
+          "composite_pctile": 0.6,
+          "composite_rank_sector": 1,
+          "coverage": 1.0,
+          "dividend_z": 0.04139838,
+          "growth_z": null,
+          "lowvol_z": 0.47274389,
+          "momentum_z": null,
+          "peer_group": "Consumer Staples",
+          "quality_z": -0.22419823,
+          "technical_z": null,
+          "value_z": 0.57354013
+        },
+        "VOLA": {
+          "composite": -0.94781899,
+          "composite_pctile": 0.2,
+          "composite_rank_sector": 2,
+          "coverage": 0.9,
+          "dividend_z": 0.15580737,
+          "growth_z": null,
+          "lowvol_z": -2.88262652,
+          "momentum_z": null,
+          "peer_group": "Information Technology",
+          "quality_z": -1.34966002,
+          "technical_z": null,
+          "value_z": -1.20166476
+        }
+      }
+    },
+    "growth": {
+      "hash_pesos": "c656f299795c",
+      "valores": {
+        "ALZA": {
+          "composite": 0.59369329,
+          "composite_pctile": 0.8,
+          "composite_rank_sector": 2,
+          "coverage": 0.91666667,
+          "dividend_z": null,
+          "growth_z": 0.8075778,
+          "lowvol_z": null,
+          "momentum_z": 0.03564631,
+          "peer_group": "Information Technology",
+          "quality_z": 0.50586807,
+          "technical_z": 1.07051319,
+          "value_z": null
+        },
+        "BAJA": {
+          "composite": -1.05559664,
+          "composite_pctile": 0.2,
+          "composite_rank_sector": 1,
+          "coverage": 0.91666667,
+          "dividend_z": null,
+          "growth_z": -1.77090408,
+          "lowvol_z": null,
+          "momentum_z": -0.71043692,
+          "peer_group": "Energy",
+          "quality_z": -0.34226082,
+          "technical_z": -0.67449076,
+          "value_z": null
+        },
+        "CARO": {
+          "composite": 0.39167935,
+          "composite_pctile": 0.6,
+          "composite_rank_sector": 1,
+          "coverage": 0.91666667,
+          "dividend_z": null,
+          "growth_z": 0.180492,
+          "lowvol_z": null,
+          "momentum_z": 0.27688827,
+          "peer_group": "Health Care",
+          "quality_z": 0.98030165,
+          "technical_z": 0.36133434,
+          "value_z": null
+        },
+        "LADO": {
+          "composite": -0.50449749,
+          "composite_pctile": 0.4,
+          "composite_rank_sector": 1,
+          "coverage": 0.91666667,
+          "dividend_z": null,
+          "growth_z": -0.51773738,
+          "lowvol_z": null,
+          "momentum_z": -0.47258608,
+          "peer_group": "Consumer Staples",
+          "quality_z": -0.22419823,
+          "technical_z": -0.89610915,
+          "value_z": null
+        },
+        "VOLA": {
+          "composite": 1.53022989,
+          "composite_pctile": 1.0,
+          "composite_rank_sector": 1,
+          "coverage": 0.79166667,
+          "dividend_z": null,
+          "growth_z": 3.53553391,
+          "lowvol_z": null,
+          "momentum_z": 1.54379333,
+          "peer_group": "Information Technology",
+          "quality_z": -1.34966002,
+          "technical_z": 0.0,
+          "value_z": null
+        }
+      }
+    },
+    "momentum": {
+      "hash_pesos": "2037f6a442fe",
+      "valores": {
+        "ALZA": {
+          "composite": 0.42167067,
+          "composite_pctile": 0.8,
+          "composite_rank_sector": 1,
+          "coverage": 0.91666667,
+          "dividend_z": null,
+          "growth_z": null,
+          "lowvol_z": 0.25740157,
+          "momentum_z": 0.03564631,
+          "peer_group": "Information Technology",
+          "quality_z": 0.50586807,
+          "technical_z": 1.07051319,
+          "value_z": null
+        },
+        "BAJA": {
+          "composite": -0.63125067,
+          "composite_pctile": 0.2,
+          "composite_rank_sector": 1,
+          "coverage": 0.91666667,
+          "dividend_z": null,
+          "growth_z": null,
+          "lowvol_z": -0.7333403,
+          "momentum_z": -0.71043692,
+          "peer_group": "Energy",
+          "quality_z": -0.34226082,
+          "technical_z": -0.67449076,
+          "value_z": null
+        },
+        "CARO": {
+          "composite": 0.51462719,
+          "composite_pctile": 1.0,
+          "composite_rank_sector": 1,
+          "coverage": 0.91666667,
+          "dividend_z": null,
+          "growth_z": null,
+          "lowvol_z": 0.78318642,
+          "momentum_z": 0.27688827,
+          "peer_group": "Health Care",
+          "quality_z": 0.98030165,
+          "technical_z": 0.36133434,
+          "value_z": null
+        },
+        "LADO": {
+          "composite": -0.38698978,
+          "composite_pctile": 0.4,
+          "composite_rank_sector": 1,
+          "coverage": 0.91666667,
+          "dividend_z": null,
+          "growth_z": null,
+          "lowvol_z": 0.47274389,
+          "momentum_z": -0.47258608,
+          "peer_group": "Consumer Staples",
+          "quality_z": -0.22419823,
+          "technical_z": -0.89610915,
+          "value_z": null
+        },
+        "VOLA": {
+          "composite": -0.08480865,
+          "composite_pctile": 0.6,
+          "composite_rank_sector": 2,
+          "coverage": 0.91666667,
+          "dividend_z": null,
+          "growth_z": null,
+          "lowvol_z": -2.88262652,
+          "momentum_z": 1.54379333,
+          "peer_group": "Information Technology",
+          "quality_z": -1.34966002,
+          "technical_z": 0.0,
+          "value_z": null
+        }
+      }
+    },
+    "value": {
+      "hash_pesos": "12d40316236a",
+      "valores": {
+        "ALZA": {
+          "composite": 0.08827897,
+          "composite_pctile": 0.4,
+          "composite_rank_sector": 1,
+          "coverage": 0.93333333,
+          "dividend_z": 0.00030292,
+          "growth_z": null,
+          "lowvol_z": 0.25740157,
+          "momentum_z": 0.03564631,
+          "peer_group": "Information Technology",
+          "quality_z": 0.50586807,
+          "technical_z": null,
+          "value_z": -0.16884567
+        },
+        "BAJA": {
+          "composite": 0.44718289,
+          "composite_pctile": 1.0,
+          "composite_rank_sector": 1,
+          "coverage": 0.93333333,
+          "dividend_z": 0.67595687,
+          "growth_z": null,
+          "lowvol_z": -0.7333403,
+          "momentum_z": -0.71043692,
+          "peer_group": "Energy",
+          "quality_z": -0.34226082,
+          "technical_z": null,
+          "value_z": 1.43933073
+        },
+        "CARO": {
+          "composite": 0.09728904,
+          "composite_pctile": 0.6,
+          "composite_rank_sector": 1,
+          "coverage": 0.93333333,
+          "dividend_z": 0.0,
+          "growth_z": null,
+          "lowvol_z": 0.78318642,
+          "momentum_z": 0.27688827,
+          "peer_group": "Health Care",
+          "quality_z": 0.98030165,
+          "technical_z": null,
+          "value_z": -0.63448462
+        },
+        "LADO": {
+          "composite": 0.17959203,
+          "composite_pctile": 0.8,
+          "composite_rank_sector": 1,
+          "coverage": 0.93333333,
+          "dividend_z": 0.04139838,
+          "growth_z": null,
+          "lowvol_z": 0.47274389,
+          "momentum_z": -0.47258608,
+          "peer_group": "Consumer Staples",
+          "quality_z": -0.22419823,
+          "technical_z": null,
+          "value_z": 0.57354013
+        },
+        "VOLA": {
+          "composite": -0.92859312,
+          "composite_pctile": 0.2,
+          "composite_rank_sector": 2,
+          "coverage": 0.85333333,
+          "dividend_z": 0.15580737,
+          "growth_z": null,
+          "lowvol_z": -2.88262652,
+          "momentum_z": 1.54379333,
+          "peer_group": "Information Technology",
+          "quality_z": -1.34966002,
+          "technical_z": null,
+          "value_z": -1.20166476
+        }
+      }
+    }
+  },
+  "senales": {
+    "ALZA": {
+      "BB_SQUEEZE": {
+        "ultima": "2024-12-04",
+        "veces": 37
+      },
+      "DEATH_CROSS": {
+        "ultima": "2023-11-20",
+        "veces": 1
+      },
+      "GOLDEN_CROSS": {
+        "ultima": "2024-02-14",
+        "veces": 1
+      },
+      "HIGH_52W_BREAKOUT": {
+        "ultima": "2024-12-26",
+        "veces": 7
+      },
+      "MACD_BEAR_CROSS": {
+        "ultima": "2024-11-27",
+        "veces": 21
+      },
+      "MACD_BULL_CROSS": {
+        "ultima": "2024-12-05",
+        "veces": 21
+      },
+      "NEW_DOWNTREND": {
+        "ultima": "2024-11-28",
+        "veces": 8
+      },
+      "PULLBACK_IN_UPTREND": {
+        "ultima": "2024-03-08",
+        "veces": 1
+      },
+      "RSI_OVERSOLD_REVERSAL": {
+        "ultima": "2024-10-31",
+        "veces": 3
+      }
+    },
+    "BAJA": {
+      "BB_SQUEEZE": {
+        "ultima": "2024-06-28",
+        "veces": 44
+      },
+      "DEATH_CROSS": {
+        "ultima": "2024-10-24",
+        "veces": 2
+      },
+      "GOLDEN_CROSS": {
+        "ultima": "2024-07-31",
+        "veces": 2
+      },
+      "HIGH_52W_BREAKOUT": {
+        "ultima": "2024-01-10",
+        "veces": 1
+      },
+      "LOW_52W_BREAKDOWN": {
+        "ultima": "2024-11-11",
+        "veces": 3
+      },
+      "MACD_BEAR_CROSS": {
+        "ultima": "2024-08-15",
+        "veces": 18
+      },
+      "MACD_BULL_CROSS": {
+        "ultima": "2024-11-04",
+        "veces": 18
+      },
+      "NEW_DOWNTREND": {
+        "ultima": "2024-09-18",
+        "veces": 6
+      },
+      "PULLBACK_IN_UPTREND": {
+        "ultima": "2024-09-17",
+        "veces": 15
+      },
+      "RSI_OVERSOLD_REVERSAL": {
+        "ultima": "2024-11-21",
+        "veces": 12
+      }
+    },
+    "CARO": {
+      "BB_SQUEEZE": {
+        "ultima": "2024-12-27",
+        "veces": 27
+      },
+      "HIGH_52W_BREAKOUT": {
+        "ultima": "2024-11-29",
+        "veces": 8
+      },
+      "MACD_BEAR_CROSS": {
+        "ultima": "2024-12-27",
+        "veces": 23
+      },
+      "MACD_BULL_CROSS": {
+        "ultima": "2024-12-26",
+        "veces": 23
+      },
+      "PULLBACK_IN_UPTREND": {
+        "ultima": "2023-11-22",
+        "veces": 9
+      }
+    },
+    "LADO": {
+      "BB_SQUEEZE": {
+        "ultima": "2024-08-12",
+        "veces": 39
+      },
+      "DEATH_CROSS": {
+        "ultima": "2024-06-18",
+        "veces": 1
+      },
+      "GOLDEN_CROSS": {
+        "ultima": "2024-04-12",
+        "veces": 1
+      },
+      "LOW_52W_BREAKDOWN": {
+        "ultima": "2024-11-15",
+        "veces": 11
+      },
+      "MACD_BEAR_CROSS": {
+        "ultima": "2024-11-18",
+        "veces": 23
+      },
+      "MACD_BULL_CROSS": {
+        "ultima": "2024-11-21",
+        "veces": 24
+      },
+      "NEW_DOWNTREND": {
+        "ultima": "2024-04-30",
+        "veces": 4
+      },
+      "RSI_OVERSOLD_REVERSAL": {
+        "ultima": "2024-11-21",
+        "veces": 11
+      }
+    },
+    "VOLA": {
+      "BB_SQUEEZE": {
+        "ultima": "2024-09-17",
+        "veces": 67
+      },
+      "HIGH_52W_BREAKOUT": {
+        "ultima": "2024-04-15",
+        "veces": 1
+      },
+      "MACD_BEAR_CROSS": {
+        "ultima": "2024-12-27",
+        "veces": 17
+      },
+      "MACD_BULL_CROSS": {
+        "ultima": "2024-12-03",
+        "veces": 17
+      },
+      "PULLBACK_IN_UPTREND": {
+        "ultima": "2024-11-19",
+        "veces": 17
+      },
+      "RSI_OVERSOLD_REVERSAL": {
+        "ultima": "2024-11-28",
+        "veces": 4
+      }
+    }
+  }
+}

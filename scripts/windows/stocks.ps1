@@ -29,6 +29,7 @@
       validate  Valida las senales contra su historico (descubrimiento)
       validate-freeze   Congela lo que llego a estable
       validate-confirm  Lo comprueba en el tramo reservado
+      oro       Reescribe la referencia de regresion financiera
       auditar   Cruza precios con un segundo proveedor y da su veredicto
       alerts    Evalua las reglas de aviso
       watch     Vigila el mercado en vivo
@@ -46,7 +47,7 @@ param(
                  'tiene-universo',
                  'compute', 'presets', 'validate',
                  'validate-freeze', 'validate-confirm',
-                 'auditar',
+                 'auditar', 'oro',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
@@ -597,6 +598,13 @@ switch ($Task) {
         Assert-Venv
         Write-Step "Gasta el tramo reservado. Solo se puede una vez por senal."
         & $Py -m stocks_tracker.backtest.run_backtest --fase confirmacion --tag-signals
+    }
+
+    'oro' {
+        Assert-Venv
+        Write-Step "Recalculando la referencia de regresion financiera"
+        Write-Host "  Imprime lo que cambia ANTES de escribirlo. Revisalo."
+        & $Py scripts/regenerar_oro.py
     }
 
     'auditar' {

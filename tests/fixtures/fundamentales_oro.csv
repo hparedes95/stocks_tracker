@@ -1,0 +1,6 @@
+ticker,gics_sector,trailing_pe,price_to_book,ev_to_ebitda,price_to_sales,fcf_yield,roe,profit_margin,operating_margin,gross_margin,net_debt_to_ebitda,revenue_growth_yoy,earnings_growth_yoy,dividend_yield,payout_ratio
+ALZA,Information Technology,28.4,6.1,19.2,5.4,0.031,0.242,0.181,0.223,0.512,1.2,0.142,0.198,0.008,0.22
+BAJA,Energy,9.7,1.1,4.8,0.9,0.112,0.118,0.094,0.131,0.284,2.4,-0.081,-0.152,0.061,0.58
+LADO,Consumer Staples,18.2,3.3,11.6,1.7,0.048,0.164,0.071,0.102,0.331,1.8,0.032,0.021,0.029,0.51
+VOLA,Information Technology,,11.4,,14.2,-0.021,-0.184,-0.212,-0.164,0.612,-0.8,0.612,,0.0,0.0
+CARO,Health Care,34.8,8.2,24.1,7.9,0.022,0.291,0.243,0.281,0.741,0.4,0.089,0.113,0.014,0.31

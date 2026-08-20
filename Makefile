@@ -87,6 +87,13 @@ validate-confirm:
 #
 # Lo que encuentra tiene consecuencias: un precio sin consenso veta la orden en
 # la regla 21 del gestor de riesgo.
+# Reescribe la referencia de regresion financiera. Se ejecuta A MANO y a
+# conciencia: imprime lo que va a cambiar antes de escribirlo. Un `make oro` a
+# ciegas convierte el test de regresion en un sello de goma que dice que si a
+# todo.
+oro:
+	$(PY) scripts/regenerar_oro.py
+
 auditar:
 	$(PY) -m stocks_tracker.ingest.run_audit
 
