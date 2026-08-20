@@ -19,7 +19,45 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-      - name: Test
-        run: pytest -q
+
+      # El orden va de lo barato a lo caro, para que un fallo tonto no cueste
+      # tres minutos de espera. Pero TODOS los pasos se ejecutan aunque uno
+      # falle (`if: always()`): con el corte al primer fallo, arreglar el estilo
+      # y descubrir entonces que ademas habia una regresion financiera son dos
+      # viajes donde deberia haber uno.
       - name: Lint
+        if: always()
         run: ruff check .
+
+      - name: Test
+        if: always()
+        run: pytest -q
+
+      # Se destacan aparte de la suite general porque responden a preguntas
+      # distintas y porque, en verde, la salida de `pytest -q` no dice cual de
+      # ellos se ejecuto. Que aparezcan con nombre propio en la lista de checks
+      # es lo que hace evidente el dia que alguien los borre.
+      - name: Regresion financiera
+        if: always()
+        run: pytest -q tests/test_regresion_financiera.py
+
+      - name: Calidad de datos y corrupcion
+        if: always()
+        run: pytest -q tests/test_quality.py tests/test_corrupcion.py
+             tests/test_ohlc_tolerancia.py tests/test_cuarentena.py
+
+      - name: Proveedores y consenso
+        if: always()
+        run: pytest -q tests/test_consensus.py tests/test_auditoria_cruzada.py
+             tests/test_providers_chain.py
+
+      - name: Fuga temporal y supervivencia
+        if: always()
+        run: pytest -q tests/test_no_lookahead.py tests/test_no_lookahead_pipeline.py
+             tests/test_point_in_time.py tests/test_membership.py
+
+      # No es un test: es la puerta que impide que una clave llegue al
+      # repositorio, que es publico. Va al final y siempre.
+      - name: Secretos
+        if: always()
+        run: pytest -q tests/test_no_secrets_in_repo.py tests/test_secrets.py
