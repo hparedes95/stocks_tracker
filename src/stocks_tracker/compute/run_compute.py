@@ -1002,10 +1002,25 @@ def main() -> None:
     }
     order = ["indicators", "breadth", "rotation", "regime", "scores"]
 
+    from ..core import audit
+    from ..core.ids import ulid as _ulid
+
+    # Un solo `run_id` para los cinco pasos: es lo que permite reconstruir
+    # despues que el ranking del martes salio de ESTOS indicadores y no de
+    # otros. Con un id por paso, las filas quedan sueltas y el "¿como se llego a
+    # este numero?" vuelve a no tener respuesta.
+    run_id = _ulid()
+    ajustes = get_settings()
+
     for name in order:
         if args.only and args.only != name:
             continue
-        steps[name]()
+        with audit.paso(name, run_id=run_id, config=ajustes.compute) as registro:
+            filas = steps[name]()
+            registro.escrito(filas=int(filas or 0))
+            registro.leido(lookback=args.lookback or
+                           ajustes.compute.get("lookback_sessions"),
+                           preset=args.preset or ajustes.compute.get("weights_preset"))
 
     console.print("[bold green]Calculo terminado.[/]")
 

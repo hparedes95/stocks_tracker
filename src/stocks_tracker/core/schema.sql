@@ -390,6 +390,28 @@ CREATE TABLE IF NOT EXISTS reconciliation (
 CREATE INDEX IF NOT EXISTS idx_reconciliation_fecha
   ON reconciliation(checked_at, estado);
 
+-- Registro unico de calculos: que entro, que salio y con que version del
+-- codigo. No sustituye a `data_quality`, `ingest_log` ni `bot_decisions`, que
+-- responden a preguntas propias; contesta a la unica que hasta ahora no tenia
+-- respuesta: "¿como se llego a ESTE numero?".
+--
+-- No se guarda una fila por dato calculado —serian millones y nadie las
+-- leeria—: una por EJECUCION de cada paso, con el resumen de lo que entro y lo
+-- que salio. Con eso y el `git_commit` un resultado se puede reproducir.
+CREATE TABLE IF NOT EXISTS audit_log (
+  run_id      VARCHAR,
+  paso        VARCHAR,               -- ingest|compute|scores|backtest|audit|bot
+  empezado    TIMESTAMP,
+  terminado   TIMESTAMP,
+  entrada     VARCHAR,               -- JSON: que se leyo y cuanto
+  salida      VARCHAR,               -- JSON: que se escribio y cuanto
+  git_commit  VARCHAR,
+  config_hash VARCHAR,
+  estado      VARCHAR,               -- ok|error|rechazado
+  detalle     VARCHAR
+);
+CREATE INDEX IF NOT EXISTS idx_audit_paso ON audit_log(paso, empezado);
+
 -- Barras concretas cuyo OHLC no puede ser cierto (maximo por debajo del
 -- minimo, cierre fuera del rango). No se borran de `prices_daily`: borrarlas
 -- destruiria la prueba y ademas el proveedor las volveria a mandar identicas en
