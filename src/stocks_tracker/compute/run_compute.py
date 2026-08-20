@@ -35,6 +35,11 @@ console = Console()
 # almacen sin ranking.
 EXIT_NOTHING_TO_SCORE = 76
 
+# Los datos tienen problemas graves y no se ha calculado nada. Distinto de 0 y
+# de los demas para que quien llame —el instalador, la tarea programada— pueda
+# distinguir "no habia nada que hacer" de "no se pudo hacer".
+EXIT_BAD_DATA = 77
+
 
 def _load_prices(conn, lookback: int | None) -> pd.DataFrame:
     """Precios de todos los tickers. Con `lookback=None`, el historico entero.
@@ -826,10 +831,17 @@ def puerta_de_calidad() -> bool:
         precios = conn.execute(
             "SELECT ticker, date, open, high, low, close, volume FROM prices_daily"
         ).fetchdf()
+        # De estos SI se usa el rango del dia (ATR, rangos, stops). Del resto
+        # —divisas, indices, macro— solo el cierre, asi que un maximo y un
+        # minimo que no cuadran es una rareza conocida de Yahoo y no invalida
+        # nada. Ver `core/quality.evaluar`.
+        con_ohlc = {f[0] for f in conn.execute(
+            "SELECT ticker FROM instruments WHERE asset_class IN ('equity', 'etf')"
+        ).fetchall()}
     if precios.empty:
         return True
 
-    hallazgos = evaluar(precios)
+    hallazgos = evaluar(precios, instrumentos_ohlc=con_ohlc)
     run_id = ulid()
     with connect() as conn:
         # Solo las comprobaciones que ESTA funcion puede hacer. Marcar
@@ -885,7 +897,11 @@ def main() -> None:
     migrate()
 
     if not args.ignorar_calidad and not puerta_de_calidad():
-        return
+        # Codigo de salida distinto de cero. Devolviendo 0, el instalador de
+        # Windows daba el paso por bueno y anunciaba "la portada ya muestra el
+        # mercado de verdad" DESPUES de que el calculo no se hubiera ejecutado.
+        # Un fallo que no se propaga es un fallo que nadie ve.
+        raise SystemExit(EXIT_BAD_DATA)
 
     if args.history:
         compute_score_history(preset=args.preset or "bot_core", years=args.history)

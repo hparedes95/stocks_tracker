@@ -60,6 +60,16 @@ TOLERANCIA_REVISION = 0.001
 # serie entera es otra.
 MAX_REVISADAS = 0.01
 
+# Barras revisadas que hacen falta ADEMAS de la fraccion. Sin este minimo, una
+# descarga incremental de 15 filas se bloquea con UNA sola barra corregida —el
+# 6,7 %—, y las descargas incrementales son las de todos los dias.
+MIN_BARRAS_PARA_BLOQUEAR = 20
+
+# Sesiones durante las cuales el volumen se considera provisional. Yahoo publica
+# el volumen del dia en curso y lo consolida despues del cierre; tres sesiones
+# cubren el fin de semana con margen.
+SESIONES_VOLUMEN_PROVISIONAL = 3
+
 # Sesiones sin precio tras las cuales un instrumento se considera desaparecido.
 # Diez cubre un puente largo mas margen; con menos, cualquier festivo raro de
 # una bolsa europea daria la alarma.
@@ -114,6 +124,30 @@ def _relativa(a: pd.Series, b: pd.Series) -> pd.Series:
 
 
 CAMPOS_INMUTABLES = ("open", "high", "low", "close", "volume")
+
+
+def revisiones_relevantes(revisadas: pd.DataFrame) -> pd.DataFrame:
+    """Quita los ajustes de volumen recientes, que son rutina y no reescritura.
+
+    El volumen de una sesion se publica PROVISIONAL mientras el mercado esta
+    abierto y se consolida despues del cierre, con las operaciones que se
+    liquidan tarde. Que el volumen de ayer cambie no dice nada malo del
+    proveedor: dice que el dato de ayer ya esta completo.
+
+    En la primera instalacion real esto disparo un bloqueo: el volumen del
+    ^GSPC del dia anterior paso de 6,4e+08 a 3,0e+09 —el salto de provisional a
+    consolidado— y la comprobacion lo trato como si el proveedor hubiera
+    reescrito el historico.
+
+    Un cambio de PRECIO en esas mismas fechas si cuenta, y un cambio de volumen
+    en una fecha antigua tambien: eso ya no es consolidacion, es otra cosa.
+    """
+    if revisadas.empty or "campo" not in revisadas.columns:
+        return revisadas
+    fechas = pd.to_datetime(revisadas["date"])
+    corte = fechas.max() - pd.Timedelta(days=SESIONES_VOLUMEN_PROVISIONAL * 7 / 5)
+    rutina = (revisadas["campo"] == "volume") & (fechas > corte)
+    return revisadas[~rutina]
 
 
 def revisiones(nuevo: pd.DataFrame, existente: pd.DataFrame,
@@ -314,25 +348,40 @@ def nulos(precios: pd.DataFrame) -> float:
 # El veredicto
 # ---------------------------------------------------------------------------
 def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
-            filas_lote: int = 0) -> list[Hallazgo]:
+            filas_lote: int = 0,
+            instrumentos_ohlc: set[str] | None = None) -> list[Hallazgo]:
     """Todas las comprobaciones sobre un conjunto de precios.
 
     `revisadas` y `filas_lote` solo existen durante la ingesta: comparar lo que
     llega con lo que ya habia solo se puede hacer en ese momento. El resto se
     puede recalcular sobre el almacen cuando se quiera.
+
+    `instrumentos_ohlc` son aquellos de los que se usa el rango del dia y no
+    solo el cierre —acciones y ETF—. Solo en esos una barra imposible invalida
+    algo; ver el detalle en la comprobacion de coherencia.
     """
     fuera: list[Hallazgo] = []
 
     if revisadas is not None and not revisadas.empty:
+        de_verdad = revisiones_relevantes(revisadas)
+        rutina = len(revisadas) - len(de_verdad)
+        if rutina:
+            fuera.append(Hallazgo(
+                "precios_revisados", INFO, None, None,
+                f"{rutina} ajustes de volumen en las ultimas "
+                f"{SESIONES_VOLUMEN_PROVISIONAL} sesiones. Es lo normal: el "
+                "volumen del dia se publica provisional y se consolida despues "
+                "del cierre. No es una reescritura del historico.",
+            ))
+
+    if revisadas is not None and not revisadas.empty and not de_verdad.empty:
         # `revisadas` trae una fila por (ticker, fecha, CAMPO), asi que una sola
         # barra reescrita produce hasta cinco. `filas_lote` cuenta barras. Al
         # dividir uno por otro la fraccion salia hasta 5 veces inflada y una
-        # correccion del 0,25 % disparaba el bloqueo del 1 %: la comprobacion
-        # que existe para avisar de un problema del proveedor paraba el
-        # programa por un problema que no existia.
-        barras = len(revisadas[["ticker", "date"]].drop_duplicates())
+        # correccion del 0,25 % disparaba el bloqueo del 1 %.
+        barras = len(de_verdad[["ticker", "date"]].drop_duplicates())
         fraccion = (barras / filas_lote) if filas_lote else 1.0
-        peor = revisadas.sort_values("cambio", ascending=False).iloc[0]
+        peor = de_verdad.sort_values("cambio", ascending=False).iloc[0]
         texto = (
             f"{barras} barras ya guardadas han cambiado en esta "
             f"descarga ({fraccion:.1%} del lote). El mayor: {peor['ticker']} "
@@ -342,21 +391,54 @@ def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
             "proveedor corrigio un error o metio otro. Cualquier resultado "
             "calculado antes de esto ya no se puede reproducir."
         )
+        # Hacen falta las DOS cosas para bloquear: que la fraccion sea alta y
+        # que haya un numero absoluto de barras que no se explique por un
+        # descuido puntual. Solo con la fraccion, una descarga incremental de 15
+        # filas se bloqueaba con UNA barra revisada —el 6,7 %—, que es
+        # exactamente lo que paso en la primera instalacion real.
+        grave = fraccion > MAX_REVISADAS and barras >= MIN_BARRAS_PARA_BLOQUEAR
         fuera.append(Hallazgo(
-            "precios_revisados",
-            BLOQUEA if fraccion > MAX_REVISADAS else AVISO,
-            None, None, texto,
+            "precios_revisados", BLOQUEA if grave else AVISO, None, None, texto,
         ))
 
     malas = incoherencias_ohlc(precios)
     if not malas.empty:
-        primera = malas.iloc[0]
-        fuera.append(Hallazgo(
-            "ohlc_incoherente", BLOQUEA, None, None,
-            f"{len(malas)} sesiones con precios imposibles. La primera: "
-            f"{primera['ticker']} el {pd.to_datetime(primera['date']).date()}, "
-            f"{primera['motivo']}.",
-        ))
+        # La coherencia del OHLC solo importa donde se USA el OHLC. En acciones
+        # y ETF alimenta el ATR, los rangos y los stops, y una barra imposible
+        # los envenena. En divisas, indices y macro solo se usa el cierre, y que
+        # el maximo y el minimo no cuadren es una rareza CONOCIDA de Yahoo: sus
+        # OHLC de FX vienen de feeds distintos y el cierre cae fuera del rango
+        # con frecuencia.
+        #
+        # Sin esta distincion, 411 sesiones raras de EURUSD=X —un par de divisas
+        # que ni siquiera se puntua— impedian calcular las 600 acciones. Se
+        # comprobo en una instalacion real: el programa se quedaba sin poder
+        # calcular nada.
+        usan_ohlc = malas[malas["ticker"].isin(instrumentos_ohlc or set())]
+        resto = malas[~malas["ticker"].isin(instrumentos_ohlc or set())]
+
+        if not usan_ohlc.empty:
+            afectados = sorted(usan_ohlc["ticker"].unique())
+            primera = usan_ohlc.iloc[0]
+            fuera.append(Hallazgo(
+                "ohlc_incoherente", BLOQUEA, None, None,
+                f"{len(usan_ohlc)} sesiones con precios imposibles en "
+                f"{len(afectados)} valores que SI usan el rango del dia. "
+                f"La primera: {primera['ticker']} el "
+                f"{pd.to_datetime(primera['date']).date()}, {primera['motivo']}. "
+                f"Afectados: {', '.join(afectados[:8])}"
+                + (f" y {len(afectados) - 8} mas." if len(afectados) > 8 else "."),
+            ))
+        if not resto.empty:
+            afectados = sorted(resto["ticker"].unique())
+            fuera.append(Hallazgo(
+                "ohlc_incoherente", AVISO, None, None,
+                f"{len(resto)} sesiones con maximo y minimo incoherentes en "
+                f"{', '.join(afectados[:5])}. De estos solo se usa el cierre, "
+                "asi que no invalida ningun calculo: los OHLC de divisas e "
+                "indices de Yahoo vienen de fuentes distintas y no siempre "
+                "cuadran entre si.",
+            ))
 
     fraccion_nulos = nulos(precios)
     if fraccion_nulos > MAX_NULOS:

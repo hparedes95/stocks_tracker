@@ -76,7 +76,7 @@ if _report and _report["checks"]:
                  "Observado": c["observed"], "Umbral": c["required"]}
                 for c in _report["checks"]
             ]),
-            hide_index=True, use_container_width=True,
+            hide_index=True, width='stretch',
         )
 
 st.divider()
@@ -113,7 +113,7 @@ if not pendientes.empty:
             "notional_approved": "importe", "qty_approved": "cantidad",
             "ref_price": "precio ref.", "decision_note": "por que espera",
         }).drop(columns=["intent_id"]),
-        hide_index=True, use_container_width=True,
+        hide_index=True, width='stretch',
     )
     st.caption(
         "Para decidir, en la ventana del programa:  "
@@ -186,7 +186,7 @@ with tab_pos:
                 "opened_at": "abierta el",
                 "highest_close_since_entry": "máximo desde entrada",
             }),
-            hide_index=True, use_container_width=True,
+            hide_index=True, width='stretch',
         )
         st.caption(
             "El stop es **sintético**: lo vigila este programa, no el "
@@ -203,7 +203,7 @@ with tab_ord:
                 "submitted_at": "enviada", "ticker": "valor", "side": "lado",
                 "qty": "cantidad", "notional": "importe", "status": "estado",
             }),
-            hide_index=True, use_container_width=True,
+            hide_index=True, width='stretch',
         )
 
 with tab_dec:
@@ -221,7 +221,7 @@ with tab_dec:
                 "decision": "decisión", "reason_code": "código",
                 "reason_text": "motivo",
             }),
-            hide_index=True, use_container_width=True,
+            hide_index=True, width='stretch',
         )
 
 render_disclaimer()

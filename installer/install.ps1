@@ -408,9 +408,14 @@ Write-Host "  Sustituyen a los datos de prueba. Un minuto."
 # catch nunca se ejecutaba y se anunciaba exito aunque la descarga fallase.
 & $Py -m stocks_tracker.ingest.run_ingest --drop-synthetic --what prices `
     --universes INDICES,MACRO --years 3
-if ($LASTEXITCODE -eq 0) {
+$DescargaOk = ($LASTEXITCODE -eq 0)
+if ($DescargaOk) {
     & $Py -m stocks_tracker.compute.run_compute
 }
+# 77 = los datos tienen problemas graves y el calculo se ha negado a correr.
+# Se distingue del fallo de descarga porque lo que hay que hacer es otra cosa:
+# aqui la descarga fue bien y lo que falta es arreglar los datos.
+$CalculoRechazado = ($LASTEXITCODE -eq 77)
 
 if ($UniversoCompleto -and $LASTEXITCODE -eq 0) {
     Write-Host ""
@@ -422,6 +427,18 @@ if ($UniversoCompleto -and $LASTEXITCODE -eq 0) {
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  Listo: la portada ya muestra el mercado de verdad." -ForegroundColor Green
     $script:HasRealData = $true
+} elseif ($CalculoRechazado) {
+    # Antes esto se anunciaba como exito: run_compute salia con codigo 0 aunque
+    # la puerta de calidad lo parase, asi que el instalador decia "la portada ya
+    # muestra el mercado de verdad" sin haberse calculado nada.
+    Write-Host ""
+    Write-Host "  Los precios se han descargado, pero NO se ha calculado nada." -ForegroundColor Yellow
+    Write-Host "  Los datos tienen algun problema grave; el detalle esta arriba."
+    Write-Host "  La portada seguira mostrando lo que hubiera antes."
+    Write-Host ""
+    Write-Host "  Para reintentar solo el calculo:" -ForegroundColor Cyan
+    Write-Host "      .\scripts\windows\stocks.ps1 compute"
+    $script:HasRealData = $false
 } else {
     Write-Host "  No se ha podido descargar ahora." -ForegroundColor Yellow
     Write-Host "  El programa se abrira igualmente y lo reintentara al arrancar."

@@ -358,16 +358,24 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
             # para siempre.
             revisadas = _revisiones_del_lote(conn, df)
             n = upsert_df(conn, "prices_daily", df, keys=["ticker", "date"])
-            if not revisadas.empty:
-                notes.append(f"{len(revisadas)} valores reescritos por el proveedor")
+            # Se cuentan BARRAS y no filas de (ticker, fecha, campo): con estas
+            # ultimas, la consola decia "8 valores reescritos" mientras el
+            # hallazgo de al lado decia "3 barras". Dos numeros distintos para
+            # lo mismo, en la misma pantalla.
+            relevantes = quality.revisiones_relevantes(revisadas)
+            barras = (0 if relevantes.empty
+                      else len(relevantes[["ticker", "date"]].drop_duplicates()))
+            if barras:
+                notes.append(f"{barras} barras reescritas por el proveedor")
             status = "PARTIAL" if failed else "OK"
             _log(conn, run_id, "prices", str(start), status, rows=n,
                  requests=df.attrs.get("requests_used", 0),
                  error="; ".join(notes))
-            hallazgos = quality.evaluar(df, revisadas, filas_lote=len(df))
+            hallazgos = quality.evaluar(df, revisadas, filas_lote=len(df),
+                                        instrumentos_ohlc=_con_ohlc(conn))
             quality.guardar(conn, hallazgos, run_id, list(quality.COMPROBACIONES))
         total += n
-        revisiones_totales += len(revisadas)
+        revisiones_totales += barras
         problemas.extend(hallazgos)
         console.print(f"  [green]{n} filas[/]")
         if notes:
@@ -375,6 +383,18 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
 
     _avisar_de_la_calidad(problemas, revisiones_totales)
     return total
+
+
+def _con_ohlc(conn) -> set[str]:
+    """Instrumentos de los que se usa el rango del dia y no solo el cierre.
+
+    Acciones y ETF: de ellos salen el ATR, los rangos y los stops. De divisas,
+    indices y macro solo se usa el cierre, y ahi un maximo y un minimo que no
+    cuadran es una rareza conocida de Yahoo que no invalida ningun calculo.
+    """
+    return {f[0] for f in conn.execute(
+        "SELECT ticker FROM instruments WHERE asset_class IN ('equity', 'etf')"
+    ).fetchall()}
 
 
 def _revisiones_del_lote(conn, df: pd.DataFrame) -> pd.DataFrame:

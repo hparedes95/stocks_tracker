@@ -141,6 +141,60 @@ def test_an_empty_warehouse_has_nothing_to_compare():
 
 
 # ---------------------------------------------------------------------------
+# Volumen provisional: lo que disparo la falsa alarma en la primera instalacion
+# ---------------------------------------------------------------------------
+def _revision(campo: str, dias_atras: int, hoy="2024-03-20") -> pd.DataFrame:
+    fecha = pd.Timestamp(hoy) - pd.Timedelta(days=dias_atras)
+    return pd.DataFrame([
+        {"ticker": "^GSPC", "date": pd.Timestamp(hoy), "campo": "close",
+         "antes": 100.0, "ahora": 100.0, "cambio": 0.0},
+        {"ticker": "^GSPC", "date": fecha, "campo": campo,
+         "antes": 6.355e8, "ahora": 2.981e9, "cambio": 0.79},
+    ])
+
+
+def test_yesterdays_volume_being_finalised_is_not_a_rewrite():
+    """LO QUE DISPARO LA FALSA ALARMA. El volumen de una sesion se publica
+    PROVISIONAL mientras el mercado esta abierto y se consolida despues del
+    cierre, con lo que liquida tarde.
+
+    En la primera instalacion real, el volumen del ^GSPC del dia anterior paso
+    de 6,4e+08 a 3,0e+09 —el salto de provisional a consolidado— y la
+    comprobacion lo trato como si el proveedor hubiera reescrito el historico,
+    bloqueando el calculo.
+    """
+    relevantes = q.revisiones_relevantes(_revision("volume", dias_atras=1))
+    assert "volume" not in list(relevantes["campo"])
+
+
+def test_an_old_volume_revision_IS_a_rewrite():
+    """Pasada la ventana de consolidacion ya no hay nada provisional. Que
+    cambie el volumen de hace un mes es otra cosa, y hay que decirlo."""
+    relevantes = q.revisiones_relevantes(_revision("volume", dias_atras=30))
+    assert "volume" in list(relevantes["campo"])
+
+
+def test_a_recent_PRICE_revision_is_always_a_rewrite():
+    """El perdon es solo para el volumen. El precio al que cotizo algo ayer no
+    es provisional: si cambia, algo va mal."""
+    revisadas = pd.DataFrame([{
+        "ticker": "^GSPC", "date": pd.Timestamp("2024-03-19"), "campo": "close",
+        "antes": 5100.0, "ahora": 5080.0, "cambio": 0.004,
+    }])
+    assert len(q.revisiones_relevantes(revisadas)) == 1
+
+
+def test_routine_volume_adjustments_are_still_reported_as_info():
+    """Perdonar no es callar. Si no se dijera nada, un cambio de volumen
+    inesperado seria indistinguible de que no hubiera pasado nada."""
+    hallazgos = q.evaluar(pd.DataFrame(), _revision("volume", dias_atras=1),
+                          filas_lote=15)
+    assert not q.bloqueantes(hallazgos)
+    assert any(h.check == "precios_revisados" and h.severity == q.INFO
+               for h in hallazgos)
+
+
+# ---------------------------------------------------------------------------
 # Precios imposibles
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("fila,motivo", [
@@ -270,7 +324,37 @@ def test_impossible_prices_block_the_computation():
     """Es lo unico, junto con la reescritura masiva, que para el calculo:
     invalida el resultado en vez de ensuciarlo."""
     p = _precios([{"ticker": "AAA", "date": "2024-03-01", "high": 90.0, "low": 99.0}])
-    assert q.bloqueantes(q.evaluar(p))
+    assert q.bloqueantes(q.evaluar(p, instrumentos_ohlc={"AAA"}))
+
+
+def test_impossible_prices_in_a_currency_pair_do_not_block_anything():
+    """EL FALLO DE LA PRIMERA INSTALACION REAL. 411 sesiones incoherentes en
+    EURUSD=X impedian calcular las 600 acciones del universo.
+
+    De una divisa solo se usa el cierre. Que el maximo y el minimo no cuadren
+    es una rareza CONOCIDA de Yahoo —sus OHLC de FX vienen de feeds distintos—
+    y no invalida ningun calculo. Bloquear el programa entero por eso es
+    desproporcionado, y una puerta que se cierra sin motivo se acaba abriendo
+    con --ignorar-calidad por costumbre.
+    """
+    p = _precios([{"ticker": "EURUSD=X", "date": "2024-03-01",
+                   "close": 1.08, "high": 1.07, "low": 1.09,
+                   "open": 1.08, "adj_close": 1.08}])
+    hallazgos = q.evaluar(p, instrumentos_ohlc={"AAA", "BBB"})
+    assert not q.bloqueantes(hallazgos), "una divisa no puede parar el calculo"
+    assert any(h.check == "ohlc_incoherente" and h.severity == q.AVISO
+               for h in hallazgos), "pero tiene que decirse"
+
+
+def test_the_blocking_message_names_the_affected_tickers():
+    """Sin los nombres, "411 sesiones con precios imposibles" obliga a bucear en
+    la tabla para saber que hay que volver a descargar."""
+    p = _precios([
+        {"ticker": "AAA", "date": "2024-03-01", "high": 90.0, "low": 99.0},
+        {"ticker": "BBB", "date": "2024-03-01", "high": 90.0, "low": 99.0},
+    ])
+    detalle = q.evaluar(p, instrumentos_ohlc={"AAA", "BBB"})[0].detail
+    assert "AAA" in detalle and "BBB" in detalle
 
 
 def test_a_missing_ticker_warns_but_does_not_block():
@@ -315,7 +399,28 @@ def test_the_blocking_fraction_counts_bars_and_not_fields():
     assert len(una_barra_cinco_campos) == 5
     hallazgos = q.evaluar(pd.DataFrame(), una_barra_cinco_campos, filas_lote=400)
     assert not q.bloqueantes(hallazgos), "1 barra de 400 es 0,25 %, no debe bloquear"
-    assert "1 barras" in hallazgos[0].detail
+    assert any("1 barras" in h.detail for h in hallazgos)
+
+
+def test_a_tiny_incremental_batch_cannot_trip_the_block():
+    """EL OTRO FALLO DE LA PRIMERA INSTALACION REAL. La descarga incremental
+    diaria son 15 filas, asi que UNA barra corregida es el 6,7 % y disparaba el
+    bloqueo del 1 %.
+
+    Hacen falta las dos cosas: fraccion alta Y un numero absoluto de barras que
+    no se explique por un descuido puntual. Con solo la fraccion, la descarga de
+    todos los dias se bloquea sola.
+    """
+    hallazgos = q.evaluar(pd.DataFrame(), _revisadas(3), filas_lote=15)
+    assert not q.bloqueantes(hallazgos), "3 barras de 15 no son una reescritura"
+    assert any(h.severity == q.AVISO for h in hallazgos), "pero se avisa"
+
+
+def test_a_real_mass_rewrite_still_blocks():
+    """La contraprueba: si el minimo absoluto tapara todo, la comprobacion mas
+    valiosa del modulo dejaria de servir."""
+    hallazgos = q.evaluar(pd.DataFrame(), _revisadas(40), filas_lote=400)
+    assert q.bloqueantes(hallazgos)
 
 
 def test_the_warning_says_what_it_means_and_not_just_a_number():
@@ -352,8 +457,12 @@ def almacen(tmp_path, monkeypatch):
     return db
 
 
-def _sembrar(db, precios: pd.DataFrame) -> None:
+def _sembrar(db, precios: pd.DataFrame, asset_class: str = "equity") -> None:
     with db.connect() as conn:
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": t, "asset_class": asset_class}
+            for t in precios["ticker"].unique()
+        ]), keys=["ticker"])
         db.upsert_df(conn, "prices_daily", precios, keys=["ticker", "date"])
 
 
@@ -464,3 +573,62 @@ def test_the_thresholds_are_not_accidentally_permissive():
     assert 0 < q.MAX_REVISADAS < 0.5
     assert q.SESIONES_PARA_DESAPARECIDO >= 3
     assert 0.5 < q.MIN_COBERTURA_CALENDARIO <= 1.0
+
+
+def test_the_gate_does_not_stop_for_a_currency_pair(almacen):
+    """El caso de la primera instalacion real, de extremo a extremo.
+
+    Con 411 sesiones incoherentes en EURUSD=X, el calculo de las 600 acciones
+    no llegaba a ejecutarse. De una divisa solo se usa el cierre: se avisa y se
+    sigue.
+    """
+    fechas = list(pd.bdate_range("2024-01-01", periods=40))
+    datos = pd.concat([_serie(t, fechas) for t in ("EURUSD=X", "DX-Y.NYB")])
+    rota = datos.index[0]
+    datos.loc[rota, "high"] = 1.07
+    datos.loc[rota, "low"] = 1.09
+    _sembrar(almacen, datos, asset_class="fx")
+
+    from stocks_tracker.compute.run_compute import puerta_de_calidad
+
+    assert puerta_de_calidad() is True
+
+
+def test_the_gate_exits_with_a_code_the_caller_can_see(almacen, monkeypatch):
+    """Un fallo que no se propaga es un fallo que nadie ve.
+
+    `run_compute` salia con codigo 0 aunque la puerta lo parase, asi que el
+    instalador de Windows daba el paso por bueno y anunciaba "la portada ya
+    muestra el mercado de verdad" DESPUES de que el calculo no se hubiera
+    ejecutado. Se vio en la primera instalacion real.
+    """
+    import sys
+
+    from stocks_tracker.compute import run_compute as rc
+
+    fechas = list(pd.bdate_range("2024-01-01", periods=40))
+    datos = pd.concat([_serie(t, fechas) for t in ("AAA", "BBB", "CCC")])
+    rota = datos.index[0]
+    datos.loc[rota, "high"] = 10.0
+    datos.loc[rota, "low"] = 500.0
+    _sembrar(almacen, datos)
+
+    monkeypatch.setattr(sys, "argv", ["run_compute"])
+    with pytest.raises(SystemExit) as salida:
+        rc.main()
+    assert salida.value.code == rc.EXIT_BAD_DATA
+    assert rc.EXIT_BAD_DATA != 0, "un codigo 0 se lee como exito"
+
+
+def test_a_healthy_warehouse_does_not_exit_with_an_error(almacen, monkeypatch):
+    """La contraprueba: si siempre saliera con error, la automatizacion nocturna
+    se marcaria como fallida todas las noches y el aviso dejaria de leerse."""
+    import sys
+
+    from stocks_tracker.compute import run_compute as rc
+
+    fechas = list(pd.bdate_range("2024-01-01", periods=40))
+    _sembrar(almacen, pd.concat([_serie(t, fechas) for t in ("AAA", "BBB")]))
+
+    monkeypatch.setattr(sys, "argv", ["run_compute", "--only", "indicators"])
+    rc.main()          # no debe lanzar SystemExit
