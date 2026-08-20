@@ -645,6 +645,7 @@ def cambios_de_escala_de_volumen(
     precios: pd.DataFrame, acciones: pd.DataFrame | None = None,
     sesiones: int = SESIONES_ESCALA_VOLUMEN,
     maximo: float = None,
+    negociables: set[str] | None = None,
 ) -> pd.DataFrame:
     """Volumen cuya MEDIANA cambia de orden de magnitud de un tramo a otro.
 
@@ -679,8 +680,19 @@ def cambios_de_escala_de_volumen(
     por veinte su volumen lo hace poco a poco, y entre dos trimestres seguidos
     nunca da ese salto.
 
-    Los splits se excluyen: parten el precio y multiplican el volumen por el
-    mismo factor, asi que sin la excepcion saltaria en cada uno.
+    SOLO SE MIRAN LOS VALORES NEGOCIABLES, y esto lo encontro el primer pase
+    sobre el almacen real: de 214 instrumentos saltaron tres, y los tres eran
+    INDICES —^DJI, ^NDX, ^FTSE—. El "volumen" de un indice no es un numero de
+    acciones, es una suma de los volumenes de sus componentes: cambia de escala
+    cada vez que cambia la composicion o cada vez que el proveedor cambia lo que
+    suma, y eso no significa nada malo.
+
+    Excluirlos no es esquivar el falso positivo, es la definicion correcta de la
+    comprobacion: existe para proteger el filtro de liquidez, y el filtro de
+    liquidez solo se aplica a lo que se puede comprar. Un indice no se compra.
+
+    Los splits se excluyen tambien: parten el precio y multiplican el volumen
+    por el mismo factor, asi que sin la excepcion saltaria en cada uno.
     """
     maximo = MAX_ESCALA_VOLUMEN if maximo is None else maximo
     columnas = ["ticker", "antes", "ahora", "factor"]
@@ -702,6 +714,11 @@ def cambios_de_escala_de_volumen(
     filas = []
     for ticker, serie in p.groupby("ticker", sort=True):
         if str(ticker) in con_split or len(serie) < sesiones * 2:
+            continue
+        # `negociables` a None significa "no se sabe cuales lo son", y entonces
+        # se miran todos: quedarse callado ante la duda seria dejar de comprobar
+        # sin decirlo.
+        if negociables is not None and str(ticker) not in negociables:
             continue
         medianas = serie["volume"].rolling(sesiones).median()
         anteriores = medianas.shift(sesiones)
@@ -970,7 +987,8 @@ def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
                    "primer puesto del ranking con la posicion mas grande."),
             ))
 
-    escalas = cambios_de_escala_de_volumen(precios, acciones)
+    escalas = cambios_de_escala_de_volumen(precios, acciones,
+                                           negociables=instrumentos_ohlc)
     for fila in escalas.itertuples():
         fuera.append(Hallazgo(
             "volumen_cambia_de_escala", AVISO, fila.ticker, None,

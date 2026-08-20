@@ -189,6 +189,53 @@ def test_un_volumen_que_crece_solo_no_salta():
     assert "volumen_cambia_de_escala" not in _checks(_serie("CRECE", cierres, volumen))
 
 
+def test_el_volumen_de_un_indice_no_se_comprueba():
+    """FALSO POSITIVO ENCONTRADO AL PASARLO POR EL ALMACEN DE VERDAD.
+
+    De 214 instrumentos saltaron tres, y los tres eran indices: ^DJI, ^NDX y
+    ^FTSE. El "volumen" de un indice no es un numero de acciones sino la suma de
+    los volumenes de sus componentes, y cambia de escala cada vez que cambia la
+    composicion o cada vez que el proveedor cambia lo que suma.
+
+    Excluirlos no es esquivar el falso positivo: es la definicion correcta de la
+    comprobacion. Existe para proteger el filtro de liquidez, y el filtro de
+    liquidez solo se aplica a lo que se puede comprar.
+    """
+    cierres = [round(4000.0 + i * 0.5, 2) for i in range(300)]
+    volumen = [30_000] * 150 + [3_000_000] * 150
+    precios = _serie("^DJI", cierres, volumen)
+
+    # Sin decir cuales son negociables, se miran todos: ante la duda no se deja
+    # de comprobar en silencio.
+    assert len(quality.cambios_de_escala_de_volumen(precios)) == 1
+    # Diciendolo, el indice queda fuera.
+    assert quality.cambios_de_escala_de_volumen(
+        precios, negociables={"AAPL", "MSFT"}).empty
+
+
+def test_evaluar_pasa_de_verdad_la_lista_de_negociables():
+    """La comprobacion puede estar perfecta y `evaluar` no darle la lista.
+
+    Se escribio porque faltaba: mutando la llamada para que no la pasara, los
+    trece tests de este fichero seguian en verde. Una funcion correcta a la que
+    no se le dan sus argumentos es una funcion que no hace su trabajo, y desde
+    fuera no se distingue.
+    """
+    cierres = [round(4000.0 + i * 0.5, 2) for i in range(300)]
+    volumen = [30_000] * 150 + [3_000_000] * 150
+    indice = _serie("^DJI", cierres, volumen)
+
+    con_lista = {h.check for h in quality.evaluar(
+        indice, instrumentos_ohlc={"AAPL"}, hoy=HOY)}
+    sin_lista = {h.check for h in quality.evaluar(indice, hoy=HOY)}
+
+    assert "volumen_cambia_de_escala" not in con_lista, (
+        "`evaluar` no le esta pasando la lista de negociables: los indices "
+        "vuelven a saltar"
+    )
+    assert "volumen_cambia_de_escala" in sin_lista
+
+
 # ---------------------------------------------------------------------------
 # Ataque 3: la serie congelada
 # ---------------------------------------------------------------------------
