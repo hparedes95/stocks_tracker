@@ -38,7 +38,7 @@ parar antes de calcular sobre ellos.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -88,6 +88,12 @@ MAX_NULOS = 0.02
 # redondea los cuatro precios por caminos distintos y una accion que abre en su
 # minimo llega con los dos numeros escritos con precisiones diferentes.
 TOLERANCIA_OHLC = 1e-6
+
+# Factor de un dia para otro por encima del cual el precio no describe ninguna
+# empresa. Una biotecnologica puede triplicar con un resultado clinico; eso pasa
+# y no es un error. Multiplicarse por diez, no: eso es un split mal aplicado, un
+# ticker cruzado o un decimal perdido.
+MAX_SALTO = 10.0
 
 # Cuando una barra imposible pasa de "apartala y sigue" a "para todo".
 #
@@ -434,6 +440,95 @@ def nulos(precios: pd.DataFrame) -> float:
     return float(celdas.isna().to_numpy().mean())
 
 
+def fechas_futuras(precios: pd.DataFrame, hoy: date | None = None) -> pd.DataFrame:
+    """Barras fechadas despues de hoy. Un precio de manana no existe.
+
+    Llegan por husos horarios del proveedor y por barras provisionales mal
+    fechadas. La puerta de entrada (`providers.base.normalize_ohlcv`) ya las
+    filtra, pero esto mira el ALMACEN: las que entraron antes de existir aquel
+    filtro siguen dentro, y una sola basta para estropearlo todo.
+
+    Y estropea mas de lo que parece: la vista `current_session` toma la fecha
+    mas reciente, asi que una fila del futuro convierte el dashboard entero en
+    el retrato de un dia que no ha ocurrido.
+
+    Un dia de margen porque hay mercados por delante de UTC.
+    """
+    vacio = pd.DataFrame(columns=["ticker", "date"])
+    if precios.empty or "date" not in precios.columns:
+        return vacio
+    limite = pd.Timestamp((hoy or date.today()) + timedelta(days=1))
+    fechas = pd.to_datetime(precios["date"], errors="coerce")
+    return precios.loc[fechas > limite, ["ticker", "date"]].reset_index(drop=True)
+
+
+def volumen_negativo(precios: pd.DataFrame) -> pd.DataFrame:
+    """No existe negociar una cantidad negativa de acciones.
+
+    Se separa de `volumen_cero` porque son cosas distintas: un cero puede ser
+    una suspension real, y un negativo es siempre un dato roto.
+    """
+    vacio = pd.DataFrame(columns=["ticker", "date"])
+    if precios.empty or "volume" not in precios.columns:
+        return vacio
+    v = pd.to_numeric(precios["volume"], errors="coerce")
+    return precios.loc[v < 0, ["ticker", "date"]].reset_index(drop=True)
+
+
+def saltos_absurdos(precios: pd.DataFrame, acciones: pd.DataFrame | None = None,
+                    maximo: float = None) -> pd.DataFrame:
+    """Precios que se multiplican o dividen por diez de un dia para otro.
+
+    Ninguna empresa hace eso. Lo que si lo hace, y a menudo, es un split mal
+    aplicado, un ticker cruzado con otra empresa o un decimal perdido por el
+    camino.
+
+    LOS SPLITS CONOCIDOS SE EXCLUYEN, y sin eso esta comprobacion no serviria:
+    un split legitimo produce exactamente este salto, asi que sin la excepcion
+    saltaria en cada uno y acabaria desconectada. Por eso depende de que
+    `corporate_actions` este poblada, que es lo que hace util haberla llenado.
+
+    El umbral es x10 y no x2 a proposito. Una biotecnologica puede triplicar en
+    un dia con un resultado clinico; eso pasa y no es un error. Multiplicarse
+    por diez, no.
+    """
+    maximo = MAX_SALTO if maximo is None else maximo
+    vacio = pd.DataFrame(columns=["ticker", "date", "antes", "ahora", "factor"])
+    if precios.empty or "close" not in precios.columns:
+        return vacio
+
+    p = precios[["ticker", "date", "close"]].copy()
+    p["date"] = pd.to_datetime(p["date"], errors="coerce")
+    p["close"] = pd.to_numeric(p["close"], errors="coerce")
+    p = p[p["date"].notna() & (p["close"] > 0)].sort_values(["ticker", "date"])
+    if p.empty:
+        return vacio
+
+    p["antes"] = p.groupby("ticker")["close"].shift(1)
+    factor = p["close"] / p["antes"]
+    p["factor"] = factor
+    malas = p[(factor > maximo) | (factor < 1.0 / maximo)].copy()
+    if malas.empty:
+        return vacio
+
+    if acciones is not None and not acciones.empty:
+        splits = acciones[acciones["action_type"] == "split"]
+        conocidos = set(zip(
+            splits["ticker"].astype(str),
+            pd.to_datetime(splits["date"]).dt.date, strict=True,
+        ))
+        if conocidos:
+            fuera = [
+                (t, d) not in conocidos
+                for t, d in zip(malas["ticker"].astype(str),
+                                malas["date"].dt.date, strict=True)
+            ]
+            malas = malas[fuera]
+
+    malas = malas.rename(columns={"close": "ahora"})
+    return malas[["ticker", "date", "antes", "ahora", "factor"]].reset_index(drop=True)
+
+
 def _barras_recientes(malas: pd.DataFrame, precios: pd.DataFrame,
                       sesiones: int = SESIONES_RECIENTES_CRITICAS) -> pd.DataFrame:
     """Cuales de las barras malas caen en las ultimas sesiones del mercado.
@@ -457,7 +552,9 @@ def _barras_recientes(malas: pd.DataFrame, precios: pd.DataFrame,
 # ---------------------------------------------------------------------------
 def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
             filas_lote: int = 0,
-            instrumentos_ohlc: set[str] | None = None) -> list[Hallazgo]:
+            instrumentos_ohlc: set[str] | None = None,
+            acciones: pd.DataFrame | None = None,
+            hoy: date | None = None) -> list[Hallazgo]:
     """Todas las comprobaciones sobre un conjunto de precios.
 
     `revisadas` y `filas_lote` solo existen durante la ingesta: comparar lo que
@@ -620,6 +717,43 @@ def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
             "sesiones). Sigue en el almacen con su ultimo precio congelado.",
         ))
 
+    futuras = fechas_futuras(precios, hoy)
+    if not futuras.empty:
+        afectados = sorted(futuras["ticker"].astype(str).unique())
+        fuera.append(Hallazgo(
+            "fechas_futuras", BLOQUEA, None, None,
+            f"{len(futuras)} barras fechadas DESPUES de hoy, en "
+            f"{', '.join(afectados[:5])}. La sesion vigente sale de la fecha mas "
+            "reciente del almacen, asi que una sola de estas convierte el "
+            "dashboard entero en el retrato de un dia que no ha ocurrido. "
+            "Borralas y vuelve a descargar esos valores.",
+        ))
+
+    negativos = volumen_negativo(precios)
+    if not negativos.empty:
+        afectados = sorted(negativos["ticker"].astype(str).unique())
+        fuera.append(Hallazgo(
+            "volumen_negativo", AVISO, None, None,
+            f"{len(negativos)} sesiones con volumen negativo en "
+            f"{', '.join(afectados[:5])}. No existe negociar una cantidad "
+            "negativa: es un dato roto, no una sesion rara.",
+        ))
+
+    saltos = saltos_absurdos(precios, acciones)
+    if not saltos.empty:
+        peor = saltos.reindex(saltos["factor"].abs().sort_values(ascending=False).index)
+        primero = peor.iloc[0]
+        afectados = sorted(saltos["ticker"].astype(str).unique())
+        fuera.append(Hallazgo(
+            "salto_absurdo", AVISO, None, None,
+            f"{len(saltos)} saltos de precio de mas de x{MAX_SALTO:g} de un dia "
+            f"para otro. El mayor: {primero['ticker']} el "
+            f"{pd.to_datetime(primero['date']).date()}, de {primero['antes']:,.4g} "
+            f"a {primero['ahora']:,.4g} (x{primero['factor']:,.4g}). Ninguna "
+            "empresa hace eso: es un split sin registrar, un ticker cruzado o un "
+            f"decimal perdido. Afectados: {', '.join(afectados[:5])}.",
+        ))
+
     sin_volumen = volumen_cero(precios)
     for fila in sin_volumen.itertuples():
         fuera.append(Hallazgo(
@@ -687,7 +821,8 @@ def guardar(conn, hallazgos: list[Hallazgo], run_id: str,
 # de registrar.
 COMPROBACIONES_DEL_ALMACEN = (
     "ohlc_incoherente", "precios_nulos", "huecos_en_la_serie",
-    "ticker_desaparecido", "volumen_cero",
+    "ticker_desaparecido", "volumen_cero", "fechas_futuras",
+    "volumen_negativo", "salto_absurdo",
 )
 
 # Solo se puede comprobar durante la ingesta, comparando lo que llega con lo

@@ -57,8 +57,17 @@ class ChainPriceProvider:
 
             try:
                 df = provider.fetch_ohlcv(askable, start, end, interval)
-            except ProviderError:
+            except Exception:  # noqa: BLE001
                 # Un proveedor caido no interrumpe la cadena: para eso existe.
+                #
+                # `Exception` y no solo `ProviderError`: los errores previstos
+                # ya salen envueltos, pero los que tumban una cadena de verdad
+                # son los IMPREVISTOS —un KeyError por una columna que la
+                # version nueva de la libreria ya no manda, un AttributeError
+                # de un cambio de API—. Capturar solo lo previsto deja al
+                # universo entero sin datos justo el dia en que el proveedor
+                # cambia algo, que es exactamente el dia para el que existe
+                # tener un segundo proveedor.
                 continue
 
             requests_used += int(df.attrs.get("requests_used", 0))
