@@ -67,14 +67,24 @@ def con_precios(source: str = "yfinance", ultima: date = HOY) -> None:
 # LA distincion
 # ---------------------------------------------------------------------------
 
+# Comprobaciones que SI pueden salir en verde sobre un almacen vacio, porque su
+# respuesta no depende de que haya datos. "No tienes ninguna posicion abierta"
+# es un hecho comprobado, no un "no lo he mirado": la consulta se ejecuto y
+# devolvio cero. Es la unica de las nueve.
+VERDES_SIN_DATOS = {"Cartera contra el broker"}
+
+
 def test_un_almacen_vacio_no_esta_verde(warehouse):
-    """Sin datos no hay nada comprobado. Ninguna comprobacion puede salir en
-    verde, y el veredicto global no puede ser 'bien'."""
+    """Sin datos no hay nada comprobado sobre los datos, y el veredicto global
+    no puede ser 'bien'."""
     puntos = revisar()
 
     assert integrity.veredicto(puntos) != integrity.BIEN
-    assert all(p.estado != integrity.BIEN for p in puntos), (
-        "hay comprobaciones en verde sobre un almacen vacio"
+    verdes = {p.nombre for p in puntos if p.estado == integrity.BIEN}
+
+    assert verdes <= VERDES_SIN_DATOS, (
+        f"estas comprobaciones salen en verde sobre un almacen vacio: "
+        f"{sorted(verdes - VERDES_SIN_DATOS)}"
     )
 
 

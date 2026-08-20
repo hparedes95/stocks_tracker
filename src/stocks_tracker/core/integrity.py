@@ -305,6 +305,42 @@ def _splits_y_dividendos(conn) -> Punto:
                  f"{eventos} eventos guardados y los splits cuadran con el precio.")
 
 
+def _reconciliacion(conn, ahora: pd.Timestamp) -> Punto:
+    fila = conn.execute(
+        "SELECT MAX(checked_at) FROM reconciliation"
+    ).fetchone()
+    posiciones = conn.execute(
+        "SELECT COUNT(*) FROM positions WHERE closed_at IS NULL"
+    ).fetchone()[0]
+
+    if not posiciones:
+        return Punto("Cartera contra el broker", BIEN,
+                     "No hay ninguna posicion abierta que contrastar.")
+    if fila is None or fila[0] is None:
+        return Punto(
+            "Cartera contra el broker", SIN_COMPROBAR,
+            f"{posiciones} posiciones abiertas y nunca se han contrastado con el "
+            "broker. Es la unica comprobacion que se hace contra quien tiene el "
+            "dinero de verdad.",
+            "Ejecuta `reconciliar`",
+        )
+    if _caducada(fila[0], ahora):
+        return Punto("Cartera contra el broker", SIN_COMPROBAR,
+                     f"La ultima revision es del "
+                     f"{pd.Timestamp(fila[0]):%d/%m/%Y}.", "Ejecuta `reconciliar`")
+
+    difieren = conn.execute(
+        "SELECT COUNT(*) FROM reconciliation WHERE estado = 'difiere' "
+        "AND checked_at = (SELECT MAX(checked_at) FROM reconciliation)"
+    ).fetchone()[0]
+    if difieren:
+        return Punto("Cartera contra el broker", MAL,
+                     f"{difieren} diferencias con el broker sin resolver.",
+                     "Estado de los datos")
+    return Punto("Cartera contra el broker", BIEN,
+                 f"Las {posiciones} posiciones cuadran con el broker.")
+
+
 COMPROBACIONES = (
     ("Datos", _datos, True),
     ("Calidad de los precios", _calidad, True),
@@ -313,6 +349,7 @@ COMPROBACIONES = (
     ("Fundamentales", _fundamentales, False),
     ("Ranking", _ranking, False),
     ("Validacion de senales", _validacion, False),
+    ("Cartera contra el broker", _reconciliacion, True),
     ("Splits y dividendos", _splits_y_dividendos, False),
     ("Universo historico", _universo_historico, False),
 )

@@ -91,6 +91,12 @@ validate-confirm:
 # conciencia: imprime lo que va a cambiar antes de escribirlo. Un `make oro` a
 # ciegas convierte el test de regresion en un sello de goma que dice que si a
 # todo.
+# Contrasta la cartera del broker con la del programa. No corrige nada: copiar
+# los numeros del broker borraria la prueba de que hubo un desajuste, y con ella
+# la pregunta de por que lo hubo.
+reconciliar:
+	$(PY) -m stocks_tracker.trading.reconcile_cli
+
 oro:
 	$(PY) scripts/regenerar_oro.py
 

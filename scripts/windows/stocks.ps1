@@ -29,6 +29,7 @@
       validate  Valida las senales contra su historico (descubrimiento)
       validate-freeze   Congela lo que llego a estable
       validate-confirm  Lo comprueba en el tramo reservado
+      reconciliar Contrasta tu cartera con la del broker
       oro       Reescribe la referencia de regresion financiera
       auditar   Cruza precios con un segundo proveedor y da su veredicto
       alerts    Evalua las reglas de aviso
@@ -598,6 +599,12 @@ switch ($Task) {
         Assert-Venv
         Write-Step "Gasta el tramo reservado. Solo se puede una vez por senal."
         & $Py -m stocks_tracker.backtest.run_backtest --fase confirmacion --tag-signals
+    }
+
+    'reconciliar' {
+        Assert-Venv
+        Write-Step "Contrastando tu cartera con la del broker"
+        & $Py -m stocks_tracker.trading.reconcile_cli
     }
 
     'oro' {

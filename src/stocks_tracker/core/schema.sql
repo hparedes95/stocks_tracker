@@ -372,6 +372,24 @@ CREATE TABLE IF NOT EXISTS price_consensus (
 CREATE INDEX IF NOT EXISTS idx_consensus_veredicto
   ON price_consensus(veredicto, date);
 
+-- Contraste entre lo que dice el broker y lo que cree el programa. Se guarda
+-- cada revision, tambien las que cuadran: sin el historico no se distingue "hoy
+-- cuadra" de "hace tres meses que nadie mira".
+CREATE TABLE IF NOT EXISTS reconciliation (
+  checked_at TIMESTAMP,
+  venue      VARCHAR,
+  ticker     VARCHAR,               -- NULL en las diferencias de efectivo
+  campo      VARCHAR,               -- qty|avg_cost|cash|posicion_ausente|...
+  broker     DOUBLE,
+  propio     DOUBLE,
+  diferencia DOUBLE,
+  estado     VARCHAR,               -- cuadra|difiere
+  detalle    VARCHAR,
+  run_id     VARCHAR
+);
+CREATE INDEX IF NOT EXISTS idx_reconciliation_fecha
+  ON reconciliation(checked_at, estado);
+
 -- Barras concretas cuyo OHLC no puede ser cierto (maximo por debajo del
 -- minimo, cierre fuera del rango). No se borran de `prices_daily`: borrarlas
 -- destruiria la prueba y ademas el proveedor las volveria a mandar identicas en
@@ -712,6 +730,17 @@ CREATE TABLE IF NOT EXISTS strategy_freezes (
 --
 -- `ADD COLUMN IF NOT EXISTS` es idempotente, asi que esto puede ejecutarse en
 -- cada arranque sin comprobar nada.
+-- Identificacion del instrumento mas alla del ticker. Un ticker NO identifica
+-- una empresa: se reutiliza cuando una sale de bolsa, cambia con las fusiones y
+-- significa cosas distintas en mercados distintos (BMW cotiza como BMW.DE aqui
+-- y el ticker BMW en NYSE es otra empresa). El ISIN si es unico y no se
+-- reutiliza, y el MIC dice en que mercado se cruzo el precio.
+--
+-- Se rellenan cuando el proveedor los da. No inventarlos es parte del trato:
+-- una columna con un ISIN adivinado es peor que una vacia.
+ALTER TABLE instruments ADD COLUMN IF NOT EXISTS isin VARCHAR;
+ALTER TABLE instruments ADD COLUMN IF NOT EXISTS mic VARCHAR;
+
 ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS n_dates INTEGER;
 ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS t_stat DOUBLE;
 ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS p_value DOUBLE;
