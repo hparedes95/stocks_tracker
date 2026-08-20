@@ -213,18 +213,20 @@ def get_breakouts_52w(universe: str = "TODOS", high: bool = True) -> pd.DataFram
             FROM indicators_daily
         )
         SELECT i.ticker, inst.name, inst.gics_sector, i.close, i.ret_1d,
-               i.rel_volume_20, i.{col} AS distancia
+               i.rel_volume_20, f.composite_pctile, i.{col} AS distancia
         FROM indicators_daily i
         JOIN ranked r ON r.ticker = i.ticker AND r.date = i.date
         JOIN indicators_daily prev ON prev.ticker = i.ticker AND prev.date = r.prev_date
         JOIN instruments inst ON inst.ticker = i.ticker
+        LEFT JOIN factor_scores f ON f.ticker = i.ticker AND f.date = i.date
+             AND f.weights_hash = ?
         WHERE i.date = (SELECT date FROM current_session)
           AND inst.asset_class IN ('equity', 'etf')
           AND {cond}
           {where}
         ORDER BY i.ret_1d DESC
         """,
-        params,
+        [_preset_hash(None), *params],
     )
 
 
@@ -235,9 +237,11 @@ def get_volume_spikes(universe: str = "TODOS", threshold: float = 2.0,
     return _fetch(
         f"""
         SELECT i.ticker, inst.name, inst.gics_sector, i.close, i.ret_1d,
-               i.rel_volume_20, i.rsi14
+               i.rel_volume_20, i.rsi14, f.composite_pctile
         FROM indicators_daily i
         JOIN instruments inst ON inst.ticker = i.ticker
+        LEFT JOIN factor_scores f ON f.ticker = i.ticker AND f.date = i.date
+             AND f.weights_hash = ?
         WHERE i.date = (SELECT date FROM current_session)
           AND i.rel_volume_20 > ?
           AND inst.asset_class IN ('equity', 'etf')
@@ -245,7 +249,7 @@ def get_volume_spikes(universe: str = "TODOS", threshold: float = 2.0,
         ORDER BY i.rel_volume_20 DESC
         LIMIT ?
         """,
-        [threshold, *params, n],
+        [_preset_hash(None), threshold, *params, n],
     )
 
 

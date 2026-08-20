@@ -220,6 +220,19 @@ def render_flags(flags: list[str]) -> None:
         )
 
 
+ALTO_DE_FILA = 35
+ALTO_DE_CABECERA = 38
+
+
+def alto_ajustado(filas: int, maximo: int) -> int:
+    """Alto justo para las filas que hay, sin pasar del maximo.
+
+    Con un alto fijo, una tabla de tres filas se dibuja con siete huecos vacios
+    debajo. Quien la mira no ve una tabla corta: ve una tabla rota.
+    """
+    return min(maximo, ALTO_DE_CABECERA + ALTO_DE_FILA * max(filas, 1))
+
+
 def movers_table(df: pd.DataFrame, height: int = 320) -> None:
     """Tabla de movimientos con formato consistente."""
     if df.empty:
@@ -229,21 +242,30 @@ def movers_table(df: pd.DataFrame, height: int = 320) -> None:
     # Las columnas de porcentaje se pasan YA en escala 0-100. Streamlit formatea
     # el valor crudo: un 0,018 con formato "%+.2f%%" se imprime como "+0.02%",
     # que es cien veces menos de lo que es.
+    percentil = pd.to_numeric(df.get("composite_pctile"), errors="coerce") * 100
     view = pd.DataFrame(
         {
             "Ticker": df["ticker"],
-            "Nombre": df["name"].fillna(""),
-            "Sector": df["gics_sector"].fillna("—"),
+            # Sin nombre ni sector, una celda en blanco parece un fallo de la
+            # tabla. La raya dice lo que pasa: ese dato aun no se ha descargado.
+            "Nombre": df["name"].fillna("").replace("", "—"),
+            "Sector": df["gics_sector"].fillna("").replace("", "—"),
             "Precio": df["close"],
             "Día": pd.to_numeric(df["ret_1d"], errors="coerce") * 100,
             "Vol. rel.": df.get("rel_volume_20"),
-            "Percentil": pd.to_numeric(df.get("composite_pctile"), errors="coerce") * 100,
+            "Percentil": percentil,
         }
     )
+    # Una barra de progreso vacia en todas las filas no informa de nada y se lee
+    # como un dato perdido. Si no hay ni un percentil, se quita la columna y se
+    # dice por que.
+    sin_percentil = bool(view["Percentil"].isna().all())
+    if sin_percentil:
+        view = view.drop(columns=["Percentil"])
     st.dataframe(
         view,
         hide_index=True,
-        height=height,
+        height=alto_ajustado(len(view), height),
         column_config={
             "Precio": st.column_config.NumberColumn(format="%.2f"),
             "Día": st.column_config.NumberColumn(format="%+.2f%%"),
@@ -253,6 +275,8 @@ def movers_table(df: pd.DataFrame, height: int = 320) -> None:
             ),
         },
     )
+    if sin_percentil:
+        st.caption("Sin percentil: faltan los scores de factores (ejecuta el cálculo).")
 
 
 def prepare_percent_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
@@ -273,7 +297,7 @@ def signal_chips(signals: list[str], labels: dict[str, str]) -> str:
 __all__ = [
     "render_disclaimer", "render_freshness_badge", "render_pending_alerts_badge",
     "sidebar_filters",
-    "metric_row", "render_reasons", "render_flags", "movers_table",
+    "metric_row", "render_reasons", "render_flags", "movers_table", "alto_ajustado",
     "prepare_percent_columns", "signal_chips", "render_signal_chips",
     "format_pct", "format_market_cap",
 ]

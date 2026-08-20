@@ -11,6 +11,7 @@ import streamlit as st
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components import charts, tv_widgets
 from stocks_tracker.app.components.common import (
+    alto_ajustado,
     metric_row,
     movers_table,
     render_disclaimer,
@@ -272,13 +273,13 @@ with tab_trend:
                 view = pd.DataFrame(
                     {
                         "Ticker": data["ticker"],
-                        "Nombre": data["name"].fillna(""),
+                        "Nombre": data["name"].fillna("").replace("", "—"),
                         "Señal": data["signal_id"].map(lambda s: labels.get(s, s)),
                         "Fuerza": data["strength"],
                     }
                 )
                 st.dataframe(
-                    view, hide_index=True, height=300,
+                    view, hide_index=True, height=alto_ajustado(len(view), 300),
                     column_config={
                         "Fuerza": st.column_config.ProgressColumn(
                             min_value=0.0, max_value=1.0, format="%.2f"
