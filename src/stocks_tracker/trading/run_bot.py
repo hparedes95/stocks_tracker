@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -106,6 +106,9 @@ class CycleResult:
     # quedo esperando pareceria un dia en que todo se ejecuto.
     n_pending: int = 0
     equity: float = 0.0
+    # Posiciones abiertas que hoy no tienen stop calculable. No es un contador
+    # de cortesia: es la lista de lo que esta sin proteger ahora mismo.
+    sin_proteccion: list[str] = field(default_factory=list)
 
 
 def load_prices(start: date | None = None, tickers: list[str] | None = None
@@ -126,6 +129,49 @@ def load_prices(start: date | None = None, tickers: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
+def posiciones_sin_stop(ctx: StrategyContext) -> list[str]:
+    """Posiciones abiertas para las que hoy no se puede calcular el stop.
+
+    Todos los stops del bot se miden en ATR. Sin ATR no hay stop, y una
+    posicion sin stop es una posicion que puede caer lo que quiera sin que nada
+    la cierre.
+
+    El ATR desaparece por motivos que no tienen nada de exotico: un valor
+    recien anadido sin historico suficiente, un hueco en la serie, o una barra
+    apartada por incoherente (ver `core/quarantine`), que deja el rango del dia
+    a nulo y con el catorce sesiones de ATR.
+    """
+    return sorted(t for t in ctx.positions if ctx.indicator(t, "atr14") is None)
+
+
+def _avisar_de_las_desprotegidas(ctx: StrategyContext, log: journal.Journal,
+                                 result: CycleResult) -> None:
+    """Deja constancia de cada posicion que hoy se queda sin stop.
+
+    ANTES: `_stop_exits` hacia `if stop is None or close > stop: continue`. Esas
+    dos condiciones son cosas OPUESTAS —"no puedo protegerte" y "no hace falta
+    protegerte todavia"— y estaban en el mismo `continue`. Una posicion que
+    perdia el ATR se quedaba sin stop en silencio absoluto: ni un mensaje, ni
+    una fila en el registro, nada. El bot seguia dando sus vueltas cada seis
+    horas informando de normalidad.
+
+    NO se cierra la posicion automaticamente, y es deliberado: el ATR
+    desaparece por fallos de DATOS, y liquidar una posicion porque el proveedor
+    mando una barra rara es exactamente la clase de perdida que este programa
+    tiene que evitar. Se avisa, y decide quien tiene el dinero.
+    """
+    for ticker in posiciones_sin_stop(ctx):
+        result.sin_proteccion.append(ticker)
+        log.decision(
+            ticker, "SIN_PROTECCION", "NO_ATR",
+            f"{ticker} esta abierta y hoy no tiene stop: sin ATR no se puede "
+            "calcular. No se cierra sola —el ATR falta por un problema de "
+            "datos, no del valor—, pero mientras siga asi esa posicion no esta "
+            "protegida por nada.",
+            {"posicion": ctx.positions.get(ticker, {})},
+        )
+
+
 def run_cycle(ctx: StrategyContext, strategy, risk: RiskManager,
               log: journal.Journal, broker=None,
               level: str = "auto", brake_settings: dict | None = None,
@@ -147,6 +193,11 @@ def run_cycle(ctx: StrategyContext, strategy, risk: RiskManager,
         (ctx.peak_equity - ctx.equity) / ctx.peak_equity * 100.0
         if ctx.peak_equity > 0 else 0.0
     )
+
+    # ANTES de mirar si hoy toca rebalanceo. Una posicion sin stop lo esta
+    # tambien los dias en que el bot no hace nada, y ese `return` de abajo se
+    # llevaba el aviso por delante justo los dias en que nadie mira la consola.
+    _avisar_de_las_desprotegidas(ctx, log, result)
 
     if not strategy.should_run_today(ctx):
         log.decision("", "SKIPPED_NO_SIGNAL", "NOT_A_REBALANCE_DAY",

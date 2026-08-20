@@ -426,7 +426,7 @@ if ($UniversoCompleto -and $LASTEXITCODE -eq 0) {
 }
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  Listo: la portada ya muestra el mercado de verdad." -ForegroundColor Green
-    $script:HasRealData = $true
+    $script:Resultado = 'Ok'
 } elseif ($CalculoRechazado) {
     # Antes esto se anunciaba como exito: run_compute salia con codigo 0 aunque
     # la puerta de calidad lo parase, asi que el instalador decia "la portada ya
@@ -438,11 +438,11 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "  Para reintentar solo el calculo:" -ForegroundColor Cyan
     Write-Host "      .\scripts\windows\stocks.ps1 compute"
-    $script:HasRealData = $false
+    $script:Resultado = 'SinCalcular'
 } else {
     Write-Host "  No se ha podido descargar ahora." -ForegroundColor Yellow
     Write-Host "  El programa se abrira igualmente y lo reintentara al arrancar."
-    $script:HasRealData = $false
+    $script:Resultado = 'SinDescargar'
 }
 
 # ---------------------------------------------------------------------------
@@ -474,15 +474,31 @@ Write-Host "  ================================================" -ForegroundColor
 Write-Host ""
 Write-Host "  Abrelo con el icono 'Stocks Tracker' del Escritorio."
 Write-Host ""
-# El mensaje depende de si el paso 7 consiguio descargar: anunciar datos
-# reales cuando la descarga fallo es peor que no decir nada.
-if ($script:HasRealData) {
-    Write-Host "  Los indices muestran ya el mercado real."
-} else {
-    Write-Host "  ATENCION: no se han podido descargar precios reales." -ForegroundColor Yellow
-    Write-Host "  Lo que veas de momento son DATOS DE PRUEBA, inventados." -ForegroundColor Yellow
-    Write-Host "  El programa lo reintentara al abrirlo. El dashboard avisa en rojo"
-    Write-Host "  mientras haya datos inventados."
+# TRES estados y no un si/no. Con un booleano, "se descargo pero no se calculo"
+# caia en el mismo saco que "no se pudo descargar", y el resumen final decia
+# "no se han podido descargar precios reales... son DATOS DE PRUEBA" justo
+# despues de que el paso 7 hubiera dicho lo contrario en pantalla. De los dos
+# mensajes contradictorios, el que se queda en la memoria es el ultimo, y era el
+# falso.
+switch ($script:Resultado) {
+    'Ok' {
+        Write-Host "  Los indices muestran ya el mercado real."
+    }
+    'SinCalcular' {
+        Write-Host "  Los precios reales SI se han descargado." -ForegroundColor Yellow
+        Write-Host "  Lo que falta es el calculo: se nego a correr porque encontro" -ForegroundColor Yellow
+        Write-Host "  algun problema en los datos (el detalle esta mas arriba)."
+        Write-Host "  Hasta que se calcule, la portada ensena lo que hubiera antes."
+        Write-Host ""
+        Write-Host "  Reintenta solo el calculo con:" -ForegroundColor Cyan
+        Write-Host "      .\scripts\windows\stocks.ps1 compute"
+    }
+    default {
+        Write-Host "  ATENCION: no se han podido descargar precios reales." -ForegroundColor Yellow
+        Write-Host "  Lo que veas de momento son DATOS DE PRUEBA, inventados." -ForegroundColor Yellow
+        Write-Host "  El programa lo reintentara al abrirlo. El dashboard avisa en rojo"
+        Write-Host "  mientras haya datos inventados."
+    }
 }
 Write-Host ""
 Write-Host "  Se actualiza solo: cada noche a las 23:15, y tambien al abrirlo si"

@@ -847,3 +847,31 @@ def test_ps1_files_are_pure_ascii(script):
     assert not non_ascii, (
         f"{script} tiene {len(non_ascii)} bytes no ASCII y no lleva BOM"
     )
+
+
+def test_el_resumen_final_distingue_los_tres_finales_del_paso_7():
+    """El instalador dijo dos cosas contradictorias en la misma ejecucion.
+
+    En el paso 7: "Los precios se han descargado, pero NO se ha calculado nada."
+    Y en el resumen final: "ATENCION: no se han podido descargar precios reales.
+    Lo que veas de momento son DATOS DE PRUEBA, inventados."
+
+    Las dos salian del mismo booleano `$HasRealData`, que metia "se descargo
+    pero no se calculo" en el mismo saco que "no se pudo descargar". De dos
+    mensajes contradictorios, el que se recuerda es el ultimo, y era el falso.
+    """
+    src = text("installer/install.ps1")
+
+    assert "$script:HasRealData" not in src, (
+        "el resumen final vuelve a decidirse con un si/no de dos estados"
+    )
+    for estado in ("'Ok'", "'SinCalcular'", "'SinDescargar'"):
+        assert f"$script:Resultado = {estado}" in src, f"falta el estado {estado}"
+
+    final = src[src.index("switch ($script:Resultado)"):]
+    assert "Los precios reales SI se han descargado." in final, (
+        "el caso 'descargado pero sin calcular' no tiene mensaje propio"
+    )
+    # Y ese caso NO puede seguir hablando de datos inventados.
+    sin_calcular = final[final.index("'SinCalcular'"):final.index("default")]
+    assert "DATOS DE PRUEBA" not in sin_calcular

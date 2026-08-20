@@ -83,21 +83,32 @@ MIN_COBERTURA_CALENDARIO = 0.90
 # Fraccion de nulos en los campos de precio que se tolera.
 MAX_NULOS = 0.02
 
+# Cuanto se puede salir del rango una barra sin que cuente como incoherente.
+# Relativo al nivel del precio. Ver `incoherencias_ohlc` para el porque: Yahoo
+# redondea los cuatro precios por caminos distintos y una accion que abre en su
+# minimo llega con los dos numeros escritos con precisiones diferentes.
+TOLERANCIA_OHLC = 1e-6
+
 # Cuando una barra imposible pasa de "apartala y sigue" a "para todo".
 #
-# Cuatro barras de 2021 sobre casi un millon no invalidan el calculo de hoy: se
-# apartan (ver `core/quarantine`) y se sigue. Bloquear por ellas dejaba el
-# programa inutilizado PARA SIEMPRE, porque el proveedor manda la misma barra
-# mala en cada descarga y no hay nada que el usuario pueda hacer.
+# Una barra imposible NO para el calculo por si sola, sea vieja o de ayer: se
+# aparta (ver `core/quarantine`) y se sigue. Solo para cuando hay TANTAS que la
+# descarga entera es sospechosa.
 #
-# Dos casos si paran el calculo, y por motivos distintos:
+# Esta linea se movio dos veces, y las dos por instalaciones reales bloqueadas:
 #
-# - Barras imposibles RECIENTES. Sobre esas se decide hoy: entran en el precio
-#   de referencia, en los stops y en lo que el bot mira antes de mandar una
-#   orden. Apartarlas en silencio seria operar sin saberlo con un dia ciego.
-# - Muchas barras imposibles. Deja de ser una rareza del proveedor y pasa a ser
-#   que la descarga entera vino mal.
-SESIONES_RECIENTES_CRITICAS = 10
+# 1. Cuatro barras de 2021 impedian calcular. Se anadio la excepcion por
+#    antiguedad... y a la siguiente instalacion, tres barras raras en DE, LMT y
+#    XLRE —recientes— volvieron a impedirlo.
+# 2. Lo que fallaba era la idea de fondo: parar el calculo de 600 empresas
+#    porque tres tienen una barra rara castiga a las 597 que no tienen nada.
+#
+# La proteccion que de verdad importa ya existe y es POR VALOR: apartada la
+# barra, ese ticker se queda sin ATR y la regla 13 del gestor de riesgo veta la
+# orden con NO_ATR, porque sin ATR no hay stop. Parar ademas el calculo entero
+# no protege nada mas, y deja como unica salida `--ignorar-calidad`, que apaga
+# todas las comprobaciones a la vez.
+SESIONES_RECIENTES_CRITICAS = 10  # solo para decirlo en el mensaje
 MAX_BARRAS_IMPOSIBLES = 0.001
 
 
@@ -219,42 +230,104 @@ def revisiones(nuevo: pd.DataFrame, existente: pd.DataFrame,
         ["ticker", "date", "campo"]).reset_index(drop=True)
 
 
-def incoherencias_ohlc(precios: pd.DataFrame) -> pd.DataFrame:
-    """Filas que no pueden existir en un mercado.
+def incoherencias_ohlc(precios: pd.DataFrame,
+                       tolerancia: float = TOLERANCIA_OHLC) -> pd.DataFrame:
+    """Filas que no pueden existir en un mercado, y por cuanto se salen.
 
     Un maximo por debajo del minimo, un cierre fuera del rango del dia, un
     precio negativo. No son datos discutibles: son datos imposibles, y un
     indicador calculado sobre ellos da un numero que parece razonable.
+
+    POR QUE HAY UNA TOLERANCIA, Y POR QUE ES RELATIVA
+
+    Yahoo sirve los cuatro precios por caminos distintos y los redondea
+    distinto. Una accion que abre justo en el minimo del dia puede llegar con
+    `open = 512.46` y `low = 512.4599914550781`: el MISMO numero, escrito con
+    dos precisiones. Comparado con `<` a secas, eso es "apertura por debajo del
+    minimo" y dispara una alarma que no es de nadie.
+
+    La tolerancia es relativa al nivel del precio porque el ruido tambien lo
+    es: 1e-5 sobre 512 es redondeo, y sobre 0,004 es un error del 25 %.
+
+    Y `1e-6` y no algo mas fino porque los precios se cotizan en centimos: la
+    discrepancia REAL mas pequena posible en una accion de 100 es de 1e-4
+    relativo, cien veces por encima de este umbral. Queda sitio de sobra entre
+    el ruido del formato y el error mas pequeno que importa.
+
+    LA COLUMNA `desvio`
+
+    Devolver solo el motivo era el defecto de la version anterior: una barra
+    que se salia una diezmillonesima y otra que se salia un 300 % daban
+    exactamente el mismo mensaje, y con ese mensaje no habia forma —ni para
+    quien lo lee ni para el codigo que decide si parar— de saber cual de las
+    dos era. Ahora la magnitud viaja con el hallazgo.
+
+    `motivo` y `desvio` NO describen forzosamente la misma regla: el motivo es
+    el primero que se incumple por orden de importancia, y el desvio es el peor
+    de todos. Ver `marcar`.
     """
+    vacio = pd.DataFrame(columns=["ticker", "date", "motivo", "desvio"])
     if precios.empty:
-        return pd.DataFrame(columns=["ticker", "date", "motivo"])
+        return vacio
 
     p = precios.copy()
     for c in ("open", "high", "low", "close"):
         if c not in p.columns:
-            return pd.DataFrame(columns=["ticker", "date", "motivo"])
+            return vacio
         p[c] = pd.to_numeric(p[c], errors="coerce")
+
+    # Nivel de precio de cada barra, para medir el desvio en relativo. El maximo
+    # de los cuatro en valor absoluto: no depende de cual de ellos sea el que
+    # esta mal, que es justo lo que no se sabe.
+    escala = p[["open", "high", "low", "close"]].abs().max(axis=1)
+    escala = escala.where(escala > 0)
 
     # No hace falta filtrar las filas incompletas: en pandas toda comparacion
     # con NaN es False, asi que una barra con huecos no dispara ninguna de las
     # reglas de abajo. Una version anterior llevaba una mascara `completas`
     # explicita y era codigo muerto: al quitarla no cambiaba ningun test.
     motivos = pd.Series("", index=p.index)
+    desvios = pd.Series(0.0, index=p.index)
 
-    def marcar(mascara: pd.Series, texto: str) -> None:
-        # `motivos == ""` conserva el PRIMER motivo: una barra puede violar
-        # varias reglas y decir seis cosas de la misma fila no ayuda a nadie.
-        motivos[mascara & (motivos == "")] = texto
+    def marcar(exceso: pd.Series, texto: str) -> None:
+        """Apunta la violacion si supera la tolerancia.
 
-    marcar(p[["open", "high", "low", "close"]].le(0).any(axis=1), "precio no positivo")
-    marcar(p["high"] < p["low"], "maximo por debajo del minimo")
-    marcar(p["close"] > p["high"], "cierre por encima del maximo")
-    marcar(p["close"] < p["low"], "cierre por debajo del minimo")
-    marcar(p["open"] > p["high"], "apertura por encima del maximo")
-    marcar(p["open"] < p["low"], "apertura por debajo del minimo")
+        El MOTIVO conserva el primero que se cumpla, y el orden de las llamadas
+        de abajo va de lo mas fundamental a lo mas concreto. Es a proposito: una
+        barra con el maximo corrompido incumple tres reglas a la vez con
+        magnitudes casi identicas, y quedarse con "la mayor" hace que la
+        etiqueta baile entre ejecuciones segun cual gane por decimas. Una
+        etiqueta que cambia sola no se puede usar para agrupar ni para buscar.
 
-    malas = p.loc[motivos != "", ["ticker", "date"]].copy()
-    malas["motivo"] = motivos[motivos != ""].to_numpy()
+        El DESVIO, en cambio, se queda con el peor de todos: es lo que decide si
+        esto para el calculo, y ahi lo que importa es la violacion mas grave que
+        tenga la barra, la nombre o no la etiqueta.
+        """
+        relativo = (exceso / escala).fillna(0.0)
+        pasa = relativo > tolerancia
+        motivos[pasa & (motivos == "")] = texto
+        desvios[pasa] = np.maximum(desvios[pasa], relativo[pasa])
+
+    marcar(p["low"] - p["high"], "maximo por debajo del minimo")
+    marcar(p["close"] - p["high"], "cierre por encima del maximo")
+    marcar(p["low"] - p["close"], "cierre por debajo del minimo")
+    marcar(p["open"] - p["high"], "apertura por encima del maximo")
+    marcar(p["low"] - p["open"], "apertura por debajo del minimo")
+
+    # AL FINAL y pisando lo anterior. Un precio a cero o negativo no admite
+    # tolerancia relativa —no hay contra que medirlo—, no es un problema de
+    # redondeo, y es lo primero que hay que decir de esa barra: puesto antes,
+    # cualquiera de las reglas de arriba le robaba la etiqueta.
+    cero = p[["open", "high", "low", "close"]].le(0).any(axis=1)
+    motivos[cero] = "precio no positivo"
+    desvios[cero] = np.maximum(desvios[cero], 1.0)
+
+    hay = motivos != ""
+    if not hay.any():
+        return vacio
+    malas = p.loc[hay, ["ticker", "date"]].copy()
+    malas["motivo"] = motivos[hay].to_numpy()
+    malas["desvio"] = desvios[hay].to_numpy()
     return malas.reset_index(drop=True)
 
 
@@ -454,41 +527,57 @@ def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
 
         if not usan_ohlc.empty:
             afectados = sorted(usan_ohlc["ticker"].unique())
-            primera = usan_ohlc.iloc[0]
+            peor = usan_ohlc.sort_values("desvio", ascending=False).iloc[0]
             recientes = _barras_recientes(usan_ohlc, precios)
             fraccion = len(usan_ohlc) / len(precios) if len(precios) else 1.0
-            grave = not recientes.empty or fraccion > MAX_BARRAS_IMPOSIBLES
+
+            # SOLO la cantidad decide si se para. Que la barra mala sea reciente
+            # NO para el calculo, y esto costo una segunda instalacion bloqueada:
+            # tres barras raras en DE, LMT y XLRE impedian puntuar las otras 600
+            # empresas, que no tenian nada malo.
+            #
+            # Lo que protege el dinero ya funciona, y funciona por valor: la
+            # barra se aparta, el ATR de ESE ticker sale vacio, y la regla 13 del
+            # gestor de riesgo (`position_sizing_atr`) veta la orden con NO_ATR
+            # —sin stop no se abre—. Parar el calculo entero ademas de eso no
+            # protege nada mas: solo deja al usuario sin ranking y con un unico
+            # camino de salida, `--ignorar-calidad`, que apaga TODAS las
+            # comprobaciones. Una puerta que se cierra a menudo se acaba abriendo
+            # a lo bruto, y entonces deja de comprobar nada.
+            grave = fraccion > MAX_BARRAS_IMPOSIBLES
 
             donde = (
                 f"{len(usan_ohlc)} sesiones con precios imposibles en "
                 f"{len(afectados)} valores que SI usan el rango del dia. "
-                f"La primera: {primera['ticker']} el "
-                f"{pd.to_datetime(primera['date']).date()}, {primera['motivo']}. "
+                f"La peor: {peor['ticker']} el "
+                f"{pd.to_datetime(peor['date']).date()}, {peor['motivo']}, "
+                f"por un {peor['desvio']:.4%} del precio. "
                 f"Afectados: {', '.join(afectados[:8])}"
                 + (f" y {len(afectados) - 8} mas." if len(afectados) > 8 else ".")
             )
-            if not recientes.empty:
-                cual = recientes.iloc[0]
-                porque = (
-                    f" {len(recientes)} de ellas son de las ultimas "
-                    f"{SESIONES_RECIENTES_CRITICAS} sesiones ("
-                    f"{cual['ticker']} el {pd.to_datetime(cual['date']).date()}), "
-                    "y sobre esas se decide hoy: precio de referencia, stops y "
-                    "lo que mira el bot antes de mandar una orden."
-                )
-            elif grave:
+            aparte = (
+                " Se apartan del calculo: su maximo, minimo y apertura se "
+                "ignoran, y todo lo que use el rango de esos dias sale vacio en "
+                "vez de salir con un numero inventado."
+            )
+            if grave:
                 porque = (
                     f" Son el {fraccion:.2%} del almacen, por encima del "
                     f"{MAX_BARRAS_IMPOSIBLES:.2%} que se explica por una rareza "
-                    "suelta del proveedor: esto apunta a una descarga entera mal."
+                    "suelta del proveedor: esto apunta a una descarga entera mal, "
+                    "y por eso si se para el calculo."
+                )
+            elif not recientes.empty:
+                cual = recientes.sort_values("desvio", ascending=False).iloc[0]
+                porque = (
+                    f"{aparte} {len(recientes)} de ellas son de las ultimas "
+                    f"{SESIONES_RECIENTES_CRITICAS} sesiones ("
+                    f"{cual['ticker']} el {pd.to_datetime(cual['date']).date()}). "
+                    "Esos valores se quedan sin ATR reciente, y sin ATR el bot no "
+                    "abre posicion en ellos: no puede colocar el stop."
                 )
             else:
-                porque = (
-                    " Son antiguas y muy pocas, asi que no se para el calculo: "
-                    "se apartan (su maximo, minimo y apertura se ignoran) y todo "
-                    "lo que use el rango de esos dias sale vacio en vez de salir "
-                    "con un numero inventado."
-                )
+                porque = f"{aparte} Son antiguas y muy pocas."
             fuera.append(Hallazgo(
                 "ohlc_incoherente", BLOQUEA if grave else AVISO, None, None,
                 donde + porque,

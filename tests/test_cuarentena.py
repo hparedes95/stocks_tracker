@@ -6,14 +6,15 @@ era un bloqueo que el usuario pudiera resolver, porque en la siguiente descarga
 Yahoo manda exactamente la misma barra mala: el programa quedaba inutilizado
 para siempre por cuatro filas de hace cinco anos.
 
-Lo que se prueba aqui es que las dos decisiones son independientes:
+Aqui se prueba QUE se aparta. La barra mala pierde el rango del dia y conserva
+el cierre, y el resto del almacen no se toca. Esto ultimo no es evidente:
+filtrar por los tickers afectados y por las fechas afectadas por separado —que
+es como sale si no se piensa— borra miles de barras buenas.
 
-- CUANDO se para. Cuatro barras viejas no; una barra de esta semana si, porque
-  sobre esa se decide hoy; muchas barras tampoco es una rareza del proveedor.
-- QUE se aparta. La barra mala pierde el rango del dia y conserva el cierre, y
-  el resto del almacen no se toca. Esto ultimo no es evidente: filtrar por los
-  tickers afectados y por las fechas afectadas por separado —que es como sale
-  si no se piensa— borra miles de barras buenas.
+CUANDO se para el calculo se prueba en `test_ohlc_tolerancia`, y ya no depende
+de la antiguedad de la barra: la primera version anadio una excepcion por
+antiguedad y a la instalacion siguiente tres barras RECIENTES en DE, LMT y
+XLRE volvieron a bloquearlo todo. Lo que fallaba era la idea, no el umbral.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from datetime import date, timedelta
 import pandas as pd
 import pytest
 
-from stocks_tracker.core import db, quality, quarantine
+from stocks_tracker.core import db, quarantine
 
 PRIMERA = date(2021, 3, 4)
 
@@ -45,91 +46,6 @@ def romper(precios: pd.DataFrame, ticker: str, cuando) -> pd.DataFrame:
     salida = precios.copy()
     salida.loc[fila, "close"] = 500.0
     return salida
-
-
-# ---------------------------------------------------------------------------
-# Cuando se para y cuando no
-# ---------------------------------------------------------------------------
-
-def hallazgo_ohlc(precios: pd.DataFrame, tickers: set[str]) -> quality.Hallazgo:
-    ohlc = [h for h in quality.evaluar(precios, instrumentos_ohlc=tickers)
-            if h.check == "ohlc_incoherente"]
-    assert len(ohlc) == 1, f"se esperaba un solo hallazgo de OHLC, hay {len(ohlc)}"
-    return ohlc[0]
-
-
-def test_unas_pocas_barras_viejas_no_paran_el_calculo():
-    """El caso de la instalacion real: 4 barras de hace anos entre casi un
-    millon. Bloquear por ellas deja el programa inservible para siempre."""
-    # Veinte tickers y no diez: con diez, las 4 barras caen JUSTO en el 0,1 %
-    # del umbral y el test dependeria de si la comparacion es estricta.
-    precios = pd.concat([serie(f"T{i}", 400) for i in range(20)], ignore_index=True)
-    vieja = precios["date"].min() + pd.Timedelta(days=7)
-    for t in ("T0", "T1", "T2", "T3"):
-        precios = romper(precios, t, vieja)
-
-    h = hallazgo_ohlc(precios, {f"T{i}" for i in range(20)})
-
-    assert h.severity == quality.AVISO, (
-        "cuatro barras viejas vuelven a bloquear el calculo entero"
-    )
-    assert "se apartan" in h.detail
-
-
-def test_una_barra_imposible_de_esta_semana_si_para_el_calculo():
-    """Sobre las sesiones recientes se decide hoy: precio de referencia, stops
-    y lo que mira el bot antes de mandar una orden."""
-    precios = pd.concat([serie(f"T{i}", 400) for i in range(10)], ignore_index=True)
-    reciente = precios["date"].max()
-    precios = romper(precios, "T0", reciente)
-
-    h = hallazgo_ohlc(precios, {f"T{i}" for i in range(10)})
-
-    assert h.severity == quality.BLOQUEA
-    assert "ultimas" in h.detail and "sesiones" in h.detail
-
-
-def test_el_corte_de_reciente_no_se_mide_contra_hoy():
-    """Un almacen que lleva un mes sin actualizarse tiene sus ultimas sesiones
-    igual de vigentes. Midiendo contra la fecha de hoy no saldria ninguna
-    reciente justo cuando los datos estan mas viejos."""
-    precios = pd.concat(
-        [serie(f"T{i}", 400, desde=date(2020, 1, 6)) for i in range(10)],
-        ignore_index=True,
-    )
-    assert precios["date"].max() < pd.Timestamp(date.today()) - pd.Timedelta(days=365), (
-        "el escenario no reproduce el almacen viejo"
-    )
-    precios = romper(precios, "T0", precios["date"].max())
-
-    assert hallazgo_ohlc(precios, {f"T{i}" for i in range(10)}).severity == quality.BLOQUEA
-
-
-def test_muchas_barras_imposibles_paran_el_calculo():
-    """Deja de ser una rareza del proveedor: es que la descarga vino mal."""
-    precios = pd.concat([serie(f"T{i}", 400) for i in range(10)], ignore_index=True)
-    # Antiguas a proposito: si fueran recientes bloquearian por el otro motivo
-    # y este test no probaria el que dice probar.
-    for f in sorted(precios["date"].unique())[1:40]:
-        precios = romper(precios, "T0", f)
-
-    h = hallazgo_ohlc(precios, {f"T{i}" for i in range(10)})
-
-    assert h.severity == quality.BLOQUEA
-    assert "descarga entera" in h.detail
-
-
-def test_las_divisas_siguen_sin_bloquear_nunca():
-    """De estas solo se usa el cierre. Fue la averia anterior: 411 sesiones de
-    EURUSD=X impedian calcular las 600 acciones."""
-    precios = pd.concat([serie(f"T{i}", 400) for i in range(10)]
-                        + [serie("EURUSD=X", 400)], ignore_index=True)
-    for f in sorted(precios["date"].unique())[:50]:
-        precios = romper(precios, "EURUSD=X", f)
-
-    ohlc = [h for h in quality.evaluar(precios, instrumentos_ohlc={f"T{i}" for i in range(10)})
-            if h.check == "ohlc_incoherente"]
-    assert [h.severity for h in ohlc] == [quality.AVISO]
 
 
 # ---------------------------------------------------------------------------

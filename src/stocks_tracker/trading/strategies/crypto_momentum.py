@@ -172,7 +172,14 @@ class CryptoMomentum:
             if close is None:
                 continue
             stop = self._current_stop(ctx, ticker, held)
-            if stop is None or close > stop:
+            # `stop is None` y `close > stop` son cosas OPUESTAS y estuvieron en
+            # el mismo `continue`: "no puedo protegerte" y "no hace falta
+            # protegerte todavia". Quien avisa de la primera es
+            # `run_bot._avisar_de_las_desprotegidas`, que lo registra tambien los
+            # dias en que el bot no rebalancea. Aqui solo se sigue de largo.
+            if stop is None:
+                continue
+            if close > stop:
                 continue
             out.append(
                 Intent(
