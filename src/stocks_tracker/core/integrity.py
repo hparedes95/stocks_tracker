@@ -272,6 +272,39 @@ def _universo_historico(conn) -> Punto:
                  f"{anos:.1f} anos de composicion guardada.")
 
 
+def _splits_y_dividendos(conn) -> Punto:
+    eventos = conn.execute("SELECT COUNT(*) FROM corporate_actions").fetchone()[0]
+    if not eventos:
+        return Punto(
+            "Splits y dividendos", SIN_COMPROBAR,
+            "No hay ninguno guardado. Sin ellos no se puede separar el retorno "
+            "del precio del retorno total, ni comprobar que un split conserve "
+            "el valor economico.",
+            "Se recogen en la siguiente descarga",
+        )
+
+    from . import corporate
+
+    precios = conn.execute(
+        """
+        SELECT ticker, date, close, adj_close FROM prices_daily
+        WHERE ticker IN (SELECT DISTINCT ticker FROM corporate_actions
+                         WHERE action_type = 'split')
+        """
+    ).fetchdf()
+    acciones = corporate.leer(conn)
+    malos = corporate.comprobar_splits(precios, acciones)
+    if malos:
+        primero = malos[0]
+        return Punto("Splits y dividendos", MAL,
+                     f"{len(malos)} splits mal aplicados. El primero: "
+                     f"{primero.ticker} el {primero.fecha}. Un salto asi no lo "
+                     "detecta ninguna comprobacion de coherencia.",
+                     "Vuelve a descargar esos valores")
+    return Punto("Splits y dividendos", BIEN,
+                 f"{eventos} eventos guardados y los splits cuadran con el precio.")
+
+
 COMPROBACIONES = (
     ("Datos", _datos, True),
     ("Calidad de los precios", _calidad, True),
@@ -280,6 +313,7 @@ COMPROBACIONES = (
     ("Fundamentales", _fundamentales, False),
     ("Ranking", _ranking, False),
     ("Validacion de senales", _validacion, False),
+    ("Splits y dividendos", _splits_y_dividendos, False),
     ("Universo historico", _universo_historico, False),
 )
 

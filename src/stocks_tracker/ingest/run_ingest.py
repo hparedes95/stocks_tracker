@@ -17,7 +17,7 @@ from datetime import date, timedelta
 import pandas as pd
 from rich.console import Console
 
-from ..core import membership, quality
+from ..core import corporate, membership, quality
 from ..core.config import (
     all_active_tickers,
     get_active_universes,
@@ -358,6 +358,13 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
             # para siempre.
             revisadas = _revisiones_del_lote(conn, df)
             n = upsert_df(conn, "prices_daily", df, keys=["ticker", "date"])
+            # Dividendos y splits venian en la MISMA descarga, asi que guardarlos
+            # no cuesta ni una peticion mas. Sin ellos no se puede separar el
+            # retorno del precio del retorno total ni comprobar que un split
+            # conserve el valor economico.
+            eventos = corporate.guardar(conn, df.attrs.get("corporate_actions"))
+            if eventos:
+                notes.append(f"{eventos} dividendos y splits nuevos")
             # Se cuentan BARRAS y no filas de (ticker, fecha, campo): con estas
             # ultimas, la consola decia "8 valores reescritos" mientras el
             # hallazgo de al lado decia "3 barras". Dos numeros distintos para

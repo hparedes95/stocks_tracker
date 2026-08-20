@@ -39,6 +39,56 @@ def _import_yfinance():
     return yf
 
 
+def _extraer_acciones(frames: list) -> pd.DataFrame:
+    """Dividendos y splits que venian en la misma descarga de precios.
+
+    Yahoo los sirve como dos columnas mas —a cero casi todos los dias— dentro
+    del propio historico. Aqui se quedan solo los dias en que valen algo, que
+    son los que son un evento de verdad.
+
+    Guardarlos importa porque sin ellos NO se puede separar el retorno del
+    precio del retorno total. El `adj_close` de Yahoo mezcla los dos y no hay
+    forma de deshacer la mezcla sin saber que dividendo se pago y cuando; y
+    tampoco se puede comprobar que un split conserve el valor economico, que es
+    la unica manera de detectar que el proveedor lo ha aplicado mal.
+    """
+    vacio = pd.DataFrame(columns=["ticker", "date", "action_type", "value"])
+    if not frames:
+        return vacio
+
+    filas = []
+    for frame in frames:
+        if frame is None or frame.empty:
+            continue
+        columnas = {
+            "dividends": "dividend",
+            "stock_splits": "split",
+            "splits": "split",
+        }
+        for columna, tipo in columnas.items():
+            if columna not in frame.columns:
+                continue
+            valores = pd.to_numeric(frame[columna], errors="coerce")
+            # Los splits llegan como 0.0 en los dias sin split, no como 1.0.
+            # Filtrar por "distinto de 1" dejaria dentro TODOS los dias.
+            hay = valores.notna() & (valores > 0)
+            if not hay.any():
+                continue
+            trozo = frame.loc[hay, ["ticker", "date"]].copy()
+            trozo["action_type"] = tipo
+            trozo["value"] = valores[hay].to_numpy()
+            filas.append(trozo)
+
+    if not filas:
+        return vacio
+    salida = pd.concat(filas, ignore_index=True)
+    salida["date"] = pd.to_datetime(salida["date"], errors="coerce").dt.date
+    salida = salida[salida["date"].notna()]
+    return salida.drop_duplicates(
+        subset=["ticker", "date", "action_type"]
+    ).reset_index(drop=True)
+
+
 def _is_rate_limit(exc: Exception) -> bool:
     text = f"{type(exc).__name__} {exc}".lower()
     return "ratelimit" in text or "429" in text or "too many requests" in text
@@ -97,7 +147,11 @@ class YFinanceProvider:
                     interval=interval,
                     group_by="ticker",
                     auto_adjust=False,
-                    actions=False,
+                    # Dividendos y splits en la MISMA peticion. Pedirlos aparte
+                    # duplicaria el gasto contra un proveedor gratuito, y sin
+                    # ellos `corporate_actions` se queda vacia para siempre:
+                    # era una tabla que estaba en el esquema y no escribia nadie.
+                    actions=True,
                     threads=self.use_threads,
                     progress=False,
                 )
@@ -121,6 +175,9 @@ class YFinanceProvider:
         )
         result.attrs["failed_tickers"] = failed
         result.attrs["requests_used"] = self.requests_used
+        # Los eventos viajan APARTE y no como columnas del OHLCV: el esquema
+        # canonico de precios no los tiene, y `normalize_ohlcv` los tiraria.
+        result.attrs["corporate_actions"] = _extraer_acciones(frames)
         return result
 
     @staticmethod
