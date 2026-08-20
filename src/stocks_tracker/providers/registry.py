@@ -25,6 +25,12 @@ def _build_stooq():
     return StooqProvider()
 
 
+def _build_twelve_data():
+    from .twelve_data_provider import TwelveDataProvider
+
+    return TwelveDataProvider()
+
+
 def _build_kraken():
     from .kraken_provider import KrakenPriceProvider
 
@@ -39,6 +45,11 @@ _BUILDERS["synthetic"] = SyntheticProvider
 # acciones y solo anadiria latencia. Se pide por nombre desde la ingesta de
 # cripto.
 _BUILDERS["kraken"] = _build_kraken
+# Twelve Data tampoco entra en la cadena por defecto, y por un motivo distinto:
+# su cuota gratuita (800 peticiones al dia) se agota en la primera pasada del
+# universo. Existe para ser el TERCERO en la auditoria cruzada, donde se piden
+# decenas de valores y no cientos.
+_BUILDERS["twelve_data"] = _build_twelve_data
 
 
 def available_providers() -> list[str]:

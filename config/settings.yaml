@@ -59,7 +59,15 @@ compute:
 # el error cuesta dinero (cartera y senales) mas una muestra rotatoria.
 consensus:
   # Proveedores de CONTRASTE. El almacen ya aporta lo que sirvio Yahoo, asi que
-  # aqui van los demas. `twelve_data` se anadira cuando haya clave de API.
+  # aqui van los demas.
+  #
+  # Cuando haya clave, anadir `twelve_data`: con TRES fuentes, dos que
+  # concuerden hacen mayoria y la discrepante queda nombrada, en vez de quedarse
+  # todo en "no se sabe cual falla".
+  #   1. Cuenta gratuita en twelvedata.com (800 peticiones/dia)
+  #   2. La clave va en el .env, NUNCA aqui: este fichero esta en el repositorio
+  #      y el repositorio es publico.
+  #        TWELVE_DATA_API_KEY=tu-clave
   providers: [stooq]
 
   # ATENCION: estos dos umbrales NO estan calibrados contra datos reales. Son un

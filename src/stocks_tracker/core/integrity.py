@@ -341,10 +341,51 @@ def _reconciliacion(conn, ahora: pd.Timestamp) -> Punto:
                  f"Las {posiciones} posiciones cuadran con el broker.")
 
 
+def _proveedores(conn) -> Punto:
+    """Que fuentes han servido datos DE VERDAD, y cuales solo estan escritas.
+
+    Es la misma distincion que gobierna todo el panel, aplicada a los
+    proveedores: una clave en el `.env` no demuestra que la API responda, ni que
+    su formato siga siendo el que el codigo entiende. Lo unico que lo demuestra
+    es que haya servido una fila.
+
+    Importa mas de lo que parece porque el voto de un proveedor CUENTA en el
+    consenso. Uno que se declara disponible y devuelve basura no es neutral:
+    empuja veredictos.
+    """
+    servidas = dict(conn.execute(
+        "SELECT COALESCE(source, 'desconocido'), COUNT(*) FROM prices_daily "
+        "GROUP BY 1"
+    ).fetchall())
+    reales = {k: v for k, v in servidas.items() if k != "synthetic"}
+
+    from ..providers.twelve_data_provider import api_key
+
+    configurados = ["twelve_data"] if api_key() else []
+    sin_estrenar = [n for n in configurados if n not in reales]
+
+    if not reales:
+        return Punto("Proveedores de datos", SIN_COMPROBAR,
+                     "Ninguno ha servido precios reales todavia.",
+                     "Ejecuta la ingesta")
+    detalle = ", ".join(f"{k} ({v:,} filas)".replace(",", ".")
+                        for k, v in sorted(reales.items()))
+    if sin_estrenar:
+        return Punto(
+            "Proveedores de datos", AVISO,
+            f"Sirven datos: {detalle}. Configurado pero SIN COMPROBAR: "
+            f"{', '.join(sin_estrenar)} — tener la clave escrita no demuestra "
+            "que la API responda ni que su formato sea el esperado.",
+            "Ejecuta `auditar`",
+        )
+    return Punto("Proveedores de datos", BIEN, f"Sirven datos: {detalle}.")
+
+
 COMPROBACIONES = (
     ("Datos", _datos, True),
     ("Calidad de los precios", _calidad, True),
     ("Barras apartadas", _cuarentena, False),
+    ("Proveedores de datos", _proveedores, False),
     ("Consenso entre proveedores", _consenso, True),
     ("Fundamentales", _fundamentales, False),
     ("Ranking", _ranking, False),
