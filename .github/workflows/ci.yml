@@ -46,6 +46,13 @@ jobs:
         run: pytest -q tests/test_quality.py tests/test_corrupcion.py
              tests/test_ohlc_tolerancia.py tests/test_cuarentena.py
 
+      # Datos construidos a mala fe: series impecables que describen un mercado
+      # que no existe. Los tres ataques de este fichero se colaron enteros la
+      # primera vez, y las defensas salieron de ahi.
+      - name: Auditoria adversarial
+        if: always()
+        run: pytest -q tests/test_auditoria_adversarial.py
+
       - name: Proveedores y consenso
         if: always()
         run: pytest -q tests/test_consensus.py tests/test_auditoria_cruzada.py

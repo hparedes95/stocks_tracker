@@ -114,6 +114,50 @@ MAX_SALTO = 10.0
 # orden con NO_ATR, porque sin ATR no hay stop. Parar ademas el calculo entero
 # no protege nada mas, y deja como unica salida `--ignorar-calidad`, que apaga
 # todas las comprobaciones a la vez.
+# Ruido: cuanta variedad tiene que tener una serie de verdad.
+#
+# Un precio real lo forman miles de ordenes y dos sesiones casi nunca dan el
+# MISMO retorno hasta el octavo decimal. Por debajo de la mitad de retornos
+# distintos, la serie esta fabricada, interpolada o congelada.
+#
+# El umbral es holgado a proposito: un valor de pocos euros cotiza en saltos de
+# un centimo y repite retornos de verdad. Lo que se busca no es "poca variedad",
+# es "ninguna".
+SESIONES_VARIEDAD = 60
+MIN_SESIONES_VARIEDAD = 30
+MIN_VARIEDAD = 0.5
+
+# Sesiones seguidas sin moverse un centimo a partir de las cuales el diagnostico
+# cambia: no es una serie fabricada, es una serie CONGELADA. Se arreglan de
+# forma distinta —una hay que dejar de usarla, la otra hay que volver a
+# descargarla— asi que el mensaje tiene que distinguirlas.
+MIN_SESIONES_CONGELADA = 5
+
+# Volumen: cuanto puede cambiar la MEDIANA de un tramo al siguiente.
+#
+# Un dia suelto se multiplica por diez con unos resultados y eso es normal. La
+# mediana de tres meses multiplicandose por diez no lo es: eso es un cambio de
+# unidad del proveedor —acciones a lotes es exactamente x100— o un ticker
+# cruzado con otro.
+#
+# DE DONDE SALE EL x10, Y QUE VALE ESA CIFRA
+#
+# De medir, no de elegir. Sobre 500 series de volumen simuladas con tendencia a
+# largo plazo y rachas trimestrales de actividad, el peor cociente entre dos
+# trimestres contiguos fue x7,1; el percentil 99, x6,1. Con x8 no saltaba
+# ninguna de las 500; con x5 saltaban 33. Sobre los precios de referencia
+# guardados, ninguno pasa de x1,9.
+#
+# LO QUE NO DEMUESTRA: esas 500 series estan simuladas, no descargadas. Aqui no
+# hay salida a internet. Es una calibracion contra un modelo del volumen, no
+# contra el volumen.
+#
+# Y hay un falso positivo legitimo conocido: un valor que ENTRA EN UN INDICE
+# grande puede multiplicar de forma duradera su volumen medio. Sale como aviso
+# nombrando al valor, que es lo proporcionado: se mira una vez y se sabe.
+SESIONES_ESCALA_VOLUMEN = 60
+MAX_ESCALA_VOLUMEN = 10.0
+
 SESIONES_RECIENTES_CRITICAS = 10  # solo para decirlo en el mensaje
 MAX_BARRAS_IMPOSIBLES = 0.001
 
@@ -529,6 +573,157 @@ def saltos_absurdos(precios: pd.DataFrame, acciones: pd.DataFrame | None = None,
     return malas[["ticker", "date", "antes", "ahora", "factor"]].reset_index(drop=True)
 
 
+def variedad_de_retornos(precios: pd.DataFrame,
+                         sesiones: int = SESIONES_VARIEDAD) -> pd.DataFrame:
+    """Cuantos retornos distintos tiene cada serie en su tramo reciente.
+
+    EL ATAQUE QUE ESTO PARA
+
+    Una serie inventada pasa todas las demas comprobaciones sin despeinarse:
+    subir un 0,4 % exacto cada dia no viola el OHLC, no da ningun salto de x10,
+    no deja huecos, no tiene nulos y sus fechas son perfectas. Y produce el
+    mejor momento del universo, el menor drawdown y una volatilidad minima, o
+    sea el primer puesto del ranking y —por ATR bajo— la posicion mas grande
+    que permite el mandato. Un numero creible y falso, que es el fallo que este
+    proyecto entero existe para evitar.
+
+    LO QUE LA DELATA es que no tiene ruido. Un precio real lo forman miles de
+    ordenes, y dos sesiones no dan el mismo retorno hasta el octavo decimal
+    practicamente nunca. Una serie fabricada, interpolada o rellenada repite.
+
+    Tambien caza el caso contrario y mas comun: la serie CONGELADA. Cuando un
+    proveedor deja de actualizar un valor y repite su ultima barra, todos los
+    retornos son cero exacto. El programa lo ensena como un valor tranquilo en
+    maximos anuales, cuando lo que hay es una averia de datos.
+
+    Se mira solo el tramo reciente. Sobre diez anos, cuarenta sesiones
+    congeladas se diluyen hasta no verse, que es justo cuando importan.
+    """
+    columnas = ["ticker", "sesiones", "distintos", "variedad", "congeladas"]
+    if precios.empty or "close" not in precios.columns:
+        return pd.DataFrame(columns=columnas)
+
+    p = precios[["ticker", "date", "close"]].copy()
+    p["date"] = pd.to_datetime(p["date"], errors="coerce")
+    p["close"] = pd.to_numeric(p["close"], errors="coerce")
+    p = p[p["date"].notna() & (p["close"] > 0)].sort_values(["ticker", "date"])
+    if p.empty:
+        return pd.DataFrame(columns=columnas)
+
+    filas = []
+    for ticker, serie in p.groupby("ticker", sort=True):
+        recientes = serie.tail(sesiones + 1)
+        retornos = recientes["close"].pct_change().dropna()
+        # Con pocas sesiones el porcentaje no significa nada: cinco retornos
+        # iguales pueden ser casualidad, y avisar de eso solo ensena a ignorar
+        # los avisos.
+        if len(retornos) < MIN_SESIONES_VARIEDAD:
+            continue
+        # Redondeo a ocho decimales: sin el, dos retornos que difieren en el
+        # ruido del coma flotante contarian como distintos y una serie
+        # fabricada podria escaparse por el error de redondeo de su propia
+        # aritmetica.
+        redondeados = retornos.round(8)
+        distintos = int(redondeados.nunique())
+        # Sesiones sin mover un centimo AL FINAL de la serie. Es lo que
+        # distingue "el proveedor dejo de actualizar este valor y sigue
+        # sirviendo la misma barra" de "esta serie esta fabricada": las dos
+        # tienen poca variedad y se arreglan de forma completamente distinta.
+        congeladas = 0
+        for valor in reversed(redondeados.tolist()):
+            if valor != 0.0:
+                break
+            congeladas += 1
+        filas.append({"ticker": str(ticker), "sesiones": int(len(retornos)),
+                      "distintos": distintos,
+                      "variedad": distintos / len(retornos),
+                      "congeladas": congeladas})
+    return pd.DataFrame(filas, columns=columnas)
+
+
+def cambios_de_escala_de_volumen(
+    precios: pd.DataFrame, acciones: pd.DataFrame | None = None,
+    sesiones: int = SESIONES_ESCALA_VOLUMEN,
+    maximo: float = None,
+) -> pd.DataFrame:
+    """Volumen cuya MEDIANA cambia de orden de magnitud de un tramo a otro.
+
+    EL ATAQUE QUE ESTO PARA
+
+    El unico filtro que impide que el bot compre algo que despues no podra
+    vender es el minimo de liquidez, y ese minimo se calcula multiplicando
+    precio por VOLUMEN. Nada comprobaba el volumen.
+
+    Un proveedor que cambia de unidad —de acciones a lotes, o al reves— o que
+    cruza el volumen de un ticker con el de otro multiplica esa cifra por cien
+    sin tocar ni un precio. La serie sigue siendo impecable: OHLC coherente, sin
+    saltos, sin huecos. Y un valor que negocia treinta mil euros al dia pasa a
+    parecer que negocia tres millones, con lo que cruza el minimo de liquidez y
+    el bot entra en algo de lo que luego no puede salir.
+
+    SE MIRA LA MEDIANA Y NO LAS BARRAS SUELTAS, y es la decision que hace la
+    comprobacion utilizable. El volumen de un dia concreto es legitimamente
+    volatil: un dia de resultados multiplica por diez el de la vispera y eso
+    pasa continuamente. Lo que no pasa es que la mediana de tres meses se
+    multiplique por veinte.
+
+    Y SE RECORRE LA SERIE ENTERA, no solo su tramo final. Comparando unicamente
+    los dos ultimos trimestres, un cambio de unidad ocurrido hace medio ano
+    queda dentro de los dos lados de la comparacion y no se ve: los dos tramos
+    dicen tres millones y el cociente sale uno. El escalon sigue ahi, sigue
+    falseando el filtro de liquidez todos los dias, y la comprobacion diria que
+    no pasa nada.
+
+    Comparar tramos CONTIGUOS —y no el final contra todo lo anterior— es lo que
+    distingue un escalon de un crecimiento. Un valor que en diez anos multiplica
+    por veinte su volumen lo hace poco a poco, y entre dos trimestres seguidos
+    nunca da ese salto.
+
+    Los splits se excluyen: parten el precio y multiplican el volumen por el
+    mismo factor, asi que sin la excepcion saltaria en cada uno.
+    """
+    maximo = MAX_ESCALA_VOLUMEN if maximo is None else maximo
+    columnas = ["ticker", "antes", "ahora", "factor"]
+    if precios.empty or "volume" not in precios.columns:
+        return pd.DataFrame(columns=columnas)
+
+    p = precios[["ticker", "date", "volume"]].copy()
+    p["date"] = pd.to_datetime(p["date"], errors="coerce")
+    p["volume"] = pd.to_numeric(p["volume"], errors="coerce")
+    p = p[p["date"].notna() & (p["volume"] > 0)].sort_values(["ticker", "date"])
+    if p.empty:
+        return pd.DataFrame(columns=columnas)
+
+    con_split = set()
+    if acciones is not None and not acciones.empty:
+        con_split = set(acciones.loc[acciones["action_type"] == "split",
+                                     "ticker"].astype(str))
+
+    filas = []
+    for ticker, serie in p.groupby("ticker", sort=True):
+        if str(ticker) in con_split or len(serie) < sesiones * 2:
+            continue
+        medianas = serie["volume"].rolling(sesiones).median()
+        anteriores = medianas.shift(sesiones)
+        cociente = (medianas / anteriores).replace([np.inf, -np.inf], np.nan)
+        if cociente.isna().all():
+            continue
+        # El escalon mas grande de toda la serie, en cualquiera de los dos
+        # sentidos: multiplicar por cien y dividir por cien son el mismo error
+        # de unidad visto desde los dos lados.
+        extremos = pd.concat([cociente, 1.0 / cociente])
+        peor = float(extremos.max())
+        if peor <= maximo:
+            continue
+        donde = int(cociente.sub(1.0).abs().idxmax())
+        factor = float(cociente.loc[donde])
+        filas.append({"ticker": str(ticker),
+                      "antes": float(anteriores.loc[donde]),
+                      "ahora": float(medianas.loc[donde]),
+                      "factor": factor})
+    return pd.DataFrame(filas, columns=columnas)
+
+
 def _barras_recientes(malas: pd.DataFrame, precios: pd.DataFrame,
                       sesiones: int = SESIONES_RECIENTES_CRITICAS) -> pd.DataFrame:
     """Cuales de las barras malas caen en las ultimas sesiones del mercado.
@@ -754,6 +949,39 @@ def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
             f"decimal perdido. Afectados: {', '.join(afectados[:5])}.",
         ))
 
+    ruido = variedad_de_retornos(precios)
+    if not ruido.empty:
+        sospechosas = ruido[ruido["variedad"] < MIN_VARIEDAD]
+        for fila in sospechosas.sort_values("variedad").itertuples():
+            fuera.append(Hallazgo(
+                "serie_sin_ruido", AVISO, fila.ticker, None,
+                (f"en las ultimas {fila.sesiones} sesiones solo tiene "
+                 f"{fila.distintos} retornos distintos ({fila.variedad:.0%} de "
+                 "variedad). ")
+                + (f"Lleva {fila.congeladas} sesiones sin moverse un centimo: "
+                   "la serie esta CONGELADA y el proveedor esta repitiendo la "
+                   "ultima barra. El programa la ensena como un valor tranquilo "
+                   "en maximos cuando lo que hay es una averia de datos."
+                   if fila.congeladas >= MIN_SESIONES_CONGELADA else
+                   "Un precio real lo forman miles de ordenes y no repite el "
+                   "mismo retorno hasta el octavo decimal: esta serie esta "
+                   "fabricada, interpolada o rellenada. Sin ruido, el momento y "
+                   "el drawdown salen inmejorables y el ATR minimo, o sea el "
+                   "primer puesto del ranking con la posicion mas grande."),
+            ))
+
+    escalas = cambios_de_escala_de_volumen(precios, acciones)
+    for fila in escalas.itertuples():
+        fuera.append(Hallazgo(
+            "volumen_cambia_de_escala", AVISO, fila.ticker, None,
+            f"la mediana de volumen ha pasado de {fila.antes:,.4g} a "
+            f"{fila.ahora:,.4g} (x{fila.factor:,.4g}) sin ningun split. Un dia "
+            "suelto se multiplica por diez con unos resultados; la mediana de "
+            "tres meses no. Es un cambio de unidad del proveedor o un ticker "
+            "cruzado, y el minimo de liquidez —lo unico que impide comprar algo "
+            "que despues no se puede vender— se calcula con esta cifra.",
+        ))
+
     sin_volumen = volumen_cero(precios)
     for fila in sin_volumen.itertuples():
         fuera.append(Hallazgo(
@@ -822,7 +1050,8 @@ def guardar(conn, hallazgos: list[Hallazgo], run_id: str,
 COMPROBACIONES_DEL_ALMACEN = (
     "ohlc_incoherente", "precios_nulos", "huecos_en_la_serie",
     "ticker_desaparecido", "volumen_cero", "fechas_futuras",
-    "volumen_negativo", "salto_absurdo",
+    "volumen_negativo", "salto_absurdo", "serie_sin_ruido",
+    "volumen_cambia_de_escala",
 )
 
 # Solo se puede comprobar durante la ingesta, comparando lo que llega con lo

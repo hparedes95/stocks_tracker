@@ -26,10 +26,28 @@ def _precios(filas: list[dict]) -> pd.DataFrame:
     return pd.DataFrame([{**base, **f} for f in filas])
 
 
-def _serie(ticker: str, fechas, cierre: float = 100.0, **extra) -> pd.DataFrame:
-    return _precios([{"ticker": ticker, "date": d, "open": cierre,
-                      "high": cierre + 1, "low": cierre - 1, "close": cierre,
-                      **extra} for d in fechas])
+def _serie(ticker: str, fechas, cierre: float = 100.0, plana: bool = False,
+           **extra) -> pd.DataFrame:
+    """Una serie sana: coherente Y CON RUIDO.
+
+    El ruido no es adorno. Antes esta ayuda devolvia el mismo cierre 40 dias
+    seguidos y eso se llamaba "datos limpios"; `serie_sin_ruido` lo llama, con
+    razon, una serie congelada. Un precio real no repite el mismo retorno hasta
+    el octavo decimal.
+
+    La variacion es determinista —nada de aleatoriedad en los tests— y esta
+    redondeada al centimo, como cotiza de verdad.
+
+    `plana=True` devuelve la linea plana de antes, para los tests que necesitan
+    un cierre conocido y constante.
+    """
+    filas = []
+    for i, d in enumerate(fechas):
+        precio = cierre if plana else round(cierre * (1 + ((i * 37) % 101 - 50) / 5000), 2)
+        filas.append({"ticker": ticker, "date": d, "open": precio,
+                      "high": precio + 1, "low": precio - 1, "close": precio,
+                      **extra})
+    return _precios(filas)
 
 
 # ---------------------------------------------------------------------------
