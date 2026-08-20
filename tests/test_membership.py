@@ -113,6 +113,24 @@ def test_universes_do_not_interfere_with_each_other(conn):
     assert _filas(conn, "NASDAQ100") == [("AAA", LUNES, MARTES)]
 
 
+def miembros_en(conn, fecha, universos: list[str] | None = None) -> set[str]:
+    """Quien pertenecia al universo en una fecha, LEIDO COMO LO LEE EL BACKTEST.
+
+    La condicion no se escribe aqui: se pide a `membership.condicion_vigente`,
+    que es la misma cadena que `load_data(pit=True)` mete en su JOIN. Antes
+    habia un `membership.miembros_en()` en Python con la regla escrita por
+    segunda vez, y estos tests comprobaban ESA: la que recorta el universo de
+    verdad no la miraba nadie.
+    """
+    sql = ["SELECT DISTINCT ticker FROM universe_membership",
+           f"WHERE {m.condicion_vigente('?')}"]
+    params: list = [fecha, fecha]
+    if universos:
+        sql.append(f"AND universe IN ({', '.join('?' for _ in universos)})")
+        params.extend(universos)
+    return {f[0] for f in conn.execute(" ".join(sql), params).fetchall()}
+
+
 # ---------------------------------------------------------------------------
 # La consulta con fecha
 # ---------------------------------------------------------------------------
@@ -121,8 +139,8 @@ def test_asking_for_a_past_date_gives_the_members_of_that_date(conn):
     entonces, no con quien esta hoy."""
     m.actualizar(conn, "SP100", ["AAA", "BBB"], LUNES)
     m.actualizar(conn, "SP100", ["AAA", "CCC"], MIERCOLES)
-    assert m.miembros_en(conn, LUNES) == {"AAA", "BBB"}
-    assert m.miembros_en(conn, MIERCOLES) == {"AAA", "CCC"}
+    assert miembros_en(conn, LUNES) == {"AAA", "BBB"}
+    assert miembros_en(conn, MIERCOLES) == {"AAA", "CCC"}
 
 
 def test_the_day_a_member_leaves_it_is_already_out(conn):
@@ -130,22 +148,22 @@ def test_the_day_a_member_leaves_it_is_already_out(conn):
     detecta la salida, asi que ese mismo dia ya no forma parte."""
     m.actualizar(conn, "SP100", ["AAA", "BBB"], LUNES)
     m.actualizar(conn, "SP100", ["AAA"], MARTES)
-    assert "BBB" in m.miembros_en(conn, LUNES)
-    assert "BBB" not in m.miembros_en(conn, MARTES)
+    assert "BBB" in miembros_en(conn, LUNES)
+    assert "BBB" not in miembros_en(conn, MARTES)
 
 
 def test_a_date_before_everything_has_no_members(conn):
     """Y es la limitacion honesta del modulo: antes de la primera ingesta no
     hay composicion, y filtrar por ella dejaria el universo vacio."""
     m.actualizar(conn, "SP100", ["AAA"], LUNES)
-    assert m.miembros_en(conn, LUNES - timedelta(days=1)) == set()
+    assert miembros_en(conn, LUNES - timedelta(days=1)) == set()
 
 
 def test_you_can_ask_for_one_universe_only(conn):
     m.actualizar(conn, "SP100", ["AAA"], LUNES)
     m.actualizar(conn, "IBEX35", ["ZZZ"], LUNES)
-    assert m.miembros_en(conn, LUNES, ["IBEX35"]) == {"ZZZ"}
-    assert m.miembros_en(conn, LUNES) == {"AAA", "ZZZ"}
+    assert miembros_en(conn, LUNES, ["IBEX35"]) == {"ZZZ"}
+    assert miembros_en(conn, LUNES) == {"AAA", "ZZZ"}
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +356,7 @@ def test_an_unreliable_list_never_closes_intervals(conn):
 
     assert cambios["salen"] == []
     assert len(cambios["sin_confirmar"]) == 400
-    assert len(m.miembros_en(conn, MARTES)) == 450, \
+    assert len(miembros_en(conn, MARTES)) == 450, \
         "la lista de respaldo ha dado de baja a 400 valores"
 
 
@@ -347,7 +365,7 @@ def test_an_unreliable_list_can_still_add_what_it_knows(conn):
     verdad. Asi la tabla solo puede ganar verdad, nunca perderla."""
     m.actualizar(conn, "SP500", ["AAA"], LUNES)
     m.actualizar(conn, "SP500", ["AAA", "NUEVA"], MARTES, fiable=False)
-    assert m.miembros_en(conn, MARTES) == {"AAA", "NUEVA"}
+    assert miembros_en(conn, MARTES) == {"AAA", "NUEVA"}
 
 
 def test_the_next_good_download_still_records_the_real_departure(conn):
@@ -357,7 +375,7 @@ def test_the_next_good_download_still_records_the_real_departure(conn):
     m.actualizar(conn, "SP500", ["AAA"], MARTES, fiable=False)      # fallo
     cambios = m.actualizar(conn, "SP500", ["AAA"], MIERCOLES)       # ya va bien
     assert cambios["salen"] == ["BBB"]
-    assert m.miembros_en(conn, MIERCOLES) == {"AAA"}
+    assert miembros_en(conn, MIERCOLES) == {"AAA"}
 
 
 def test_a_reliable_list_is_the_default(conn):

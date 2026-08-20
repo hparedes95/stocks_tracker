@@ -60,6 +60,17 @@ CREDENTIALS: tuple[Credential, ...] = (
         required_for_trading=False,
     ),
     Credential(
+        env="TWELVE_DATA_API_KEY", venue="datos",
+        purpose="Tercera fuente de precios: la que permite que haya MAYORIA",
+        how="Cuenta gratuita en twelvedata.com (800 peticiones al dia)",
+        required_for_trading=False,
+        danger=(
+            "No mueve dinero, pero si se filtra alguien puede agotar tu cupo "
+            "diario y dejar el consenso con dos fuentes sin que nada falle a la "
+            "vista. Se rota desde el perfil de twelvedata.com en un minuto."
+        ),
+    ),
+    Credential(
         env="TELEGRAM_BOT_TOKEN", venue="alertas",
         purpose="Avisos al movil cuando el mercado se mueve",
         how="Habla con @BotFather en Telegram y crea un bot",

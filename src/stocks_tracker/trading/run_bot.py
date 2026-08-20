@@ -29,6 +29,7 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 
+from ..core import audit
 from ..core.config import TradingConfig, get_trading_config
 from ..core.db import connect
 from ..core.ids import ulid
@@ -475,11 +476,35 @@ def _propose_once(mode: str, venue: str | None = None,
     nivel = cfg.autonomy_for(mode)
     risk = RiskManager(cfg=cfg, mode=clave)
     try:
-        result = run_cycle(
-            ctx, strategy, risk, log, broker=broker, level=nivel,
-            brake_settings=autonomy.brake_settings(cfg, venue),
-            live_orders_so_far=autonomy.live_orders_so_far(clave),
-        )
+        # El mismo `run_id` que el diario de decisiones y que `bot_runs`. Lo que
+        # anade `audit_log` y no tiene ninguno de los otros dos es el SELLO: el
+        # commit de git y el hash del mandato.
+        #
+        # Sin el, "el bot compro esto el martes" queda registrado pero no se
+        # puede reconstruir: no consta con que limites de riesgo ni con que
+        # version de la estrategia se decidio, y las dos cosas cambian. Es
+        # justamente en el paso que mueve dinero donde peor sienta no saberlo.
+        with audit.paso("bot_propose", run_id=run_id, config=cfg.raw) as registro:
+            registro.leido(cartera=clave, fecha=str(ctx.as_of),
+                           estrategia=strategy.strategy_id, regimen=ctx.regime,
+                           equity=float(ctx.equity), autonomia=nivel,
+                           posiciones=len(ctx.positions))
+            result = run_cycle(
+                ctx, strategy, risk, log, broker=broker, level=nivel,
+                brake_settings=autonomy.brake_settings(cfg, venue),
+                live_orders_so_far=autonomy.live_orders_so_far(clave),
+            )
+            registro.escrito(intenciones=result.n_intents,
+                             aprobadas=result.n_approved,
+                             enviadas=result.n_submitted,
+                             esperando_confirmacion=result.n_pending,
+                             sin_proteccion=list(result.sin_proteccion))
+            if ctx.state and ctx.state != "RUNNING":
+                # El killswitch parando al bot NO es una averia: es el sistema
+                # funcionando. Registrarlo como error lo mezclaria con los
+                # fallos de verdad y en un mes nadie distinguiria un dia
+                # detenido a proposito de un dia con el disco lleno.
+                registro.rechazado(f"El killswitch esta en '{ctx.state}'.")
         counts = log.flush()
         journal.finish_run(run_id, "OK", ctx.equity,
                            {"intents": result.n_intents,

@@ -200,16 +200,45 @@ def test_a_future_fundamentals_snapshot_does_not_change_a_past_score(almacen):
     )
 
 
+def _con_una_senal_por_ticker(cuando: pd.Timestamp) -> None:
+    with db.connect() as conn:
+        db.upsert_df(conn, "signals", pd.DataFrame([
+            {"ticker": t, "date": cuando.date(), "signal_id": "prueba",
+             "direction": "bullish", "strength": 1.0, "detail": ""}
+            for t in TICKERS
+        ]), keys=["ticker", "date", "signal_id"])
+
+
+def _universo_del_backtest(cuando: pd.Timestamp) -> set[str]:
+    """Quien entra en el backtest punto-en-el-tiempo esa fecha.
+
+    Pasa por `load_data(pit=True)`, que es EL CAMINO QUE SE EJECUTA de verdad,
+    y no por una consulta paralela escrita para el test.
+
+    Antes esto llamaba a un `membership.miembros_en()` que no usaba nadie mas.
+    El test pasaba, pero lo que demostraba era que una funcion muerta respetaba
+    la regla de intervalos; del filtro que de verdad recorta el universo —un
+    JOIN dentro de `load_data`— no decia nada. Dos escrituras de la misma regla
+    y el test vigilando la que no se ejecuta.
+    """
+    from stocks_tracker.backtest.run_backtest import load_data
+
+    _, senales = load_data(pit=True)
+    if senales.empty:
+        return set()
+    return set(senales.loc[
+        pd.to_datetime(senales["date"]) == cuando, "ticker"
+    ])
+
+
 def test_a_future_membership_change_does_not_change_a_past_universe(almacen):
     """Que un valor entre o salga del indice manana no puede cambiar quien
     estaba dentro ayer. Si lo cambiara, la composicion historica se reescribiria
     sola y el universo punto-en-el-tiempo no serviria para nada."""
-    from stocks_tracker.core.membership import miembros_en
-
     precios = _precios()
     _sembrar(precios, _fundamentales(), _pertenencia())
-    with db.connect(read_only=True) as conn:
-        antes = miembros_en(conn, CORTE.date())
+    _con_una_senal_por_ticker(CORTE)
+    antes = _universo_del_backtest(CORTE)
 
     # Mitad salen y entra uno nuevo, todo DESPUES del corte.
     futura = _pertenencia()
@@ -221,9 +250,7 @@ def test_a_future_membership_change_does_not_change_a_past_universe(almacen):
         "valid_from": (CORTE + pd.Timedelta(days=30)).date(), "valid_to": None,
     }])], ignore_index=True)
     _sembrar(precios, _fundamentales(), futura)
-
-    with db.connect(read_only=True) as conn:
-        despues = miembros_en(conn, CORTE.date())
+    despues = _universo_del_backtest(CORTE)
 
     assert antes == set(TICKERS)
     assert antes == despues

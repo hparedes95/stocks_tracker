@@ -203,3 +203,114 @@ def test_el_calculo_registra_sus_pasos():
     assert "run_id=run_id" in src, (
         "cada paso usa su propio run_id y las filas quedan sueltas"
     )
+
+
+# ---------------------------------------------------------------------------
+# Y la ingesta y el bot tambien
+# ---------------------------------------------------------------------------
+
+class _Args:
+    """Lo minimo que `_run` mira de la linea de ordenes."""
+
+    what = "all"
+    provider = "yfinance"
+    full = False
+    years = None
+    universes = None
+
+
+def test_la_ingesta_registra_sus_cuatro_pasos(warehouse, monkeypatch):
+    """Se ejecuta de verdad, no se lee el codigo.
+
+    Comprobar que el fichero contiene la cadena "audit.paso(" solo demuestra
+    que alguien la escribio. Aqui se sustituyen las cuatro descargas por
+    contadores y se mira el registro que queda: es lo unico que distingue una
+    llamada colocada de una llamada que funciona.
+    """
+    from stocks_tracker.ingest import run_ingest
+
+    for nombre, filas in (("ingest_universe", 600), ("ingest_prices", 12000),
+                          ("ingest_fundamentals", 90), ("ingest_macro", 40)):
+        monkeypatch.setattr(run_ingest, nombre,
+                            lambda *a, _n=filas, **k: _n)
+
+    run_ingest._run(_Args())
+
+    registro = filas_de("audit_log")
+    pasos = set(registro["paso"])
+    assert pasos == {"ingest_universe", "ingest_prices", "ingest_fundamentals",
+                     "ingest_macro"}, pasos
+    assert set(registro["estado"]) == {audit.OK}
+    escrito = {r["paso"]: json.loads(r["salida"])["filas"]
+               for _, r in registro.iterrows()}
+    assert escrito["ingest_prices"] == 12000
+
+
+def test_los_pasos_de_una_ingesta_comparten_run_id(warehouse, monkeypatch):
+    """Con un id por paso las filas quedan sueltas y "¿de donde salio este
+    numero?" vuelve a no tener respuesta."""
+    from stocks_tracker.ingest import run_ingest
+
+    for nombre in ("ingest_universe", "ingest_prices", "ingest_fundamentals",
+                   "ingest_macro"):
+        monkeypatch.setattr(run_ingest, nombre, lambda *a, **k: 1)
+
+    run_ingest._run(_Args())
+
+    assert len(set(filas_de("audit_log")["run_id"])) == 1
+
+
+def test_la_ingesta_pasa_su_run_id_a_las_descargas(warehouse, monkeypatch):
+    """El MISMO identificador en `audit_log` y en `ingest_log`.
+
+    Es lo que permite perseguir un numero raro hacia atras sin cortes: del
+    score al calculo, del calculo a la ingesta, y de ahi al lote concreto que
+    fallo esa noche. Con identificadores distintos las dos mitades del rastro
+    no se pueden unir, y un rastro que no se puede seguir entero no lo sigue
+    nadie.
+    """
+    from stocks_tracker.ingest import run_ingest
+
+    recibidos: list[str | None] = []
+
+    def espia(*a, run_id=None, **k):
+        recibidos.append(run_id)
+        return 1
+
+    for nombre in ("ingest_universe", "ingest_prices", "ingest_fundamentals",
+                   "ingest_macro"):
+        monkeypatch.setattr(run_ingest, nombre, espia)
+
+    run_ingest._run(_Args())
+
+    del_registro = set(filas_de("audit_log")["run_id"])
+    assert len(del_registro) == 1
+    assert set(recibidos) == del_registro, (
+        f"la ingesta se registra con {del_registro} y descarga con {set(recibidos)}: "
+        "las dos mitades del rastro no se pueden unir"
+    )
+
+
+def test_una_descarga_que_revienta_deja_su_fila_de_error(warehouse, monkeypatch):
+    """Un registro que solo guarda los exitos convierte un fallo en un hueco, y
+    un hueco se lee igual que "ese dia no se ejecuto"."""
+    from stocks_tracker.ingest import run_ingest
+
+    monkeypatch.setattr(run_ingest, "ingest_universe", lambda *a, **k: 1)
+
+    def revienta(*a, **k):
+        raise RuntimeError("Yahoo ha dejado de responder")
+
+    monkeypatch.setattr(run_ingest, "ingest_prices", revienta)
+
+    with pytest.raises(RuntimeError):
+        run_ingest._run(_Args())
+
+    registro = filas_de("audit_log")
+    fallo = registro[registro["paso"] == "ingest_prices"].iloc[0]
+    assert fallo["estado"] == audit.ERROR
+    assert "Yahoo ha dejado de responder" in fallo["detalle"]
+
+
+def filas_de(tabla: str):
+    return db.query(f"SELECT * FROM {tabla} ORDER BY empezado")

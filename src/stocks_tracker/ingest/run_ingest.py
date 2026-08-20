@@ -17,7 +17,7 @@ from datetime import date, timedelta
 import pandas as pd
 from rich.console import Console
 
-from ..core import corporate, membership, quality
+from ..core import audit, corporate, membership, quality
 from ..core.config import (
     all_active_tickers,
     get_active_universes,
@@ -26,6 +26,7 @@ from ..core.config import (
     get_universes,
 )
 from ..core.db import connect, migrate, upsert_df
+from ..core.ids import ulid
 from ..core.locking import AlreadyRunning, single_writer
 from ..core.symbols import resolve_all
 from ..core.textutils import is_missing
@@ -64,7 +65,8 @@ def _log(conn, run_id: str, task: str, target: str, status: str,
     )
 
 
-def ingest_universe(provider_name: str | None = None) -> int:
+def ingest_universe(provider_name: str | None = None,
+                    run_id: str | None = None) -> int:
     """Registra instrumentos y pertenencia a universos.
 
     Aqui se resuelve tambien el simbolo de TradingView: en la ingesta, nunca en
@@ -73,7 +75,7 @@ def ingest_universe(provider_name: str | None = None) -> int:
     migrate()
     universes = get_universes()
     provider = get_price_provider(provider_name)
-    run_id = str(uuid.uuid4())
+    run_id = run_id or str(uuid.uuid4())
 
     # Los universos con `source: wikipedia` se resuelven contra la lista real de
     # constituyentes; si la descarga falla se usa la lista manual del YAML.
@@ -294,7 +296,8 @@ def _last_dates() -> dict[str, date]:
 
 def ingest_prices(provider_name: str | None = None, full: bool = False,
                   years: int | None = None,
-                  universes: list[str] | None = None) -> int:
+                  universes: list[str] | None = None,
+                  run_id: str | None = None) -> int:
     """Descarga precios, incremental salvo que se pida backfill completo.
 
     `years` acorta el historico. El minimo util son 2: los indicadores necesitan
@@ -305,7 +308,7 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
     migrate()
     settings = get_settings()
     provider = get_price_provider(provider_name)
-    run_id = str(uuid.uuid4())
+    run_id = run_id or str(uuid.uuid4())
 
     tickers = _tickers_to_download(universes)
     today = date.today()
@@ -448,7 +451,8 @@ def _avisar_de_la_calidad(problemas: list, revisiones_totales: int) -> None:
         console.print(f"[dim]Calidad de datos: {quality.resumen(problemas)}.[/]")
 
 
-def ingest_fundamentals(provider_name: str | None = None, all_tickers: bool = False) -> int:
+def ingest_fundamentals(provider_name: str | None = None, all_tickers: bool = False,
+                        run_id: str | None = None) -> int:
     """Fundamentales, escalonados por defecto.
 
     Solo se refresca 1/7 del universo cada noche: los ratios cambian
@@ -457,7 +461,7 @@ def ingest_fundamentals(provider_name: str | None = None, all_tickers: bool = Fa
     migrate()
     settings = get_settings()
     provider = get_price_provider(provider_name)
-    run_id = str(uuid.uuid4())
+    run_id = run_id or str(uuid.uuid4())
 
     tickers = [t for t in _tickers_to_download() if not t.startswith("^")]
     shards = int(settings.ingest.get("fundamentals_shard_count", 7))
@@ -499,14 +503,14 @@ def ingest_fundamentals(provider_name: str | None = None, all_tickers: bool = Fa
     return n
 
 
-def ingest_macro(years: int = 15) -> int:
+def ingest_macro(years: int = 15, run_id: str | None = None) -> int:
     """Series macroeconomicas de FRED.
 
     Es opcional por diseno: sin `FRED_API_KEY` el resto del sistema funciona
     igual y solo la pagina de macro queda incompleta, avisando de ello.
     """
     migrate()
-    run_id = str(uuid.uuid4())
+    run_id = run_id or str(uuid.uuid4())
     provider = FredProvider()
 
     if not provider.available:
@@ -665,7 +669,8 @@ def mixed_source_tickers() -> pd.DataFrame:
         ).fetchdf()
 
 
-def repair_mixed_sources(provider_name: str | None = None) -> int:
+def repair_mixed_sources(provider_name: str | None = None,
+                         run_id: str | None = None) -> int:
     """Reconstruye desde cero las series con fuentes mezcladas.
 
     Se borra el historico del ticker y se vuelve a descargar entero, de modo
@@ -689,7 +694,7 @@ def repair_mixed_sources(provider_name: str | None = None) -> int:
     settings = get_settings()
     today = date.today()
     start = today - timedelta(days=365 * int(settings.ingest.get("backfill_years", 10)))
-    run_id = str(uuid.uuid4())
+    run_id = run_id or str(uuid.uuid4())
 
     df = provider.fetch_ohlcv(tickers, start, today + timedelta(days=1))
     if df.empty:
@@ -765,7 +770,15 @@ def main() -> None:
     try:
         with single_writer("ingesta"):
             if args.repair_mixed:
-                repair_mixed_sources(args.provider)
+                # La reparacion BORRA el historico entero de cada ticker antes
+                # de volver a bajarlo. Es la operacion mas destructiva del
+                # programa, asi que es la que menos puede permitirse no dejar
+                # rastro de cuando se hizo y con que codigo.
+                reparacion = ulid()
+                with audit.paso("repair_mixed_sources", run_id=reparacion,
+                                config=get_settings().ingest) as registro:
+                    registro.escrito(filas=int(
+                        repair_mixed_sources(args.provider, run_id=reparacion) or 0))
                 return
             if args.drop_synthetic:
                 drop_synthetic()
@@ -788,19 +801,48 @@ def main() -> None:
 
 
 def _run(args) -> None:
+    """Los cuatro pasos de la descarga, cada uno dejando su rastro.
+
+    UN SOLO `run_id` PARA LOS CUATRO, y ademas el MISMO que va a `ingest_log`.
+
+    No es cosmetica. `ingest_log` guarda una fila por lote —que se pidio, cuanto
+    tardo, si fallo— y `audit_log` una por paso, con el commit y la
+    configuracion. Compartiendo el identificador, "el ranking del martes salio
+    raro" se persigue hacia atras sin cortes: del score al calculo, del calculo
+    a la ingesta que lo alimento, y de ahi al lote concreto que fallo esa noche.
+
+    Con identificadores distintos las dos mitades del rastro no se pueden unir,
+    y un rastro que no se puede seguir entero es un rastro que nadie sigue.
+    """
+    run_id = ulid()
+    ajustes = get_settings().ingest
+
+    def _paso(nombre: str, funcion, **entrada):
+        with audit.paso(nombre, run_id=run_id, config=ajustes) as registro:
+            registro.leido(proveedor=args.provider or "cadena por defecto", **entrada)
+            registro.escrito(filas=int(funcion() or 0))
+
     if args.what in ("all", "universe"):
-        ingest_universe(args.provider)
+        _paso("ingest_universe", lambda: ingest_universe(args.provider, run_id=run_id))
     if args.what in ("all", "prices"):
         universes = (
             [u.strip().upper() for u in args.universes.split(",") if u.strip()]
             if args.universes else None
         )
-        ingest_prices(args.provider, full=args.full, years=args.years,
-                      universes=universes)
+        _paso("ingest_prices",
+              lambda: ingest_prices(args.provider, full=args.full, years=args.years,
+                                    universes=universes, run_id=run_id),
+              completo=bool(args.full),
+              anos=args.years or ajustes.get("backfill_years"),
+              universos=universes or "todos los activos")
     if args.what in ("all", "fundamentals"):
-        ingest_fundamentals(args.provider, all_tickers=args.full or args.provider == "synthetic")
+        todos = args.full or args.provider == "synthetic"
+        _paso("ingest_fundamentals",
+              lambda: ingest_fundamentals(args.provider, all_tickers=todos,
+                                          run_id=run_id),
+              todos_los_tickers=bool(todos))
     if args.what in ("all", "macro") and args.provider != "synthetic":
-        ingest_macro()
+        _paso("ingest_macro", lambda: ingest_macro(run_id=run_id))
 
     console.print("[bold green]Ingesta terminada.[/]")
 

@@ -100,8 +100,18 @@ def data_freshness() -> dict:
         "last_run": last_run,
         "hours_since_run": hours,
         "is_stale": hours is not None and hours > warn_hours,
-        "failures": int(df.iloc[0]["failures"] or 0) if not df.empty else 0,
+        # `df.empty` NO basta, y es la trampa que tumbaba la pagina de estado en
+        # una instalacion recien hecha. Un `SELECT SUM(...)` sin `GROUP BY`
+        # SIEMPRE devuelve una fila: sobre una tabla vacia devuelve una fila con
+        # NULL, asi que `df.empty` es falso. Y `NaN or 0` no salva nada, porque
+        # NaN es verdadero: se colaba entero hasta `int(NaN)`, que revienta.
+        "failures": _entero(df.iloc[0]["failures"]) if not df.empty else 0,
     }
+
+
+def _entero(valor) -> int:
+    """Un agregado de SQL convertido a entero, contando el vacio como cero."""
+    return 0 if valor is None or pd.isna(valor) else int(valor)
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)

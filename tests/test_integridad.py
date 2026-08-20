@@ -296,3 +296,110 @@ def test_una_tabla_nueva_aparece_en_un_almacen_viejo(tmp_path, monkeypatch):
         assert conn.execute("SELECT COUNT(*) FROM instruments").fetchone()[0] == 1, (
             "migrar ha borrado datos que ya estaban"
         )
+
+
+# ---------------------------------------------------------------------------
+# Retorno ajustado: el unico contraste del `adj_close` que no necesita otra fuente
+# ---------------------------------------------------------------------------
+
+def con_dividendo(adj_final: float) -> None:
+    """Un valor que sube de 100 a 110 y paga 5 de dividendo por el camino.
+
+    El retorno del precio es 10 % y el dividendo anade 5 puntos sobre el cierre
+    inicial, asi que el retorno total tiene que ser 15 %: un `adj_close` final
+    de 115. Cualquier otro numero significa que el ajustado y la lista de
+    dividendos, que salen del mismo proveedor por caminos distintos, no cuadran.
+    """
+    with db.connect() as conn:
+        precios = pd.DataFrame([
+            {"ticker": "DIV", "date": HOY - timedelta(days=300), "close": 100.0,
+             "adj_close": 100.0, "open": 100.0, "high": 100.0, "low": 100.0,
+             "volume": 1_000, "source": "yfinance"},
+            {"ticker": "DIV", "date": HOY, "close": 110.0,
+             "adj_close": adj_final, "open": 110.0, "high": 110.0, "low": 110.0,
+             "volume": 1_000, "source": "yfinance"},
+        ])
+        db.upsert_df(conn, "prices_daily", precios, keys=["ticker", "date"])
+        conn.execute(
+            "INSERT INTO corporate_actions VALUES ('DIV', ?, 'dividend', 5.0)",
+            [HOY - timedelta(days=150)],
+        )
+
+
+def test_sin_dividendos_guardados_el_ajustado_no_esta_comprobado(warehouse):
+    """No hay con que contrastarlo, y eso no es una buena noticia: es la
+    ausencia de una comprobacion."""
+    con_precios()
+
+    p = punto("Retorno ajustado", revisar())
+    assert p.estado == integrity.SIN_COMPROBAR
+    assert p.donde
+
+
+def test_un_ajustado_que_cuadra_con_los_dividendos_sale_verde(warehouse):
+    con_dividendo(adj_final=115.0)
+
+    p = punto("Retorno ajustado", revisar())
+    assert p.estado == integrity.BIEN, p.detalle
+
+
+def test_un_ajustado_descuadrado_sale_en_rojo(warehouse):
+    """El fallo que ninguna otra puerta ve.
+
+    Un `adj_close` mal ajustado es coherente consigo mismo: sin saltos, sin OHLC
+    imposible, sin negativos. Pasa la calidad, pasa la cuarentena, y produce
+    momentos y drawdowns creibles y falsos, porque TODOS los retornos del
+    programa se calculan sobre esa columna.
+    """
+    con_dividendo(adj_final=130.0)   # 30 % de retorno total donde tocan 15 %
+
+    p = punto("Retorno ajustado", revisar())
+    assert p.estado == integrity.MAL, p.detalle
+    assert "DIV" in p.detalle
+    assert p.donde
+
+
+# ---------------------------------------------------------------------------
+# Trazabilidad: si el numero de ayer se puede volver a obtener
+# ---------------------------------------------------------------------------
+
+def con_calculo(commit: str, estado: str = "ok") -> None:
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO audit_log (run_id, paso, empezado, terminado, entrada, "
+            "salida, git_commit, config_hash, estado, detalle) "
+            "VALUES ('r1', 'scores', ?, ?, '{}', '{}', ?, 'abc', ?, '')",
+            [pd.Timestamp(HOY), pd.Timestamp(HOY), commit, estado],
+        )
+
+
+def test_sin_ninguna_ejecucion_registrada_la_trazabilidad_es_gris(warehouse):
+    con_precios()
+
+    p = punto("Trazabilidad del calculo", revisar())
+    assert p.estado == integrity.SIN_COMPROBAR
+    assert p.donde
+
+
+def test_un_calculo_desde_un_commit_limpio_es_reproducible(warehouse):
+    con_precios()
+    con_calculo("a1b2c3d")
+
+    p = punto("Trazabilidad del calculo", revisar())
+    assert p.estado == integrity.BIEN, p.detalle
+    assert "a1b2c3d" in p.detalle
+
+
+def test_calcular_con_el_repositorio_sucio_se_avisa(warehouse):
+    """Es la forma habitual de perder la reproducibilidad, y no hace ruido.
+
+    Nada falla, nada se pone rojo, y el codigo con el que salio ese numero
+    desaparece en cuanto se sigue editando. Por eso va en el panel y no solo en
+    el registro.
+    """
+    con_precios()
+    con_calculo("a1b2c3d-sucio")
+
+    p = punto("Trazabilidad del calculo", revisar())
+    assert p.estado == integrity.AVISO, p.detalle
+    assert p.donde

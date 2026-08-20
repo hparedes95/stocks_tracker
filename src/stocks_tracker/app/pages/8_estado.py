@@ -11,7 +11,7 @@ import streamlit as st
 
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components.common import render_disclaimer
-from stocks_tracker.core import consistency, integrity, quarantine
+from stocks_tracker.core import audit, consistency, integrity, quarantine
 from stocks_tracker.core.db import connect, table_counts
 
 st.title("Estado de los datos")
@@ -388,6 +388,40 @@ else:
                 "started_at": "Cuando", "task": "Tarea", "target": "Objetivo",
                 "status": "Estado", "rows_written": "Filas",
                 "requests_used": "Peticiones", "error": "Detalle",
+            }
+        ),
+        hide_index=True, height=420,
+    )
+
+st.divider()
+st.subheader("Con qué código se calculó cada cosa")
+st.caption(
+    "El registro de ingesta de arriba dice **qué** se descargó. Éste dice con "
+    "**qué versión del programa** y con **qué configuración** se hizo cada paso, "
+    "que es lo que hace falta para volver a obtener un número de hace una semana. "
+    "Un commit terminado en `-sucio` significa que se calculó con cambios sin "
+    "guardar: ese código no existe en ningún sitio y ese número ya no se puede "
+    "reproducir."
+)
+with connect(read_only=True) as conn:
+    pasos = audit.historial(conn, limite=60)
+
+if pasos.empty:
+    st.caption("Todavía no se ha registrado ninguna ejecución.")
+else:
+    pasos["empezado"] = pd.to_datetime(pasos["empezado"]).dt.strftime("%d/%m %H:%M")
+    pasos["reproducible"] = [
+        "no" if (not c or c == "desconocido" or str(c).endswith("-sucio")) else "sí"
+        for c in pasos["git_commit"]
+    ]
+    st.dataframe(
+        pasos[["empezado", "paso", "estado", "reproducible", "git_commit",
+               "config_hash", "salida", "detalle"]].rename(
+            columns={
+                "empezado": "Cuándo", "paso": "Paso", "estado": "Estado",
+                "reproducible": "¿Reproducible?", "git_commit": "Versión",
+                "config_hash": "Configuración", "salida": "Resultado",
+                "detalle": "Detalle",
             }
         ),
         hide_index=True, height=420,

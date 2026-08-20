@@ -106,14 +106,20 @@ def test_a_failed_confirmation_does_not_fall_back_to_discovered():
     assert estado != exp.DESCUBIERTA
 
 
-def test_refuted_does_not_count_as_reaching_any_step():
-    """`alcanza` decide si una senal sirve. Si `refutada` contara como un
-    peldano cualquiera, una senal desmentida fuera de muestra podria colarse
-    donde se pida un minimo bajo."""
-    assert not exp.alcanza(exp.REFUTADA, exp.DESCUBIERTA)
-    assert not exp.alcanza(exp.REFUTADA, exp.CONFIRMADA)
-    assert exp.alcanza(exp.CONFIRMADA, exp.ESTABLE)
-    assert not exp.alcanza(exp.ESTABLE, exp.CONFIRMADA)
+def test_the_ladder_goes_from_worst_to_best():
+    """La escalera existe para comparar por posicion, asi que el orden ES la
+    regla: si `estable` estuviera por encima de `confirmada`, cualquier
+    comparacion diria lo contrario de lo que quiere decir.
+
+    Antes esto se comprobaba a traves de un `alcanza(estado, minimo)` que no
+    llamaba nadie. Una funcion de puerta que no guarda ninguna puerta hace algo
+    peor que no existir: al leerla parece que la regla esta aplicada en algun
+    sitio. Se quito, y la propiedad se comprueba donde de verdad vive.
+    """
+    assert exp.ORDEN.index(exp.CONFIRMADA) > exp.ORDEN.index(exp.ESTABLE)
+    assert exp.ORDEN.index(exp.ESTABLE) > exp.ORDEN.index(exp.SIGNIFICATIVA)
+    assert exp.ORDEN.index(exp.SIGNIFICATIVA) > exp.ORDEN.index(exp.DESCUBIERTA)
+    assert exp.ORDEN.index(exp.DESCUBIERTA) > exp.ORDEN.index(exp.SIN_DATOS)
 
 
 def test_refuted_is_not_a_rung_of_the_ladder():

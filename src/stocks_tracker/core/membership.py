@@ -154,19 +154,33 @@ def compactar(conn) -> int:
     return int(antes - despues)
 
 
-def miembros_en(conn, fecha, universos: list[str] | None = None) -> set[str]:
-    """Quien pertenecia al universo en una fecha concreta.
+def condicion_vigente(campo_fecha: str, alias: str = "") -> str:
+    """La regla de intervalos, escrita UNA sola vez en todo el programa.
 
     `valid_to > fecha` y no `>=`: el intervalo se cierra el dia en que se
     detecta la salida, asi que ese mismo dia el valor ya no forma parte.
+
+    POR QUE ESTO ES UNA FUNCION Y NO UN COMENTARIO EN DOS SITIOS
+
+    Antes habia dos escrituras de esta regla: un `miembros_en()` en Python que
+    no llamaba nadie, y este mismo JOIN copiado dentro de la consulta del
+    backtest. Los tests comprobaban la de Python; la que recorta el universo de
+    verdad era la otra.
+
+    Dos copias de una regla no son redundancia util: son una que se corrige y
+    otra que no. La que nadie ejecuta no falla nunca, asi que nada avisa el dia
+    que se quedan distintas. Ahora hay una, y quien la prueba prueba la que
+    corre.
     """
-    sql = ["SELECT DISTINCT ticker FROM universe_membership",
-           "WHERE valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)"]
-    params: list = [fecha, fecha]
-    if universos:
-        sql.append(f"AND universe IN ({', '.join('?' for _ in universos)})")
-        params.extend(universos)
-    return {f[0] for f in conn.execute(" ".join(sql), params).fetchall()}
+    p = f"{alias}." if alias else ""
+    return (f"{p}valid_from <= {campo_fecha} "
+            f"AND ({p}valid_to IS NULL OR {p}valid_to > {campo_fecha})")
+
+
+def join_vigente(tabla: str) -> str:
+    """Recorta una tabla con `ticker` y `date` al universo de ESE dia."""
+    return (f"JOIN universe_membership m ON m.ticker = {tabla}.ticker\n"
+            f"                 AND {condicion_vigente(f'{tabla}.date', alias='m')}")
 
 
 def ultima_comprobacion(conn) -> date | None:

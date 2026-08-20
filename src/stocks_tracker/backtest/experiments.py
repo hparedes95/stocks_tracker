@@ -71,6 +71,12 @@ CONFIRMADA = "confirmada"
 REFUTADA = "refutada"
 SIN_DATOS = "sin_datos"
 
+# `REFUTADA` NO ESTA AQUI, Y ES LA PROPIEDAD IMPORTANTE DE ESTA TUPLA.
+#
+# No es un peldano mas bajo: es la salida por el otro lado. Una senal desmentida
+# fuera de muestra no "vale menos", vale nada. Metiendola en `ORDEN` se
+# convertiria en un escalon, y cualquier comparacion por posicion la dejaria
+# pasar donde se pidiera un minimo bajo.
 ORDEN = (SIN_DATOS, DESCUBIERTA, SIGNIFICATIVA, ESTABLE, CONFIRMADA)
 
 # Las dos fases.
@@ -195,21 +201,17 @@ def candidatas(conn, scope: str) -> set[str]:
     return {f[0] for f in filas}
 
 
-def alcanza(estado: str, minimo: str) -> bool:
-    """Si un estado llega al peldano pedido.
-
-    `refutada` no llega a ninguno, y lo que lo garantiza es que NO ESTA en
-    `ORDEN`: no es un peldano mas bajo, es la salida por el otro lado. Un
-    `estado == REFUTADA` explicito seria redundante —al mutarlo no cambiaba
-    ningun test— y daria la impresion de que hay dos defensas donde hay una.
-
-    Por eso `ORDEN` no debe incluir `refutada` nunca. Anadirla la convertiria en
-    un peldano y una senal desmentida fuera de muestra podria colarse donde se
-    pida un minimo bajo.
-    """
-    if estado not in ORDEN or minimo not in ORDEN:
-        return False
-    return ORDEN.index(estado) >= ORDEN.index(minimo)
+# AQUI HUBO UN `alcanza(estado, minimo)` Y SE QUITO A PROPOSITO.
+#
+# Comparaba dos peldanos por su posicion en `ORDEN`, para preguntar "¿esta senal
+# llega al minimo exigido?". Nadie lo preguntaba: ninguna parte del programa
+# exige un peldano minimo, porque la puerta que decide si una senal se muestra
+# como recomendacion vive en `compute/validate` y mira otra cosa.
+#
+# Una funcion de puerta que no guarda ninguna puerta es peor que no tenerla:
+# al leerla parece que la regla esta aplicada en algun sitio. La invariante que
+# documentaba —que `REFUTADA` no puede estar en `ORDEN`— sigue escrita, pero
+# donde de verdad manda, que es junto a la propia tupla.
 
 
 # ---------------------------------------------------------------------------

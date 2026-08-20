@@ -56,6 +56,20 @@ jobs:
         run: pytest -q tests/test_no_lookahead.py tests/test_no_lookahead_pipeline.py
              tests/test_point_in_time.py tests/test_membership.py
 
+      # Las once paginas pintadas enteras, sobre un almacen vacio y sobre uno
+      # con datos. El vacio es el estado que ve quien acaba de instalar y el que
+      # menos se prueba a mano: la primera vez que se ejecutó esto destapó que
+      # la pagina de Estado reventaba en una instalacion recien hecha.
+      - name: Paginas del dashboard
+        if: always()
+        run: pytest -q tests/test_paginas.py
+
+      # Comprobaciones escritas que no ejecuta nadie. Es como quedaron vacias
+      # `data_quality` y `corporate_actions` durante meses sin que fallara nada.
+      - name: Codigo de verificacion desconectado
+        if: always()
+        run: pytest -q tests/test_codigo_muerto.py tests/test_audit_log.py
+
       # No es un test: es la puerta que impide que una clave llegue al
       # repositorio, que es publico. Va al final y siempre.
       - name: Secretos

@@ -87,9 +87,7 @@ def load_data(scope: str | None = None,
             SELECT {'DISTINCT ' if pit else ''}s.ticker, s.date, s.signal_id,
                    s.direction, s.strength
             FROM signals s
-            {'''JOIN universe_membership m ON m.ticker = s.ticker
-                 AND m.valid_from <= s.date
-                 AND (m.valid_to IS NULL OR m.valid_to > s.date)''' if pit else ''}
+            {membership.join_vigente("s") if pit else ''}
             """
         ).fetchdf()
 

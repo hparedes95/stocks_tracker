@@ -25,6 +25,7 @@ from stocks_tracker.backtest import multiple_testing as mt
 from stocks_tracker.backtest import run_backtest as runner
 from stocks_tracker.core import lineage
 from stocks_tracker.core.config import get_explanations
+from stocks_tracker.core.db import connect
 
 st.title("Validación de señales")
 
@@ -505,6 +506,34 @@ if len(across) > 1:
     st.caption(
         "Una señal que solo funciona en un horizonte muy concreto es "
         "sospechosa: suele ser casualidad de la muestra más que un efecto real."
+    )
+
+st.divider()
+st.subheader("Registro de experimentos")
+st.caption(
+    "Todo lo que se ha probado, no sólo lo que salió bien. Importa que esté "
+    "entero: si sólo se guardaran los aciertos, mirar cien señales y quedarse "
+    "con las cinco que dieron buen resultado parecería un descubrimiento, "
+    "cuando con cien intentos cinco salen bien por casualidad. Ese recuento es "
+    "lo que corrige la columna **q**."
+)
+with connect(read_only=True) as conn:
+    registro = exp.historial(conn)
+
+if registro.empty:
+    st.caption("Todavía no se ha registrado ningún experimento.")
+else:
+    registro["created_at"] = pd.to_datetime(
+        registro["created_at"]).dt.strftime("%d/%m/%Y %H:%M")
+    st.dataframe(
+        registro.rename(columns={
+            "created_at": "Cuándo", "fase": "Fase", "signal_id": "Señal",
+            "scope": "Ámbito", "horizon_days": "Horizonte", "cost_bps": "Coste",
+            "estado": "Estado", "n_obs": "Eventos", "n_dates": "Fechas",
+            "avg_excess": "Exceso medio", "q_value": "q",
+            "spec_hash": "Huella", "motivo": "Motivo",
+        }),
+        hide_index=True, height=360,
     )
 
 st.divider()

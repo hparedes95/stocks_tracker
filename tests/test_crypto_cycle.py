@@ -266,3 +266,59 @@ def test_without_brakes_the_order_reaches_the_broker(warehouse, monkeypatch):
 
     run_bot._propose_once("simulated", venue="kraken", broker=espia)
     assert espia.enviadas, "no ha enviado nada ni sin frenos"
+
+
+# ---------------------------------------------------------------------------
+# El sello del ciclo
+# ---------------------------------------------------------------------------
+
+def test_el_ciclo_deja_el_sello_de_con_que_codigo_decidio(warehouse):
+    """Lo que `bot_runs` y `decision_log` no guardan: el commit y el mandato.
+
+    Los dos registran QUE se decidio. Ninguno registra con QUE version de la
+    estrategia ni con que limites de riesgo, y las dos cosas cambian. "El bot
+    compro esto el martes" queda anotado pero no se puede reconstruir, que en
+    el paso que mueve dinero es donde peor sienta.
+    """
+    import json
+
+    sembrar()
+    run_bot._propose_once("simulated", venue="kraken")
+
+    with db.connect(read_only=True) as conn:
+        fila = conn.execute(
+            "SELECT run_id, git_commit, config_hash, estado, salida FROM audit_log "
+            "WHERE paso = 'bot_propose' ORDER BY empezado DESC LIMIT 1"
+        ).fetchone()
+        del_bot = conn.execute(
+            "SELECT run_id FROM bot_runs ORDER BY started_at DESC LIMIT 1"
+        ).fetchone()
+
+    assert fila is not None, "el ciclo del bot no ha dejado ninguna fila de auditoria"
+    run_id, commit, config_hash, estado, salida = fila
+    assert commit and config_hash, "no consta con que codigo ni con que mandato"
+    assert estado == "ok"
+    assert run_id == del_bot[0], (
+        "el registro de auditoria y el del bot usan identificadores distintos: "
+        "las dos mitades del rastro no se pueden unir"
+    )
+    assert json.loads(salida)["aprobadas"] >= 0
+
+
+def test_el_mandato_de_cripto_se_sella_distinto_del_de_acciones(warehouse):
+    """El hash del mandato es lo que distingue "aprobo con estos limites" de
+    "aprobo con otros". Si fuera el mismo para las dos carteras, no
+    distinguiria nada y sobraria la columna."""
+    from stocks_tracker.core import lineage
+
+    sembrar()
+    run_bot._propose_once("simulated", venue="kraken")
+
+    with db.connect(read_only=True) as conn:
+        sellado = conn.execute(
+            "SELECT config_hash FROM audit_log WHERE paso = 'bot_propose' "
+            "ORDER BY empezado DESC LIMIT 1"
+        ).fetchone()[0]
+
+    assert sellado == lineage.config_hash(run_bot.config_for("kraken").raw)
+    assert sellado != lineage.config_hash(run_bot.config_for(None).raw)

@@ -46,6 +46,14 @@ SEMAFORO = {BIEN: "🟢", AVISO: "🟡", MAL: "🔴", SIN_COMPROBAR: "⚪"}
 # en verde es exactamente la mentira que este modulo evita.
 CADUCA_HORAS = 72
 
+# Cuantos valores se contrastan por carga del panel, y sobre cuanta ventana.
+#
+# La ventana es de un ano y no del historico entero a proposito: la
+# comprobacion suma los dividendos sin reinvertirlos, y esa aproximacion se
+# degrada con los anos hasta dar falsos positivos por construccion.
+MUESTRA_RETORNO = 40
+SESIONES_RETORNO = 365
+
 
 @dataclass(frozen=True)
 class Punto:
@@ -305,6 +313,101 @@ def _splits_y_dividendos(conn) -> Punto:
                  f"{eventos} eventos guardados y los splits cuadran con el precio.")
 
 
+def _retorno_ajustado(conn) -> Punto:
+    """Que el `adj_close` cuadre con el `close` mas los dividendos pagados.
+
+    Es la unica comprobacion INDEPENDIENTE que se puede hacer sobre el ajustado
+    sin pedirle el mismo dato a otro proveedor: el `adj_close` y la lista de
+    dividendos salen del mismo sitio pero por caminos distintos, asi que tienen
+    que cuadrar entre si. Cuando no cuadran, uno de los dos esta mal, y el que
+    esta mal manda sobre TODOS los retornos que calcula el programa.
+
+    Importa mas de lo que parece porque este es el fallo que ninguna otra puerta
+    ve: un `adj_close` mal ajustado es perfectamente coherente consigo mismo
+    —sin saltos, sin OHLC imposible, sin valores negativos— y produce momentos y
+    drawdowns creibles y falsos.
+
+    DOS LIMITES, Y LOS DOS SE DICEN EN PANTALLA:
+
+    - Un ano de ventana, no el historico entero. La comprobacion suma los
+      dividendos sin reinvertirlos, y esa aproximacion se degrada con los anos:
+      a diez anos vista daria falsos positivos por construccion.
+    - Una muestra, no el universo. El panel se pinta en cada carga de pagina y
+      recorrer 600 series enteras ahi dentro seria una pagina que tarda. La
+      muestra rota con el dia, asi que en unas semanas pasa por todos.
+    """
+    tickers = [f[0] for f in conn.execute(
+        "SELECT DISTINCT ticker FROM corporate_actions WHERE action_type = 'dividend' "
+        "ORDER BY ticker"
+    ).fetchall()]
+    if not tickers:
+        return Punto("Retorno ajustado", SIN_COMPROBAR,
+                     "No hay dividendos guardados, asi que no hay con que "
+                     "contrastar el ajustado.",
+                     "Se recogen en la siguiente descarga")
+
+    import random
+
+    from . import corporate
+
+    # Rota con el dia, pero es la misma para todo el mundo dentro del dia: dos
+    # pestanas abiertas a la vez tienen que decir lo mismo.
+    sorteo = random.Random(date.today().toordinal())
+    muestra = sorted(sorteo.sample(tickers, min(MUESTRA_RETORNO, len(tickers))))
+
+    marcadores = ", ".join("?" * len(muestra))
+    precios = conn.execute(
+        f"""
+        SELECT ticker, date, close, adj_close FROM prices_daily
+        WHERE ticker IN ({marcadores}) AND date >= (
+            SELECT MAX(date) - INTERVAL '{SESIONES_RETORNO} days' FROM prices_daily)
+        """,
+        muestra,
+    ).fetchdf()
+    if precios.empty:
+        return Punto("Retorno ajustado", SIN_COMPROBAR,
+                     "No hay precios recientes de los valores que pagan dividendo.",
+                     "Ejecuta la ingesta")
+
+    acciones = corporate.leer(conn, muestra)
+    malos = [h for h in (corporate.comprobar_retorno(precios, acciones, t)
+                         for t in muestra) if h is not None]
+    if malos:
+        return Punto(
+            "Retorno ajustado", MAL,
+            f"{len(malos)} de {len(muestra)} valores con el ajustado descuadrado. "
+            f"El primero: {malos[0].ticker}. {malos[0].detalle}",
+            "Vuelve a descargar esos valores",
+        )
+    return Punto("Retorno ajustado", BIEN,
+                 f"El ajustado cuadra con los dividendos en {len(muestra)} de "
+                 f"{len(tickers)} valores (muestra del ultimo ano).")
+
+
+def _trazabilidad(conn) -> Punto:
+    """Si el ultimo ranking se puede volver a obtener hoy.
+
+    Un numero que no se puede reproducir no es un numero: es un rumor con
+    decimales. Y la forma habitual de perder la reproducibilidad no es
+    dramatica, es esta: calcular con cambios sin commitear. Ese codigo no existe
+    en ningun sitio, y en cuanto se sigue editando desaparece para siempre.
+
+    Va en el panel y no solo en el registro porque es una condicion que se pierde
+    en silencio: nada falla, nada se pone rojo, y el dia que hace falta rehacer
+    un numero ya no se puede.
+    """
+    from . import audit
+
+    puede, motivo = audit.reproducible(conn, "scores")
+    if puede:
+        return Punto("Trazabilidad del calculo", BIEN, motivo)
+    if "No hay ninguna ejecucion" in motivo:
+        return Punto("Trazabilidad del calculo", SIN_COMPROBAR, motivo,
+                     "Ejecuta el calculo")
+    return Punto("Trazabilidad del calculo", AVISO, motivo,
+                 "Commitea los cambios y vuelve a calcular")
+
+
 def _reconciliacion(conn, ahora: pd.Timestamp) -> Punto:
     fila = conn.execute(
         "SELECT MAX(checked_at) FROM reconciliation"
@@ -329,10 +432,13 @@ def _reconciliacion(conn, ahora: pd.Timestamp) -> Punto:
                      f"La ultima revision es del "
                      f"{pd.Timestamp(fila[0]):%d/%m/%Y}.", "Ejecuta `reconciliar`")
 
-    difieren = conn.execute(
-        "SELECT COUNT(*) FROM reconciliation WHERE estado = 'difiere' "
-        "AND checked_at = (SELECT MAX(checked_at) FROM reconciliation)"
-    ).fetchone()[0]
+    # Se lee con `reconcile.ultima_revision` y no con una consulta propia: es la
+    # misma pregunta que contesta la pantalla, y dos consultas para la misma
+    # pregunta acaban contestando cosas distintas el dia que una se toca.
+    from . import reconcile
+
+    revision = reconcile.ultima_revision(conn)
+    difieren = int((revision["estado"] == "difiere").sum()) if not revision.empty else 0
     if difieren:
         return Punto("Cartera contra el broker", MAL,
                      f"{difieren} diferencias con el broker sin resolver.",
@@ -392,6 +498,8 @@ COMPROBACIONES = (
     ("Validacion de senales", _validacion, False),
     ("Cartera contra el broker", _reconciliacion, True),
     ("Splits y dividendos", _splits_y_dividendos, False),
+    ("Retorno ajustado", _retorno_ajustado, False),
+    ("Trazabilidad del calculo", _trazabilidad, False),
     ("Universo historico", _universo_historico, False),
 )
 
