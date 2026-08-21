@@ -109,6 +109,36 @@ def incompletas(conn, tabla: str) -> list[tuple[date, int, float]]:
     )
 
 
+def ultima_de_los_indices(conn) -> date | None:
+    """Hasta cuando llegan los INDICES. El oraculo de festivos.
+
+    POR QUE ESTO Y NO UN RELOJ
+
+    Saber si el mercado abrio un dia concreto es imposible sin un calendario de
+    festivos de cinco mercados en cuatro paises. Pero no hace falta saberlo: hay
+    quince indices que se descargan en cada ejecucion, tardan segundos, y si
+    ^GSPC tiene barra del jueves es que el jueves hubo sesion.
+
+    Con eso, "me faltan datos" deja de depender de relojes y guardas temporales:
+    los indices dicen hasta donde llego el mercado, las acciones dicen hasta
+    donde hemos llegado nosotros, y la diferencia es exactamente lo que falta.
+
+    Y ES LO QUE ARREGLA EL FALLO QUE COSTO TRES DIAS. La guarda anterior era
+    "¿he intentado descargar desde que cerro esa sesion?", contra un unico
+    `last_run` global. El instalador baja quince indices, eso pone `last_run` a
+    cero horas, y la guarda daba por intentado el universo entero: seiscientas
+    acciones sin bajar detras de una descarga que si se hizo.
+
+    Si un dia fue festivo, los indices tampoco lo tienen, asi que no se dispara
+    ninguna descarga inutil. La misma consulta resuelve las dos cosas.
+    """
+    fila = conn.execute(
+        "SELECT MAX(p.date) FROM prices_daily p JOIN instruments i USING (ticker) "
+        "WHERE i.asset_class = 'index'"
+    ).fetchone()
+    return None if not fila or fila[0] is None else pd.Timestamp(fila[0]).date()
+
+
 def sesiones_de_mercado(desde: date | None, hasta: date) -> int:
     """Dias de mercado entre dos fechas, sin contar `desde`.
 

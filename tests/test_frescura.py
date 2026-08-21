@@ -166,21 +166,81 @@ def test_el_fin_de_semana_no_pide_datos_que_no_existen(almacen):
     assert not hace_falta, motivo
 
 
+def con_indices(hasta: date) -> None:
+    """Los indices, que son el oraculo de festivos.
+
+    Se descargan en cada ejecucion y tardan segundos. Si ^GSPC tiene barra de un
+    dia, ese dia hubo sesion; si no la tiene, fue festivo. Es lo que permite
+    contestar "¿hasta donde llego el mercado?" sin un calendario de festivos de
+    cinco mercados en cuatro paises.
+    """
+    with db.connect() as conn:
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": "^GSPC", "asset_class": "index", "is_active": True},
+        ]), keys=["ticker"])
+        db.upsert_df(conn, "prices_daily", pd.DataFrame([
+            {"ticker": "^GSPC", "date": hasta, "open": 4000.0, "high": 4010.0,
+             "low": 3990.0, "close": 4000.0, "adj_close": 4000.0,
+             "volume": 1_000, "source": "yfinance"},
+        ]), keys=["ticker", "date"])
+
+
 def test_un_festivo_no_dispara_una_descarga_en_cada_arranque(almacen):
-    """LA OTRA MITAD DE LA REGLA, y sin ella el arreglo seria peor que el fallo.
+    """SIN ESTO EL ARREGLO SERIA PEOR QUE EL FALLO.
 
     Si el miercoles fue festivo, no hay cierre del miercoles y no lo va a haber
-    nunca. Mirando solo "me falta la sesion del miercoles", el programa
+    nunca. Mirando solo el calendario de lunes a viernes, el programa
     descargaria en cada arranque, para siempre, contra un proveedor gratuito que
     bloquea por abuso.
 
-    Lo que lo evita es la segunda condicion: ya se intento DESPUES de que esa
-    sesion cerrara, y no habia nada. No se vuelve a intentar por lo mismo.
+    Lo que lo evita ya no es una guarda temporal —esa fue el fallo— sino los
+    INDICES: si ^GSPC tampoco tiene el miercoles, el miercoles no hubo mercado.
     """
     sembrar(ultimo_precio=MARTES,
-            ultima_descarga=datetime(2026, 8, 19, 21, 30))  # 23:30 en Madrid
+            ultima_descarga=datetime(2026, 8, 19, 21, 30))
+    con_indices(hasta=MARTES)              # los indices tampoco tienen el 19
 
     hace_falta, motivo = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 20, 0))
+
+    assert not hace_falta, motivo
+
+
+def test_los_indices_por_delante_de_las_acciones_piden_descarga(almacen):
+    """EL FALLO QUE COSTO TRES DIAS, EN UNA LINEA.
+
+    El instalador descarga QUINCE indices y tarda segundos. Eso ponia
+    `ultima descarga = hace 0 h`, y la guarda temporal —"¿he intentado
+    descargar desde que cerro esa sesion?"— daba por intentado el universo
+    entero. Seiscientas acciones sin bajar detras de una descarga que si se hizo
+    y si funciono.
+
+    `last_run` no distingue QUE se descargo. Los indices si.
+    """
+    sembrar(ultimo_precio=MARTES,
+            # Descarga de hace un minuto: la guarda vieja decia "al dia".
+            ultima_descarga=datetime(2026, 8, 20, 17, 55))
+    con_indices(hasta=JUEVES)              # el mercado llego al jueves
+
+    hace_falta, motivo = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 18, 0))
+
+    assert hace_falta, (
+        f"una descarga de quince indices tapa que faltan 600 acciones: {motivo}"
+    )
+    # 19/08 y no 20/08: a las 18:00 del jueves la sesion del jueves aun no ha
+    # cerrado, asi que el tope sigue siendo el miercoles aunque el indice ya
+    # traiga la barra provisional del jueves.
+    assert "19/08" in motivo and "18/08" in motivo, motivo
+
+
+def test_no_se_pide_la_sesion_de_hoy_antes_de_que_cierre(almacen):
+    """Un indice puede traer la barra PROVISIONAL de hoy. Pedir la sesion de hoy
+    a media tarde solo gasta peticiones para recibir la de ayer."""
+    sembrar(ultimo_precio=MIERCOLES,
+            ultima_descarga=datetime(2026, 8, 20, 10, 0))
+    con_indices(hasta=JUEVES)              # provisional del propio jueves
+
+    hace_falta, motivo = run_ingest.needs_update(
+        ahora=datetime(2026, 8, 20, 18, 0))          # jueves por la tarde
 
     assert not hace_falta, motivo
 

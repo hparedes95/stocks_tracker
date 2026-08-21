@@ -13,7 +13,6 @@ import argparse
 import hashlib
 import uuid
 from datetime import date, datetime, timedelta
-from datetime import time as dtime
 
 import pandas as pd
 from rich.console import Console
@@ -618,14 +617,21 @@ def needs_update(max_age_hours: float | None = None,
     correr. El dashboard se congela y no lo dice: no hay ninguna descarga
     fallida que ensenar, porque no se intento ninguna.
 
-    Ahora se pregunta lo que de verdad importa: ¿me falta alguna sesion que ya
-    ha cerrado? Y, para no insistir en balde: ¿lo he intentado ya desde que esa
-    sesion cerro?
+    LOS INDICES DICEN HASTA DONDE LLEGO EL MERCADO
 
-    LAS DOS MITADES HACEN FALTA. Sin la primera se descarga por reloj y no por
-    mercado. Sin la segunda, un festivo —cuando no hay cierre y no lo va a haber
-    nunca— dispararia una descarga en cada arranque, para siempre, contra un
-    proveedor gratuito que bloquea por abuso.
+    La pregunta es: ¿hasta que dia llego el mercado, y hasta cual hemos llegado
+    nosotros? La segunda mitad es facil. La primera parecia imposible sin un
+    calendario de festivos de cinco mercados, y no lo es: los quince indices se
+    descargan en cada ejecucion y tardan segundos. Si ^GSPC tiene barra del
+    jueves, el jueves hubo sesion. Si no la tiene, fue festivo y no hay nada que
+    bajar.
+
+    ASI SE QUITO LA GUARDA TEMPORAL, QUE ERA EL FALLO. Antes esto preguntaba
+    "¿he intentado descargar desde que cerro esa sesion?" contra un unico
+    `last_run` global, y ese numero no distingue QUE se descargo. El instalador
+    baja quince indices, `last_run` se pone a cero horas, y la guarda daba por
+    intentado el universo entero: seiscientas acciones sin bajar detras de una
+    descarga que si se hizo y si funciono.
 
     No depende de Streamlit a proposito: tiene que poder ejecutarse desde un
     .bat antes de que arranque nada.
@@ -660,6 +666,7 @@ def needs_update(max_age_hours: float | None = None,
             # volvia a descargar nunca. Nada fallaba a la vista: el dashboard
             # simplemente se quedo tres dias en la misma sesion.
             last_price = sesiones.ultima_completa(conn, "prices_daily")
+            hasta_donde_llego = sesiones.ultima_de_los_indices(conn)
             last_run = conn.execute(
                 "SELECT MAX(finished_at) FROM ingest_log WHERE status IN ('OK','PARTIAL')"
             ).fetchone()[0]
@@ -686,20 +693,24 @@ def needs_update(max_age_hours: float | None = None,
     if hours > limit:
         return True, f"la ultima descarga fue hace {hours:.0f} h"
 
-    sesion = ultima_sesion_cerrada(momento)
-    if last_price < sesion:
-        # Y solo si no se ha intentado ya desde que esa sesion cerro. Sin esto,
-        # un festivo pediria descargar en cada arranque para siempre.
-        cerro = pd.Timestamp(
-            datetime.combine(sesion, dtime(HORA_DISPONIBLE))
-        ) - HORAS_DE_MADRID
-        if pd.Timestamp(last_run) < cerro:
-            return True, (
-                f"el mercado cerro el {sesion:%d/%m} y la ultima sesion "
-                f"completa que hay es la del {last_price:%d/%m}"
-            )
+    # Hasta donde llego el mercado. Los indices mandan cuando los hay: son la
+    # unica fuente que distingue "aun no lo hemos bajado" de "ese dia fue
+    # festivo". Sin ellos se cae al calendario de lunes a viernes, que es una
+    # aproximacion y por eso no es la primera opcion.
+    #
+    # Se acota por `ultima_sesion_cerrada` porque un indice puede traer la barra
+    # provisional de hoy, y pedir la sesion de hoy antes de que cierre solo
+    # gasta peticiones para recibir la de ayer.
+    tope = ultima_sesion_cerrada(momento)
+    sesion = min(hasta_donde_llego, tope) if hasta_donde_llego else tope
 
-    return False, f"al dia (ultima descarga hace {hours:.0f} h)"
+    if last_price < sesion:
+        return True, (
+            f"el mercado llego al {sesion:%d/%m} y la ultima sesion completa "
+            f"que hay es la del {last_price:%d/%m}"
+        )
+
+    return False, f"al dia (sesion completa hasta el {last_price:%d/%m})"
 
 
 def drop_synthetic() -> int:
