@@ -247,3 +247,39 @@ def test_sin_clave_el_panel_no_menciona_twelve_data(tmp_path, monkeypatch):
 
     assert p.estado == integrity.BIEN
     assert "twelve_data" not in p.detalle
+
+
+# ---------------------------------------------------------------------------
+# Que entre solo en cuanto haya clave
+# ---------------------------------------------------------------------------
+
+def test_con_clave_entra_en_el_contraste_sin_tocar_el_yaml(monkeypatch):
+    """Dos pasos para una sola decision, y el segundo se pierde solo.
+
+    La clave vive en el `.env`. Pedir ademas editar `settings.yaml` a mano no
+    solo es un paso que no adivina nadie: el instalador NO conserva `config/`
+    entre actualizaciones —a proposito— asi que esa edicion desaparece en la
+    siguiente y la tercera fuente se apaga sin que nada avise.
+    """
+    from stocks_tracker.ingest.run_audit import _contrastes_disponibles
+
+    monkeypatch.setenv("TWELVE_DATA_API_KEY", "una-clave")
+
+    assert _contrastes_disponibles({"providers": ["stooq"]}) == ["stooq", "twelve_data"]
+
+
+def test_sin_clave_no_se_pide_a_un_proveedor_que_no_puede_responder(monkeypatch):
+    from stocks_tracker.ingest.run_audit import _contrastes_disponibles
+
+    monkeypatch.delenv("TWELVE_DATA_API_KEY", raising=False)
+
+    assert _contrastes_disponibles({"providers": ["stooq"]}) == ["stooq"]
+
+
+def test_no_se_duplica_si_ya_estaba_en_el_yaml(monkeypatch):
+    from stocks_tracker.ingest.run_audit import _contrastes_disponibles
+
+    monkeypatch.setenv("TWELVE_DATA_API_KEY", "una-clave")
+
+    assert _contrastes_disponibles(
+        {"providers": ["stooq", "twelve_data"]}) == ["stooq", "twelve_data"]

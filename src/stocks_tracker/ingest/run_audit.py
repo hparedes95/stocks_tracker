@@ -138,12 +138,42 @@ def _lecturas_del_contraste(nombre: str, tickers: list[str],
     return salida
 
 
+def _contrastes_disponibles(cfg: dict) -> list[str]:
+    """Proveedores de contraste: los del YAML mas los que tengan clave.
+
+    POR QUE NO BASTA CON EL YAML
+
+    Twelve Data solo hace falta cuando hay clave, y la clave vive en el `.env`.
+    Pedir ademas una edicion a mano de `settings.yaml` tiene dos problemas y el
+    segundo es grave:
+
+    1. Son dos pasos para una sola decision ("quiero una tercera fuente"), y el
+       segundo no lo adivina nadie.
+    2. El instalador NO conserva `config/` entre actualizaciones —a proposito,
+       para que un cambio de configuracion llegue— asi que esa edicion se pierde
+       en la siguiente. La tercera fuente se apagaria sola sin que nada avise.
+
+    Con la clave puesta, el proveedor entra. Sin ella, no. Es la misma condicion
+    en un solo sitio.
+
+    Y ESTO ES LO QUE CAMBIA DE VERDAD: con DOS fuentes, un desacuerdo deja el
+    veredicto en "invalido" y no se sabe cual miente. Con TRES, dos que
+    concuerdan hacen mayoria y la discrepante queda nombrada.
+    """
+    from ..providers import twelve_data_provider as td
+
+    contrastes = list(cfg.get("providers", ["stooq"]))
+    if td.api_key() and "twelve_data" not in contrastes:
+        contrastes.append("twelve_data")
+    return contrastes
+
+
 def auditar(*, muestra: int = MUESTRA, sesiones: int = SESIONES,
             contrastes: list[str] | None = None) -> pd.DataFrame:
     """Cruza precios y devuelve el veredicto de cada (ticker, fecha)."""
     ajustes = get_settings()
     cfg = getattr(ajustes, "consensus", {}) or {}
-    contrastes = contrastes or list(cfg.get("providers", ["stooq"]))
+    contrastes = contrastes or _contrastes_disponibles(cfg)
     tolerancia = float(cfg.get("tolerancia", consensus.TOLERANCIA_ACUERDO))
     maxima = float(cfg.get("maxima", consensus.MAX_DISCREPANCIA))
 
