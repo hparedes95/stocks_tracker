@@ -317,3 +317,71 @@ def test_un_fallo_imprevisto_no_se_confunde_con_falta_de_datos(monkeypatch, caps
 
     assert salida.empty
     assert "KeyError" in texto, texto
+
+
+class _ConTope:
+    """Un proveedor con cuota, como el plan gratuito de Twelve Data."""
+
+    name = "con_tope"
+    max_por_ejecucion = 3
+
+    def __init__(self):
+        self.pedidos = None
+
+    def supports(self, ticker):  # noqa: ARG002
+        return True
+
+    def fetch_ohlcv(self, tickers, desde, hasta, interval="1d"):  # noqa: ARG002
+        self.pedidos = list(tickers)
+        df = pd.DataFrame([{"ticker": t, "date": desde, "close": 1.0}
+                           for t in tickers])
+        df.attrs["failed_tickers"] = []
+        df.attrs["requests_used"] = len(tickers)
+        return df
+
+
+def test_no_se_le_piden_mas_valores_de_los_que_su_plan_aguanta(monkeypatch, capsys):
+    """EL FALLO REAL. A Twelve Data se le pedian 77 valores con un plan de 8
+    peticiones por minuto.
+
+    La primera que pasa del limite devuelve 429, el proveedor corta —insistir
+    empeora el bloqueo— y los 77 salen marcados como fallidos. La auditoria
+    terminaba al instante, sin datos y sin decir por que.
+    """
+    from stocks_tracker.ingest import run_audit
+
+    proveedor = _ConTope()
+    monkeypatch.setattr(run_audit, "build_provider", lambda n: proveedor)  # noqa: ARG005
+
+    run_audit._lecturas_del_contraste(
+        "con_tope", ["A", "B", "C", "D", "E"], date(2026, 8, 10), date(2026, 8, 20))
+
+    assert proveedor.pedidos == ["A", "B", "C"], proveedor.pedidos
+    assert "limite del plan" in capsys.readouterr().out
+
+
+def test_un_proveedor_sin_tope_recibe_todos():
+    """Stooq no tiene cuota por minuto: recortarle la lista seria perder
+    cobertura a cambio de nada."""
+    import inspect
+
+    from stocks_tracker.ingest import run_audit
+
+    fuente = inspect.getsource(run_audit._lecturas_del_contraste)
+
+    assert 'getattr(proveedor, "max_por_ejecucion", None)' in fuente, (
+        "el tope tiene que ser opcional y venir del proveedor"
+    )
+
+
+def test_la_cuota_agotada_no_se_confunde_con_una_averia(monkeypatch, capsys):
+    """El arreglo es distinto: aqui no hay nada roto, se ha pasado la cuota.
+    Mezclado con "no ha respondido", el usuario busca una averia que no existe."""
+    from stocks_tracker.providers.base import RateLimitError
+
+    salida, texto = _leer(
+        monkeypatch, _Mudo(excepcion=RateLimitError("8 por minuto")), capsys)
+
+    assert salida.empty
+    assert "cuota" in texto.lower(), texto
+    assert "no ha respondido" not in texto, texto

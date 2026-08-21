@@ -45,7 +45,7 @@ from ..core.db import connect, migrate
 from ..core.ids import ulid
 from ..core.timeutils import utcnow
 from ..providers import consensus
-from ..providers.base import ProviderError
+from ..providers.base import ProviderError, RateLimitError
 from ..providers.registry import build_provider
 
 console = Console()
@@ -122,8 +122,30 @@ def _lecturas_del_contraste(nombre: str, tickers: list[str],
         console.print(f"[dim]{nombre} no cubre ninguno de estos valores.[/]")
         return vacio
 
+    # Cada proveedor dice cuanto aguanta de una vez. Sin esto, a Twelve Data se
+    # le pedian 77 valores con un plan de 8 peticiones por minuto: la primera
+    # que pasa del limite devuelve 429, el proveedor corta —insistir empeora el
+    # bloqueo— y los 77 salen marcados como fallidos. La auditoria terminaba al
+    # instante, sin datos y sin decir por que.
+    tope = getattr(proveedor, "max_por_ejecucion", None)
+    if tope and len(soportados) > tope:
+        console.print(
+            f"[dim]{nombre}: se piden {tope} de {len(soportados)} valores "
+            "(limite del plan). El resto entra en las siguientes pasadas.[/]"
+        )
+        soportados = soportados[:tope]
+
     try:
         datos = proveedor.fetch_ohlcv(soportados, desde, hasta)
+    except RateLimitError as exc:
+        # Se nombra aparte porque el arreglo es distinto: aqui no hay nada roto,
+        # se ha pasado la cuota. Mezclado con "no ha respondido", el usuario iba
+        # a buscar una averia que no existe.
+        console.print(
+            f"[yellow]{nombre} esta limitando las peticiones ({exc}). Se ha "
+            "pasado la cuota del plan; vuelve a intentarlo en unos minutos.[/]"
+        )
+        return vacio
     except ProviderError as exc:
         # Un proveedor caido no invalida la auditoria: la deja incompleta, y
         # eso se ve en los veredictos DEGRADADO. Inventar un contraste que no

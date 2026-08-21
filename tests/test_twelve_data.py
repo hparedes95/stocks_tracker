@@ -283,3 +283,26 @@ def test_no_se_duplica_si_ya_estaba_en_el_yaml(monkeypatch):
 
     assert _contrastes_disponibles(
         {"providers": ["stooq", "twelve_data"]}) == ["stooq", "twelve_data"]
+
+
+def test_declara_cuantos_valores_aguanta_de_una_vez():
+    """Sin esto, la auditoria le pide 77 valores con un plan de 8 peticiones por
+    minuto: 429 a la primera, corta, y los 77 salen fallidos.
+
+    Escrito porque faltaba: quitando el atributo del proveedor, los tests de la
+    auditoria seguian en verde —usan un doble— y en la maquina real volvia a
+    pasar lo mismo.
+    """
+    from stocks_tracker.providers.twelve_data_provider import (
+        PAUSA_SEGUNDOS,
+        TwelveDataProvider,
+    )
+
+    tope = TwelveDataProvider.max_por_ejecucion
+
+    assert tope and tope > 0
+    # Y que el numero sea coherente con la pausa: mas de cinco minutos de espera
+    # y quien lanza la auditoria a mano la corta antes de que sirva de nada.
+    assert tope * PAUSA_SEGUNDOS <= 300, (
+        f"{tope} valores a {PAUSA_SEGUNDOS} s son {tope * PAUSA_SEGUNDOS / 60:.0f} minutos"
+    )

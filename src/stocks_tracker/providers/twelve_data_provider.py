@@ -62,6 +62,18 @@ PAUSA_SEGUNDOS = 8.0
 # cuota del dia en un minuto.
 MAX_PETICIONES = 120
 
+# Cuantos valores tiene sentido pedirle en UNA ejecucion.
+#
+# El plan gratuito son 8 peticiones por minuto y aqui se va a 7,5 (una cada 8
+# segundos), asi que 25 valores son poco mas de tres minutos. Pedirle setenta y
+# siete son diez, y quien lanza la auditoria a mano no espera diez minutos: la
+# corta, y entonces no se contrasta nada.
+#
+# No es un limite tecnico sino de paciencia, y por eso vive aqui y no en el
+# codigo de la auditoria: es una propiedad de ESTE proveedor y de su plan. Otro
+# con otra cuota declarara otro numero, o ninguno.
+MAX_POR_EJECUCION = 25
+
 VARIABLE_DE_ENTORNO = "TWELVE_DATA_API_KEY"
 
 
@@ -74,6 +86,7 @@ class TwelveDataProvider:
     """Implementa PriceProvider. NO implementa FundamentalsProvider."""
 
     name = "twelve_data"
+    max_por_ejecucion = MAX_POR_EJECUCION
 
     def __init__(self, clave: str | None = None) -> None:
         self._clave = clave or api_key()
