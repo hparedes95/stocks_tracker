@@ -981,22 +981,25 @@ def sesiones_sin_calcular() -> tuple[int, str]:
     from ..core import sesiones as ses
 
     with connect(read_only=True) as conn:
-        ultimo_precio = conn.execute(
-            "SELECT MAX(p.date) FROM prices_daily p JOIN instruments i USING (ticker) "
-            "WHERE i.asset_class IN ('equity', 'etf')"
-        ).fetchone()[0]
-        ultimo_indicador = conn.execute(
-            "SELECT MAX(d.date) FROM indicators_daily d JOIN instruments i USING (ticker) "
-            "WHERE i.asset_class IN ('equity', 'etf')"
-        ).fetchone()[0]
+        # COMPLETAS a los dos lados, no `MAX(date)`. Con el maximo, una sesion
+        # descargada entera pero calculada a medias daba CERO pendientes: no se
+        # volvia a calcular nunca, la portada se quedaba en la sesion anterior, y
+        # el aviso de al lado culpaba a la descarga y mandaba a reiniciar, que no
+        # arregla nada. Es el mismo `MAX(date)` que este modulo documenta como
+        # poco fiable, colado por la puerta de atras.
+        #
+        # Comparar completa contra completa SI se puede satisfacer: una sesion a
+        # medias no cuenta en ninguno de los dos lados, y una sesion entera sin
+        # calcular desaparece del contador en cuanto el calculo corre.
+        ultimo_precio = ses.ultima_completa(conn, "prices_daily")
+        ultimo_indicador = ses.ultima_completa(conn, "indicators_daily")
 
     if ultimo_precio is None:
         return 0, "no hay precios que calcular"
     if ultimo_indicador is None:
         return 1, "hay precios y no hay ningun indicador calculado"
 
-    calculado = pd.Timestamp(ultimo_indicador).date()
-    descargado = pd.Timestamp(ultimo_precio).date()
+    calculado, descargado = ultimo_indicador, ultimo_precio
     if descargado <= calculado:
         return 0, f"al dia (calculado hasta el {calculado})"
 

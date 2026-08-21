@@ -50,15 +50,27 @@ EXIT_ALREADY_RUNNING = 75
 # contra una API gratuita para recibir la vela de ayer.
 HORA_DISPONIBLE = 23
 
-# El almacen guarda UTC naive (ver `core/timeutils`) y las sesiones de mercado
-# se razonan en hora local. Es una hora en invierno y dos en verano; se usa la
-# de verano porque equivocarse hacia ese lado solo adelanta el corte una hora,
-# y el margen sobre el cierre americano son tres.
-#
-# No se usa `zoneinfo` a proposito: en Windows depende del paquete `tzdata`, y
-# una dependencia que falta convertiria "no se descargan datos" en "el programa
-# no arranca", que es peor.
-HORAS_DE_MADRID = pd.Timedelta(hours=2)
+def horas_locales() -> pd.Timedelta:
+    """Desfase real del equipo respecto a UTC, ahora mismo.
+
+    El almacen guarda UTC naive (ver `core/timeutils`) y las sesiones de mercado
+    se razonan en hora local, asi que hay que convertir.
+
+    ANTES ESTABA FIJO EN +2 TODO EL ANO, y eso solo es cierto medio ano. En
+    invierno Madrid va a +1, asi que sumar dos adelantaba el reloj una hora: el
+    corte de las 23:00 se aplicaba de hecho a las 22:00, que es el minuto en que
+    cierra Nueva York. Se pedian datos sin consolidar, y el aviso de "faltan
+    datos" empezaba una hora antes de que la tarea de las 23:15 pudiera
+    quitarlo.
+
+    Se lee del propio sistema y no de `zoneinfo`: en Windows esa libreria
+    depende del paquete `tzdata`, y una dependencia que falta convertiria "no se
+    descargan datos" en "el programa no arranca", que es peor. `astimezone()`
+    sin argumentos usa la zona configurada en el equipo y aplica su horario de
+    verano; en el ordenador del usuario esa zona ES la del mercado que mira.
+    """
+    desfase = datetime.now().astimezone().utcoffset()
+    return pd.Timedelta(desfase or timedelta(0))
 
 _FUNDAMENTAL_FIELDS = [
     "trailing_pe", "price_to_book", "price_to_sales", "ev_to_ebitda", "fcf_yield",
@@ -585,7 +597,7 @@ def ultima_sesion_cerrada(ahora: datetime | None = None) -> date:
     que evita que un festivo dispare descargas sin fin es la SEGUNDA condicion
     de `needs_update`, no una lista.
     """
-    momento = ahora or (utcnow() + HORAS_DE_MADRID).to_pydatetime()
+    momento = ahora or (utcnow() + horas_locales()).to_pydatetime()
     dia = momento.date()
     if momento.hour < HORA_DISPONIBLE:
         dia -= timedelta(days=1)
@@ -682,9 +694,9 @@ def needs_update(max_age_hours: float | None = None,
     if last_run is None:
         return True, "no consta ninguna descarga"
 
-    momento = ahora or (utcnow() + HORAS_DE_MADRID).to_pydatetime()
+    momento = ahora or (utcnow() + horas_locales()).to_pydatetime()
     hours = (
-        (pd.Timestamp(momento) - HORAS_DE_MADRID) - pd.Timestamp(last_run)
+        (pd.Timestamp(momento) - horas_locales()) - pd.Timestamp(last_run)
     ).total_seconds() / 3600.0
 
     # Red de seguridad, y va PRIMERO: si algo hiciera que la comparacion por

@@ -769,3 +769,123 @@ def test_la_vista_y_python_dan_la_misma_sesion(almacen):
         de_python = ses.ultima_completa(conn, "indicators_daily")
 
     assert pd.Timestamp(de_la_vista).date() == de_python
+
+
+# ---------------------------------------------------------------------------
+# Lo que encontro la revision de codigo despues del arreglo
+# ---------------------------------------------------------------------------
+
+INDICES_US = ["^GSPC", "^NDX", "^DJI", "^VIX"]
+INDICES_EU = ["^IBEX", "^STOXX50E", "^FTSE"]
+
+
+def con_los_siete_indices(hasta_us: date, hasta_eu: date) -> None:
+    """Los siete indices reales, cada bloque con su ultima sesion.
+
+    Se separan porque los mercados cierran por festivos distintos, y ahi estaba
+    el fallo: el oraculo tomaba el MAXIMO de los siete.
+    """
+    with db.connect() as conn:
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": t, "asset_class": "index", "is_active": True}
+            for t in INDICES_US + INDICES_EU
+        ]), keys=["ticker"])
+        filas = [(t, hasta_us) for t in INDICES_US] + [(t, hasta_eu) for t in INDICES_EU]
+        db.upsert_df(conn, "prices_daily", pd.DataFrame([
+            {"ticker": t, "date": d, "open": 1.0, "high": 1.0, "low": 1.0,
+             "close": 1.0, "adj_close": 1.0, "volume": 1, "source": "yfinance"}
+            for t, d in filas
+        ]), keys=["ticker", "date"])
+
+
+def test_un_festivo_estadounidense_no_dispara_un_bucle_de_descargas(almacen):
+    """FALLO ENCONTRADO EN LA REVISION, Y HABRIA SIDO PEOR QUE EL ORIGINAL.
+
+    El 4 de julio Wall Street cierra y Europa no. Con el oraculo tomando el
+    MAXIMO de los siete indices, los tres europeos le daban esa fecha; el
+    universo —mayoritariamente estadounidense— no puede completarla NUNCA; y el
+    programa se ponia a bajar seiscientos tickers en CADA arranque hasta que
+    llegara una sesion de verdad.
+
+    Se habria cambiado una ceguera por un bucle contra una API gratuita que
+    bloquea por abuso.
+    """
+    sembrar(ultimo_precio=MIERCOLES, ultima_descarga=datetime(2026, 8, 19, 21, 30))
+    con_los_siete_indices(hasta_us=MIERCOLES, hasta_eu=JUEVES)
+
+    hace_falta, motivo = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
+
+    assert not hace_falta, (
+        f"tres indices europeos hacen que se baje el universo entero: {motivo}"
+    )
+
+
+def test_un_festivo_europeo_si_pide_descarga(almacen):
+    """La contraparte. Si el festivo es europeo, Wall Street SI abrio, y ahi
+    esta la mayor parte del universo: hay que bajar."""
+    sembrar(ultimo_precio=MIERCOLES, ultima_descarga=datetime(2026, 8, 19, 21, 30))
+    con_los_siete_indices(hasta_us=JUEVES, hasta_eu=MIERCOLES)
+
+    hace_falta, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
+
+    assert hace_falta
+
+
+def test_la_pantalla_y_el_lanzador_dicen_lo_mismo_en_un_festivo(almacen):
+    """Dos partes del programa contestando cosas distintas a la misma pregunta
+    es lo que hace que el usuario deje de creerse las dos.
+
+    En un festivo estadounidense, la pantalla contaba sesiones que no existen y
+    daba la murga para reiniciar, mientras el lanzador decia "al dia" con razon.
+    """
+    from stocks_tracker.app import data_access as da
+
+    sembrar(ultimo_precio=MIERCOLES, ultima_descarga=datetime(2026, 8, 19, 21, 30))
+    con_los_siete_indices(hasta_us=MIERCOLES, hasta_eu=JUEVES)
+
+    hace_falta, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
+
+    assert not hace_falta
+    assert da.sesiones_sin_descargar() == 0, (
+        "la pantalla pide descargar lo que el lanzador considera inexistente"
+    )
+
+
+def test_una_sesion_descargada_entera_y_calculada_a_medias_esta_pendiente(almacen):
+    """OTRO `MAX(date)` COLADO POR LA PUERTA DE ATRAS.
+
+    `sesiones_sin_calcular` comparaba maximo contra maximo, que es justo la
+    heuristica que este proyecto documenta como poco fiable. Una sesion
+    descargada entera pero calculada a medias daba CERO pendientes: no se
+    recalculaba nunca, la portada se quedaba atras, y el aviso de al lado
+    culpaba a la descarga y mandaba a reiniciar, que no arregla nada.
+    """
+    from stocks_tracker.compute.run_compute import sesiones_sin_calcular
+
+    con_indicadores(MARTES)                       # 10 valores, sesion completa
+    con_precios_mas_nuevos(MIERCOLES)             # 10 valores descargados
+    with db.connect() as conn:                    # y solo 2 calculados
+        db.upsert_df(conn, "indicators_daily", pd.DataFrame([
+            {"ticker": f"T{i:02d}", "date": MIERCOLES, "close": 100.0}
+            for i in range(2)
+        ]), keys=["ticker", "date"])
+
+    pendientes, motivo = sesiones_sin_calcular()
+
+    assert pendientes >= 1, (
+        f"una sesion calculada a medias cuenta como hecha: {motivo}"
+    )
+
+
+def test_el_desfase_horario_sale_del_sistema_y_no_de_una_constante(almacen):
+    """Estaba fijo en +2 todo el ano, y eso solo es cierto medio ano.
+
+    En invierno Madrid va a +1: sumar dos adelantaba el reloj una hora y el
+    corte de las 23:00 se aplicaba de hecho a las 22:00, el minuto en que cierra
+    Nueva York. Se pedian datos sin consolidar.
+    """
+    from datetime import datetime as dt
+
+    real = dt.now().astimezone().utcoffset()
+
+    assert run_ingest.horas_locales() == pd.Timedelta(real)

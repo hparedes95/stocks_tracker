@@ -425,7 +425,19 @@ if ($UniversoCompleto -and $LASTEXITCODE -eq 0) {
         -File (Join-Path $InstallDir 'scripts\windows\stocks.ps1') universo
 }
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "  Listo: la portada ya muestra el mercado de verdad." -ForegroundColor Green
+    # Este paso baja SOLO los quince indices, no las seiscientas acciones. Decir
+    # "la portada ya muestra el mercado de verdad" despues de eso era falso en
+    # una actualizacion sobre un almacen que ya existia: el usuario leia que
+    # estaba todo listo con tres dias de retraso en el ranking.
+    #
+    # El lanzador lo completa al abrir, pero eso hay que decirlo, no dejarlo
+    # implicito detras de un "Listo" en verde.
+    if ($UniversoCompleto) {
+        Write-Host "  Listo: la portada ya muestra el mercado de verdad." -ForegroundColor Green
+    } else {
+        Write-Host "  Indices al dia." -ForegroundColor Green
+        Write-Host "  Las acciones del universo se ponen al dia al abrir el programa."
+    }
     $script:Resultado = 'Ok'
 } elseif ($CalculoRechazado) {
     # Antes esto se anunciaba como exito: run_compute salia con codigo 0 aunque

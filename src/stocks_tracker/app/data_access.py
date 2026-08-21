@@ -146,7 +146,14 @@ def sesiones_sin_descargar() -> int:
     """
     with connect(read_only=True) as conn:
         completa = sesiones.ultima_completa(conn, "prices_daily")
-    return sesiones.sesiones_de_mercado(completa, run_ingest.ultima_sesion_cerrada())
+        # EL MISMO ORACULO QUE USA LA INGESTA. Sin esto, en un festivo la
+        # pantalla contaba sesiones que no existen y daba la murga para
+        # reiniciar, mientras el lanzador decia "al dia" con razon. Dos partes
+        # del programa contestando cosas distintas a la misma pregunta es lo que
+        # hace que el usuario deje de creerse las dos.
+        llego = sesiones.ultima_de_los_indices(conn)
+    tope = run_ingest.ultima_sesion_cerrada()
+    return sesiones.sesiones_de_mercado(completa, min(llego, tope) if llego else tope)
 
 
 def sesiones_a_medias() -> list[tuple]:

@@ -131,12 +131,39 @@ def ultima_de_los_indices(conn) -> date | None:
 
     Si un dia fue festivo, los indices tampoco lo tienen, asi que no se dispara
     ninguna descarga inutil. La misma consulta resuelve las dos cosas.
+
+    MAYORIA DE INDICES, NO `MAX`. Los indices que se siguen son de DOS mercados:
+    cuatro estadounidenses (^GSPC, ^NDX, ^DJI, ^VIX) y tres europeos (^IBEX,
+    ^STOXX50E, ^FTSE). Con `MAX`, el 4 de julio los tres europeos le dan esa
+    fecha al oraculo, el universo —que es mayoritariamente estadounidense— no
+    puede completarla NUNCA, y el programa se pone a bajar seiscientos tickers
+    en cada arranque hasta que llegue una sesion de verdad. Se cambia una
+    ceguera por un bucle.
+
+    Con mayoria simple: en un festivo estadounidense votan 3 de 7 y la fecha no
+    pasa; en uno europeo votan 4 de 7 y si pasa, que es lo correcto porque Wall
+    Street si abrio y ahi esta la mayor parte del universo.
     """
-    fila = conn.execute(
-        "SELECT MAX(p.date) FROM prices_daily p JOIN instruments i USING (ticker) "
-        "WHERE i.asset_class = 'index'"
-    ).fetchone()
-    return None if not fila or fila[0] is None else pd.Timestamp(fila[0]).date()
+    conteos = [
+        (pd.Timestamp(f[0]).date(), int(f[1]))
+        for f in conn.execute(
+            f"""
+            SELECT p.date, COUNT(*) FROM prices_daily p
+            JOIN instruments i USING (ticker)
+            WHERE i.asset_class = 'index'
+            GROUP BY p.date ORDER BY p.date DESC LIMIT {VENTANA}
+            """
+        ).fetchall()
+    ]
+    if not conteos:
+        return None
+    cuantos = conn.execute(
+        "SELECT COUNT(*) FROM instruments WHERE asset_class = 'index'"
+    ).fetchone()[0]
+    if not cuantos:
+        return None
+    votadas = [f for f, n in conteos if n * 2 > cuantos]
+    return max(votadas) if votadas else None
 
 
 def sesiones_de_mercado(desde: date | None, hasta: date) -> int:
