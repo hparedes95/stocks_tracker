@@ -130,8 +130,36 @@ def _lecturas_del_contraste(nombre: str, tickers: list[str],
         # se ha podido hacer seria mucho peor que no tenerlo.
         console.print(f"[yellow]{nombre} no ha respondido: {exc}[/]")
         return vacio
+    except Exception as exc:  # noqa: BLE001
+        # `Exception` y no solo `ProviderError`: los errores previstos ya salen
+        # envueltos, pero los que dejan la auditoria a cero son los IMPREVISTOS
+        # —un cambio de formato, un KeyError de la libreria—. Capturar solo lo
+        # previsto convierte una averia concreta en "no se ha podido contrastar
+        # nada", que es lo mismo que decir nada.
+        console.print(f"[yellow]{nombre} ha fallado: {type(exc).__name__}: {exc}[/]")
+        return vacio
+
+    # QUE SE DIGA QUE PASO, SIEMPRE.
+    #
+    # Este era el unico camino mudo de los cuatro: un proveedor que responde sin
+    # datos salia por aqui sin imprimir una linea, y el resultado final —"ningun
+    # valor ha podido contrastarse"— no distinguia "esta caido", "no cubre estos
+    # valores" y "ha contestado vacio". Tres averias distintas con tres
+    # arreglos distintos, y la misma frase para las tres.
+    fallidos = list(datos.attrs.get("failed_tickers") or [])
+    peticiones = int(datos.attrs.get("requests_used") or 0)
+    detalle = (f"{len(datos)} filas de {len(soportados)} valores pedidos"
+               f" ({peticiones} peticiones)")
+    if fallidos:
+        detalle += f", {len(fallidos)} sin datos: {', '.join(sorted(fallidos)[:5])}"
+    console.print(f"[dim]{nombre}: {detalle}[/]")
 
     if datos.empty:
+        console.print(
+            f"[yellow]{nombre} ha contestado pero sin ninguna fila. No esta "
+            "caido: o no cubre estos valores, o rechaza la peticion (clave, "
+            "cuota o formato).[/]"
+        )
         return vacio
     salida = datos[["ticker", "date", "close"]].copy()
     salida["source"] = nombre

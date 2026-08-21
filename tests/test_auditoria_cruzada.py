@@ -250,3 +250,70 @@ def test_el_contexto_trae_el_veredicto_mas_reciente(warehouse):
     assert ctx.consenso.get("AAA") == str(Veredicto.VERIFICADO), (
         "el bot se quedaria con un veredicto caducado"
     )
+
+
+# ---------------------------------------------------------------------------
+# Que la auditoria diga POR QUE no ha podido contrastar
+# ---------------------------------------------------------------------------
+
+class _Mudo:
+    """Un proveedor que contesta sin datos. Era el unico camino sin mensaje."""
+
+    name = "mudo"
+
+    def __init__(self, fallidos=None, excepcion=None):
+        self._fallidos = fallidos or []
+        self._excepcion = excepcion
+
+    def supports(self, ticker):  # noqa: ARG002
+        return True
+
+    def fetch_ohlcv(self, tickers, desde, hasta, interval="1d"):  # noqa: ARG002
+        if self._excepcion:
+            raise self._excepcion
+        df = pd.DataFrame(columns=["ticker", "date", "close"])
+        df.attrs["failed_tickers"] = self._fallidos or list(tickers)
+        df.attrs["requests_used"] = 2
+        return df
+
+
+def _leer(monkeypatch, proveedor, capsys):
+    from stocks_tracker.ingest import run_audit
+
+    monkeypatch.setattr(run_audit, "build_provider", lambda n: proveedor)  # noqa: ARG005
+    salida = run_audit._lecturas_del_contraste(
+        "mudo", ["AAA", "BBB"], date(2026, 8, 10), date(2026, 8, 20))
+    return salida, capsys.readouterr().out
+
+
+def test_un_proveedor_que_contesta_vacio_lo_dice(monkeypatch, capsys):
+    """EL CAMINO MUDO. Cuatro salidas y solo esta no imprimia nada.
+
+    El resultado final —"ningun valor ha podido contrastarse"— no distinguia
+    "esta caido", "no cubre estos valores" y "ha contestado vacio". Tres averias
+    distintas, tres arreglos distintos, y la misma frase para las tres.
+    """
+    salida, texto = _leer(monkeypatch, _Mudo(), capsys)
+
+    assert salida.empty
+    assert "sin ninguna fila" in texto, texto
+    assert "AAA" in texto, "no dice que valores se quedaron sin datos"
+
+
+def test_se_dicen_las_peticiones_gastadas(monkeypatch, capsys):
+    """Con una cuota gratuita, saber si se gastaron peticiones distingue
+    "rechazo la peticion" de "ni se llego a preguntar"."""
+    _, texto = _leer(monkeypatch, _Mudo(), capsys)
+
+    assert "2 peticiones" in texto, texto
+
+
+def test_un_fallo_imprevisto_no_se_confunde_con_falta_de_datos(monkeypatch, capsys):
+    """Los que dejan la auditoria a cero son los IMPREVISTOS —un cambio de
+    formato, un KeyError de la libreria—. Capturar solo lo previsto convierte
+    una averia concreta en "no se ha podido contrastar nada"."""
+    salida, texto = _leer(
+        monkeypatch, _Mudo(excepcion=KeyError("columna que ya no viene")), capsys)
+
+    assert salida.empty
+    assert "KeyError" in texto, texto
