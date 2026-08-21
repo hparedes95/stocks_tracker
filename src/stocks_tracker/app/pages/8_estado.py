@@ -81,12 +81,28 @@ cols[1].metric(
     f"hace {info['hours_since_run']:.0f} h" if info["hours_since_run"] is not None else "—",
 )
 cols[2].metric("Descargas fallidas", info["failures"])
-cols[3].metric("Instrumentos", len(da.instruments()))
+cols[3].metric(
+    "Sesiones sin descargar", info["sesiones_pendientes"],
+    delta=None if not info["sesiones_pendientes"] else "faltan datos",
+    delta_color="inverse",
+)
 
-if info["is_stale"]:
+if info["sesiones_pendientes"]:
     st.warning(
-        "Los datos llevan más tiempo del previsto sin actualizarse. "
-        "Ejecuta `make ingest && make compute`.",
+        f"**Faltan {info['sesiones_pendientes']} sesiones de mercado por "
+        "descargar.** Cero descargas fallidas y una actualización reciente no "
+        "significan que estén todos los datos: una descarga lanzada antes del "
+        "cierre americano trae hasta el día anterior, y hasta ahora el programa "
+        "contaba las horas desde la última descarga en vez de mirar qué "
+        "sesiones le faltaban.\n\n"
+        "Cierra el programa y ábrelo desde el acceso directo, o ejecuta "
+        "`.\\scripts\\windows\\stocks.ps1 update`.",
+        icon=":material/schedule:",
+    )
+elif info["is_stale"]:
+    st.warning(
+        f"Hace más de {info['warn_hours']:.0f} h que no se descarga nada, "
+        "aunque no falte ninguna sesión cerrada.",
         icon=":material/schedule:",
     )
 

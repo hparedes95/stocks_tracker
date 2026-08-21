@@ -40,7 +40,19 @@ def render_freshness_badge() -> None:
     if hours is not None:
         detail += f" · última actualización hace {hours:.0f} h"
 
-    if info["is_stale"]:
+    if info["sesiones_pendientes"]:
+        # Se dice CUANTAS sesiones faltan y no "conviene actualizar", porque el
+        # aviso viejo convivia con un "última actualización hace 21 h" que
+        # sonaba a recién hecho. Con los dos delante no habia forma de saber que
+        # el programa llevaba dos dias sin traer un cierre.
+        n = info["sesiones_pendientes"]
+        st.warning(
+            f"{detail}. **Falta{'n' if n > 1 else ''} {n} sesión"
+            f"{'es' if n > 1 else ''} de mercado por descargar.** "
+            "Cierra el programa y vuelve a abrirlo desde el acceso directo.",
+            icon=":material/schedule:",
+        )
+    elif info["is_stale"]:
         st.warning(f"{detail}. Conviene actualizar.", icon=":material/schedule:")
     elif info["failures"]:
         st.caption(f":orange[{detail} · {info['failures']} descargas fallidas]")

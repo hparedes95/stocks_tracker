@@ -12,7 +12,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from datetime import time as dtime
 
 import pandas as pd
 from rich.console import Console
@@ -42,6 +43,23 @@ console = Console()
 # nada. Es distinto de 0 (se hizo) y de 1 (fallo la descarga), porque quien
 # llama necesita distinguir los tres casos.
 EXIT_ALREADY_RUNNING = 75
+
+# Hora local a partir de la cual el cierre de HOY ya se puede descargar.
+#
+# Wall Street cierra a las 22:00 de Madrid y el proveedor tarda un rato en
+# consolidar. A las 23:00 el dato esta; antes, pedirlo solo gasta peticiones
+# contra una API gratuita para recibir la vela de ayer.
+HORA_DISPONIBLE = 23
+
+# El almacen guarda UTC naive (ver `core/timeutils`) y las sesiones de mercado
+# se razonan en hora local. Es una hora en invierno y dos en verano; se usa la
+# de verano porque equivocarse hacia ese lado solo adelanta el corte una hora,
+# y el margen sobre el cierre americano son tres.
+#
+# No se usa `zoneinfo` a proposito: en Windows depende del paquete `tzdata`, y
+# una dependencia que falta convertiria "no se descargan datos" en "el programa
+# no arranca", que es peor.
+HORAS_DE_MADRID = pd.Timedelta(hours=2)
 
 _FUNDAMENTAL_FIELDS = [
     "trailing_pe", "price_to_book", "price_to_sales", "ev_to_ebitda", "fcf_yield",
@@ -551,13 +569,63 @@ def ingest_macro(years: int = 15, run_id: str | None = None) -> int:
     return n
 
 
-def needs_update(max_age_hours: float | None = None) -> tuple[bool, str]:
+def ultima_sesion_cerrada(ahora: datetime | None = None) -> date:
+    """El ultimo dia de mercado cuyo cierre ya se puede descargar.
+
+    No es "ayer" ni "hoy": es la ultima sesion cuyo cierre ya esta consolidado
+    en el proveedor. Wall Street cierra a las 22:00 de Madrid, asi que hasta
+    bien entrada la noche el dato de hoy no existe todavia, y pedirlo solo gasta
+    peticiones contra un proveedor gratuito.
+
+    Fin de semana: sabado y domingo no tienen sesion, asi que la ultima cerrada
+    es la del viernes.
+
+    Los FESTIVOS no se conocen aqui y no se intenta adivinarlos. Un calendario
+    de festivos de cinco mercados en cuatro paises seria otra fuente de datos
+    que mantener, y equivocarse en un festivo hace lo mismo que no tenerlo. Lo
+    que evita que un festivo dispare descargas sin fin es la SEGUNDA condicion
+    de `needs_update`, no una lista.
+    """
+    momento = ahora or (utcnow() + HORAS_DE_MADRID).to_pydatetime()
+    dia = momento.date()
+    if momento.hour < HORA_DISPONIBLE:
+        dia -= timedelta(days=1)
+    while dia.weekday() >= 5:            # 5 = sabado, 6 = domingo
+        dia -= timedelta(days=1)
+    return dia
+
+
+def needs_update(max_age_hours: float | None = None,
+                 ahora: datetime | None = None) -> tuple[bool, str]:
     """¿Hacen falta datos nuevos? Devuelve (si_hace_falta, motivo).
 
     Se consulta desde el lanzador para ponerse al dia solo al abrir el
     programa. En un ordenador personal, la tarea programada de la noche se
     pierde cada vez que el equipo esta apagado, y si nadie compensa eso el
     dashboard acaba mostrando la semana pasada como si fuera hoy.
+
+    SE COMPARA CONTRA EL MERCADO, NO CONTRA EL RELOJ
+
+    Antes esta funcion respondia mirando cuanto hacia de la ultima descarga: por
+    debajo de 30 h, "al dia". Y eso da la respuesta equivocada en el caso mas
+    corriente que hay.
+
+    Una descarga a las cinco de la tarde del miercoles —con Wall Street aun
+    abierto— solo puede traer hasta el martes. Con la regla vieja, el programa
+    se creia al dia hasta las once de la noche del jueves, se abriera las veces
+    que se abriera. En un ordenador que se apaga de noche, esa descarga de las
+    cinco es ademas la unica que hay, porque la tarea de las 23:15 no llega a
+    correr. El dashboard se congela y no lo dice: no hay ninguna descarga
+    fallida que ensenar, porque no se intento ninguna.
+
+    Ahora se pregunta lo que de verdad importa: ¿me falta alguna sesion que ya
+    ha cerrado? Y, para no insistir en balde: ¿lo he intentado ya desde que esa
+    sesion cerro?
+
+    LAS DOS MITADES HACEN FALTA. Sin la primera se descarga por reloj y no por
+    mercado. Sin la segunda, un festivo —cuando no hay cierre y no lo va a haber
+    nunca— dispararia una descarga en cada arranque, para siempre, contra un
+    proveedor gratuito que bloquea por abuso.
 
     No depende de Streamlit a proposito: tiene que poder ejecutarse desde un
     .bat antes de que arranque nada.
@@ -599,9 +667,29 @@ def needs_update(max_age_hours: float | None = None) -> tuple[bool, str]:
     if last_run is None:
         return True, "no consta ninguna descarga"
 
-    hours = (utcnow() - pd.Timestamp(last_run)).total_seconds() / 3600.0
+    momento = ahora or (utcnow() + HORAS_DE_MADRID).to_pydatetime()
+    hours = (
+        (pd.Timestamp(momento) - HORAS_DE_MADRID) - pd.Timestamp(last_run)
+    ).total_seconds() / 3600.0
+
+    # Red de seguridad, y va PRIMERO: si algo hiciera que la comparacion por
+    # sesiones dijera que todo va bien, una semana sin bajar nada tiene que
+    # disparar una descarga igualmente.
     if hours > limit:
         return True, f"la ultima descarga fue hace {hours:.0f} h"
+
+    sesion = ultima_sesion_cerrada(momento)
+    if pd.Timestamp(last_price).date() < sesion:
+        # Y solo si no se ha intentado ya desde que esa sesion cerro. Sin esto,
+        # un festivo pediria descargar en cada arranque para siempre.
+        cerro = pd.Timestamp(
+            datetime.combine(sesion, dtime(HORA_DISPONIBLE))
+        ) - HORAS_DE_MADRID
+        if pd.Timestamp(last_run) < cerro:
+            return True, (
+                f"el mercado cerro el {sesion:%d/%m} y el ultimo precio "
+                f"guardado es del {pd.Timestamp(last_price).date():%d/%m}"
+            )
 
     return False, f"al dia (ultima descarga hace {hours:.0f} h)"
 

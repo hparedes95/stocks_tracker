@@ -7,7 +7,7 @@ responde en milisegundos y se puede cambiar el esquema en un solo sitio.
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -22,6 +22,7 @@ from ..core.db import connect
 from ..core.scoring import preset_hash, preset_names
 from ..core.textutils import as_text
 from ..core.timeutils import hours_since
+from ..ingest import run_ingest
 
 TTL = 900  # 15 minutos: los datos se actualizan una vez al dia
 
@@ -99,14 +100,44 @@ def data_freshness() -> dict:
         "last_price_date": last_date,
         "last_run": last_run,
         "hours_since_run": hours,
-        "is_stale": hours is not None and hours > warn_hours,
+        # SESIONES QUE FALTAN, y es lo que de verdad quiere saber quien mira.
+        #
+        # "Hace 21 h" suena a recien hecho y puede ser mentira: una descarga a
+        # las cinco de la tarde, con Wall Street abierto, solo trae hasta ayer.
+        # Contando por horas el aviso callaba justo cuando hacia falta.
+        "sesiones_pendientes": sesiones_pendientes(last_date),
         # `df.empty` NO basta, y es la trampa que tumbaba la pagina de estado en
         # una instalacion recien hecha. Un `SELECT SUM(...)` sin `GROUP BY`
         # SIEMPRE devuelve una fila: sobre una tabla vacia devuelve una fila con
         # NULL, asi que `df.empty` es falso. Y `NaN or 0` no salva nada, porque
         # NaN es verdadero: se colaba entero hasta `int(NaN)`, que revienta.
         "failures": _entero(df.iloc[0]["failures"]) if not df.empty else 0,
+        "warn_hours": warn_hours,
+        "is_stale": (hours is not None and hours > warn_hours)
+                    or sesiones_pendientes(last_date) > 0,
     }
+
+
+def sesiones_pendientes(last_date) -> int:
+    """Cuantas sesiones de mercado ya cerradas NO estan en el almacen.
+
+    Cuenta dias de lunes a viernes entre el ultimo precio guardado y la ultima
+    sesion cerrada. Los festivos inflan la cuenta —no se conocen aqui, y un
+    calendario de cinco mercados en cuatro paises seria otra fuente de datos que
+    mantener— asi que el numero es un TECHO, no una cifra exacta. Para lo que
+    sirve, que es decidir si avisar, un techo vale: cero significa "no falta
+    nada" con certeza.
+    """
+    if last_date is None:
+        return 0
+    cerrada = run_ingest.ultima_sesion_cerrada()
+    dias = 0
+    dia = cerrada
+    while dia > last_date:
+        if dia.weekday() < 5:
+            dias += 1
+        dia -= timedelta(days=1)
+    return dias
 
 
 def _entero(valor) -> int:
