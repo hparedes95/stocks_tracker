@@ -80,21 +80,39 @@ cols[1].metric(
     "Última actualización",
     f"hace {info['hours_since_run']:.0f} h" if info["hours_since_run"] is not None else "—",
 )
-cols[2].metric("Descargas fallidas", info["failures"])
-cols[3].metric(
-    "Sesiones sin descargar", info["sesiones_pendientes"],
-    delta=None if not info["sesiones_pendientes"] else "faltan datos",
+cols[2].metric(
+    "Sin descargar", info["sesiones_sin_descargar"],
+    delta=None if not info["sesiones_sin_descargar"] else "faltan precios",
     delta_color="inverse",
 )
+cols[3].metric(
+    "Sin calcular", info["sesiones_sin_calcular"],
+    delta=None if not info["sesiones_sin_calcular"] else "descargado, no calculado",
+    delta_color="inverse",
+)
+st.caption(
+    f":grey[{info['failures']} descargas fallidas · "
+    f"{len(da.instruments())} instrumentos]"
+)
 
-if info["sesiones_pendientes"]:
+if info["sesiones_sin_calcular"]:
     st.warning(
-        f"**Faltan {info['sesiones_pendientes']} sesiones de mercado por "
+        f"**Hay {info['sesiones_sin_calcular']} sesión(es) descargada(s) que no "
+        "se han calculado.** Los precios están en el almacén; lo que falta es "
+        "convertirlos en indicadores, y hasta que eso pase la portada, el "
+        "ranking y las señales siguen enseñando la última sesión calculada.\n\n"
+        f"El programa dice: *{info['por_que_sin_calcular']}*.\n\n"
+        "Cierra el programa y ábrelo desde el acceso directo. Si vuelve a "
+        "quedarse así, el cálculo está fallando o lo está parando la puerta de "
+        "calidad: mira **Integridad del sistema**, arriba.",
+        icon=":material/calculate:",
+    )
+elif info["sesiones_sin_descargar"]:
+    st.warning(
+        f"**Faltan {info['sesiones_sin_descargar']} sesiones de mercado por "
         "descargar.** Cero descargas fallidas y una actualización reciente no "
         "significan que estén todos los datos: una descarga lanzada antes del "
-        "cierre americano trae hasta el día anterior, y hasta ahora el programa "
-        "contaba las horas desde la última descarga en vez de mirar qué "
-        "sesiones le faltaban.\n\n"
+        "cierre americano trae hasta el día anterior.\n\n"
         "Cierra el programa y ábrelo desde el acceso directo, o ejecuta "
         "`.\\scripts\\windows\\stocks.ps1 update`.",
         icon=":material/schedule:",

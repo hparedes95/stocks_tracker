@@ -244,61 +244,220 @@ def test_cual_es_la_ultima_sesion_cerrada(ahora, esperada):
 
 
 # ---------------------------------------------------------------------------
-# La otra mitad: que el dashboard lo DIGA
+# DESCARGADO NO ES CALCULADO
+#
+# El segundo fallo del mismo caso, y el que de verdad tenia parado al usuario.
+# Arreglado lo de "no se intenta descargar", seguia sin actualizarse: los
+# precios SI estaban, y lo que no se hacia era el calculo.
+#
+# El lanzador preguntaba una sola cosa —"¿hace falta descargar?"— y si la
+# respuesta era no, se iba sin calcular. Un unico "estas al dia" contestando a
+# dos preguntas distintas. Las dos se separan solas en cuanto el calculo falla
+# una noche: la descarga sigue estando reciente, asi que el lanzador se sigue
+# yendo por la puerta de atras, y el dashboard ensena el martes para siempre.
 # ---------------------------------------------------------------------------
 
-def test_el_dashboard_cuenta_las_sesiones_que_le_faltan(monkeypatch):
-    """El mismo reloj roto estaba en la interfaz.
+def con_indicadores(hasta: date, tickers: int = 10) -> None:
+    """Precios e indicadores de varios valores, para que `current_session` los
+    considere una sesion valida (exige el 60 % del dia mas poblado)."""
+    nombres = [f"T{i:02d}" for i in range(tickers)]
+    with db.connect() as conn:
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": t, "asset_class": "equity", "is_active": True}
+            for t in nombres
+        ]), keys=["ticker"])
+        db.upsert_df(conn, "indicators_daily", pd.DataFrame([
+            {"ticker": t, "date": hasta, "close": 100.0} for t in nombres
+        ]), keys=["ticker", "date"])
+        db.upsert_df(conn, "prices_daily", pd.DataFrame([
+            {"ticker": t, "date": hasta, "open": 100.0, "high": 101.0,
+             "low": 99.0, "close": 100.0, "adj_close": 100.0, "volume": 1_000,
+             "source": "yfinance"}
+            for t in nombres
+        ]), keys=["ticker", "date"])
 
-    "Última actualización hace 21 h" suena a recién hecho, y con `is_stale`
-    calculado por horas el aviso callaba justo cuando hacía falta: cero
-    descargas fallidas, un número reciente y dos sesiones sin traer.
+
+def con_precios_mas_nuevos(hasta: date, tickers: int = 10) -> None:
+    nombres = [f"T{i:02d}" for i in range(tickers)]
+    with db.connect() as conn:
+        # Los instrumentos tambien: la cuenta de precios pendientes se limita a
+        # acciones y ETF, asi que unos precios sin ficha no cuentan como nada.
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": t, "asset_class": "equity", "is_active": True}
+            for t in nombres
+        ]), keys=["ticker"])
+        db.upsert_df(conn, "prices_daily", pd.DataFrame([
+            {"ticker": t, "date": hasta, "open": 100.0, "high": 101.0,
+             "low": 99.0, "close": 100.0, "adj_close": 100.0, "volume": 1_000,
+             "source": "yfinance"}
+            for t in nombres
+        ]), keys=["ticker", "date"])
+
+
+def test_precios_por_delante_de_los_indicadores_son_trabajo_pendiente(almacen):
+    """EL CASO DEL USUARIO. Precios hasta el jueves, indicadores hasta el martes.
+
+    Descargas fallidas: cero. Ultima descarga: reciente. Y el dashboard llevaba
+    dos dias ensenando el martes.
+    """
+    from stocks_tracker.compute.run_compute import sesiones_sin_calcular
+
+    con_indicadores(MARTES)
+    con_precios_mas_nuevos(MIERCOLES)
+    con_precios_mas_nuevos(JUEVES)
+
+    pendientes, motivo = sesiones_sin_calcular()
+
+    assert pendientes == 2, motivo
+    assert "18" in motivo and "20" in motivo, motivo
+
+
+def test_con_todo_calculado_no_hay_nada_pendiente(almacen):
+    from stocks_tracker.compute.run_compute import sesiones_sin_calcular
+
+    con_indicadores(JUEVES)
+
+    pendientes, motivo = sesiones_sin_calcular()
+
+    assert pendientes == 0, motivo
+
+
+def test_el_fin_de_semana_no_cuenta_como_calculo_pendiente(almacen):
+    """Del viernes al lunes hay tres dias naturales y UNA sesion.
+
+    Escrito porque faltaba: mutando la cuenta para que sumara dias naturales en
+    vez de dias de mercado, los tests de aqui seguian en verde —el caso que
+    habia iba de martes a jueves, donde los dos numeros coinciden—. El aviso
+    diria "3 sesiones sin calcular" cada lunes.
+    """
+    from stocks_tracker.compute.run_compute import sesiones_sin_calcular
+
+    con_indicadores(date(2026, 8, 21))            # viernes
+    con_precios_mas_nuevos(date(2026, 8, 24))     # lunes
+
+    pendientes, motivo = sesiones_sin_calcular()
+
+    assert pendientes == 1, motivo
+
+
+def test_precios_sin_ningun_indicador_es_trabajo_pendiente(almacen):
+    """Instalacion a medias: se descargo y no se llego a calcular. Cero
+    indicadores no es "nada que hacer", es "todo por hacer"."""
+    from stocks_tracker.compute.run_compute import sesiones_sin_calcular
+
+    con_precios_mas_nuevos(JUEVES)
+
+    pendientes, _ = sesiones_sin_calcular()
+
+    assert pendientes >= 1
+
+
+def test_un_almacen_sin_precios_no_tiene_calculo_pendiente(almacen):
+    from stocks_tracker.compute.run_compute import sesiones_sin_calcular
+
+    pendientes, motivo = sesiones_sin_calcular()
+
+    assert pendientes == 0
+    assert "no hay precios" in motivo
+
+
+def test_el_lanzador_calcula_aunque_no_haya_que_descargar():
+    """EL FALLO, EN EL SITIO DONDE ESTABA.
+
+    `if ($LASTEXITCODE -eq 0) { return }` justo despues de preguntar por la
+    descarga: con los precios al dia, el bloque se iba sin calcular. Se
+    comprueba que la unica salida temprana que queda es la del calculo, no la
+    de la descarga.
+    """
+    from stocks_tracker.core.config import project_root
+
+    src = (project_root() / "scripts/windows/stocks.ps1").read_text("utf-8")
+    bloque = src[src.index("'update' {"):]
+    bloque = bloque[:bloque.index("'autostart' {")]
+
+    assert "run_compute --check-stale" in bloque, (
+        "el lanzador no pregunta si hay algo que calcular"
+    )
+    antes_del_calculo = bloque[:bloque.index("run_compute --check-stale")]
+    assert "return }" not in antes_del_calculo.replace(
+        "Write-Host \"Ya hay otra actualizacion en marcha; se abre con lo que hay.\" -ForegroundColor Yellow\n                return", ""
+    ) or "$descargar" in antes_del_calculo, (
+        "sigue habiendo una salida temprana que se lleva el calculo por delante"
+    )
+
+
+def test_el_lanzador_avisa_cuando_la_puerta_de_calidad_para_el_calculo():
+    """Sin esto, "no se calcula por datos malos" se ve exactamente igual que
+    "todo bien": el dashboard abre con datos viejos y ningun motivo."""
+    from stocks_tracker.core.config import project_root
+
+    src = (project_root() / "scripts/windows/stocks.ps1").read_text("utf-8")
+    bloque = src[src.index("'update' {"):]
+    bloque = bloque[:bloque.index("'autostart' {")]
+
+    assert "77" in bloque, (
+        "el codigo 77 —la puerta de calidad negandose— pasa desapercibido"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Que el dashboard distinga las dos averias
+# ---------------------------------------------------------------------------
+
+def test_el_dashboard_cuenta_las_sesiones_sin_descargar(monkeypatch, almacen):
+    from stocks_tracker.app import data_access as da
+
+    monkeypatch.setattr(run_ingest, "ultima_sesion_cerrada",
+                        lambda ahora=None: JUEVES)
+    con_indicadores(MARTES)          # precios e indicadores hasta el martes
+
+    assert da.sesiones_sin_descargar() == 2       # miercoles y jueves
+
+
+def test_lo_descargado_no_cuenta_como_sin_descargar(monkeypatch, almacen):
+    """LA CONFUSION QUE HUBO QUE CORREGIR.
+
+    La primera version contaba contra la sesion VIGENTE, que sale de los
+    indicadores. Con el calculo parado, acusaba de "no descargado" lo que si
+    estaba descargado y mandaba al usuario a repetir una descarga que ya se
+    habia hecho.
     """
     from stocks_tracker.app import data_access as da
 
     monkeypatch.setattr(run_ingest, "ultima_sesion_cerrada",
-                        lambda ahora=None: MIERCOLES)
+                        lambda ahora=None: JUEVES)
+    con_indicadores(MARTES)
+    con_precios_mas_nuevos(MIERCOLES)
+    con_precios_mas_nuevos(JUEVES)
 
-    assert da.sesiones_pendientes(MARTES) == 1
-    assert da.sesiones_pendientes(MIERCOLES) == 0
-    # Y nunca negativo: el almacen puede ir por delante si el proveedor sirve
-    # una vela antes de tiempo, y eso no son "menos uno" sesiones pendientes.
-    assert da.sesiones_pendientes(JUEVES) == 0
+    assert da.sesiones_sin_descargar() == 0, (
+        "dice que faltan precios que estan descargados"
+    )
 
 
-def test_el_fin_de_semana_no_cuenta_como_sesiones_pendientes(monkeypatch):
+def test_el_fin_de_semana_no_cuenta_como_sesiones_sin_descargar(monkeypatch, almacen):
     """Del viernes al lunes hay tres dias y una sola sesion. Contando dias
     naturales, el aviso saltaria todos los domingos."""
     from stocks_tracker.app import data_access as da
 
     monkeypatch.setattr(run_ingest, "ultima_sesion_cerrada",
                         lambda ahora=None: date(2026, 8, 24))     # lunes
+    con_indicadores(date(2026, 8, 21))                            # viernes
 
-    assert da.sesiones_pendientes(date(2026, 8, 21)) == 1         # viernes
+    assert da.sesiones_sin_descargar() == 1
 
 
-def test_sin_datos_no_se_inventan_sesiones_pendientes(monkeypatch):
+def test_sin_datos_no_se_inventan_sesiones(almacen):
     from stocks_tracker.app import data_access as da
 
-    assert da.sesiones_pendientes(None) == 0
+    assert da.sesiones_sin_descargar() == 0
 
 
-def test_el_aviso_dice_cuantas_sesiones_faltan(tmp_path, almacen, monkeypatch):
-    """Se PINTA la cabecera y se lee lo que sale.
-
-    La primera version de este test comprobaba que el fichero contuviera la
-    cadena "sesiones_pendientes". Mutando el `if` que la usa a `if False`, el
-    test seguia en verde: la cadena estaba en el fichero y el aviso no salia.
-    Otra vez lo mismo, comprobar el texto del codigo en vez de su efecto.
-    """
+def _pintar_cabecera(tmp_path):
     import streamlit as st
     from streamlit.testing.v1 import AppTest
 
-    sembrar(ultimo_precio=MARTES, ultima_descarga=datetime(2026, 8, 19, 15, 0))
-    monkeypatch.setattr(run_ingest, "ultima_sesion_cerrada",
-                        lambda ahora=None: MIERCOLES)
     st.cache_data.clear()
-
     pagina = tmp_path / "cabecera.py"
     pagina.write_text(
         "from stocks_tracker.app.components.common import render_freshness_badge\n"
@@ -307,10 +466,51 @@ def test_el_aviso_dice_cuantas_sesiones_faltan(tmp_path, almacen, monkeypatch):
     )
     prueba = AppTest.from_file(str(pagina), default_timeout=60)
     prueba.run()
-
     assert not prueba.exception, prueba.exception[0].message
-    avisos = " ".join(w.value for w in prueba.warning)
-    assert "sesi" in avisos.lower(), (
-        f"la cabecera no avisa de las sesiones que faltan. Avisos: {avisos!r}"
+    return " ".join(w.value for w in prueba.warning)
+
+
+def test_el_aviso_manda_a_calcular_y_no_a_descargar(tmp_path, almacen, monkeypatch):
+    """Se PINTA la cabecera y se lee lo que sale.
+
+    Con los precios descargados y el calculo parado, el aviso decia "faltan 2
+    sesiones de mercado por descargar", que era falso y ademas mandaba a hacer
+    lo que ya estaba hecho.
+    """
+    monkeypatch.setattr(run_ingest, "ultima_sesion_cerrada",
+                        lambda ahora=None: JUEVES)
+    con_indicadores(MARTES)
+    con_precios_mas_nuevos(MIERCOLES)
+    con_precios_mas_nuevos(JUEVES)
+    sembrar(ultimo_precio=JUEVES, ultima_descarga=datetime(2026, 8, 20, 21, 30))
+
+    avisos = _pintar_cabecera(tmp_path)
+
+    assert "calcular" in avisos.lower(), (
+        f"la cabecera no dice que lo que falta es calcular. Avisos: {avisos!r}"
     )
-    assert "1" in avisos
+    assert "por descargar" not in avisos.lower(), (
+        f"sigue mandando a descargar lo que ya esta descargado: {avisos!r}"
+    )
+
+
+def test_el_aviso_de_descarga_sigue_saliendo_cuando_toca(tmp_path, almacen, monkeypatch):
+    """La contraprueba: si de verdad faltan precios, hay que decirlo."""
+    monkeypatch.setattr(run_ingest, "ultima_sesion_cerrada",
+                        lambda ahora=None: JUEVES)
+    con_indicadores(MARTES)
+    sembrar(ultimo_precio=MARTES, ultima_descarga=datetime(2026, 8, 20, 21, 30))
+
+    avisos = _pintar_cabecera(tmp_path)
+
+    assert "descargar" in avisos.lower(), avisos
+
+
+def test_el_plural_de_sesion_no_lleva_acento():
+    """En pantalla salia "2 sesiónes". El acento de "sesión" desaparece al pasar
+    al plural, y pegarle la terminacion a la forma acentuada da una palabra que
+    no existe."""
+    from stocks_tracker.app.components.common import _sesiones
+
+    assert _sesiones(1) == "1 sesión"
+    assert _sesiones(2) == "2 sesiones"

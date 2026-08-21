@@ -12,6 +12,7 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
+from ..compute.run_compute import sesiones_sin_calcular
 from ..core.config import (
     get_active_universes,
     get_breadth_scope,
@@ -96,16 +97,24 @@ def data_freshness() -> dict:
     last_run = None if df.empty or pd.isna(df.iloc[0]["last_run"]) else df.iloc[0]["last_run"]
     warn_hours = float(get_settings().ui.get("data_freshness_warn_hours", 30))
     hours = hours_since(last_run)
+    sin_calcular, por_que = sesiones_sin_calcular()
+    sin_descargar = sesiones_sin_descargar()
     return {
         "last_price_date": last_date,
         "last_run": last_run,
         "hours_since_run": hours,
-        # SESIONES QUE FALTAN, y es lo que de verdad quiere saber quien mira.
+        # DOS NUMEROS Y NO UNO, porque son dos averias distintas con dos
+        # arreglos distintos.
         #
-        # "Hace 21 h" suena a recien hecho y puede ser mentira: una descarga a
-        # las cinco de la tarde, con Wall Street abierto, solo trae hasta ayer.
-        # Contando por horas el aviso callaba justo cuando hacia falta.
-        "sesiones_pendientes": sesiones_pendientes(last_date),
+        # La primera version de esto tenia un solo contador, "sesiones
+        # pendientes", calculado sobre la sesion VIGENTE —que sale de los
+        # indicadores— y etiquetado como "sin descargar". En el caso real que lo
+        # destapo, los precios estaban descargados y lo que fallaba era el
+        # calculo: el aviso mandaba a descargar lo que ya estaba y no decia una
+        # palabra de lo unico que hacia falta.
+        "sesiones_sin_descargar": sin_descargar,
+        "sesiones_sin_calcular": sin_calcular,
+        "por_que_sin_calcular": por_que,
         # `df.empty` NO basta, y es la trampa que tumbaba la pagina de estado en
         # una instalacion recien hecha. Un `SELECT SUM(...)` sin `GROUP BY`
         # SIEMPRE devuelve una fila: sobre una tabla vacia devuelve una fila con
@@ -114,26 +123,32 @@ def data_freshness() -> dict:
         "failures": _entero(df.iloc[0]["failures"]) if not df.empty else 0,
         "warn_hours": warn_hours,
         "is_stale": (hours is not None and hours > warn_hours)
-                    or sesiones_pendientes(last_date) > 0,
+                    or sin_descargar > 0 or sin_calcular > 0,
     }
 
 
-def sesiones_pendientes(last_date) -> int:
-    """Cuantas sesiones de mercado ya cerradas NO estan en el almacen.
+def sesiones_sin_descargar() -> int:
+    """Sesiones de mercado ya cerradas que NO estan en `prices_daily`.
 
-    Cuenta dias de lunes a viernes entre el ultimo precio guardado y la ultima
-    sesion cerrada. Los festivos inflan la cuenta —no se conocen aqui, y un
-    calendario de cinco mercados en cuatro paises seria otra fuente de datos que
-    mantener— asi que el numero es un TECHO, no una cifra exacta. Para lo que
-    sirve, que es decidir si avisar, un techo vale: cero significa "no falta
-    nada" con certeza.
+    Se mide contra los PRECIOS y no contra la sesion vigente. La sesion vigente
+    sale de los indicadores, asi que un calculo parado la deja congelada y este
+    numero acusaria de "no descargado" lo que si esta descargado, que es
+    exactamente el diagnostico equivocado que hubo que corregir.
+
+    Los festivos inflan la cuenta —no se conocen aqui— asi que es un TECHO. Para
+    decidir si avisar vale: cero significa "no falta nada" con certeza.
     """
-    if last_date is None:
+    df = _fetch(
+        "SELECT MAX(p.date) AS d FROM prices_daily p JOIN instruments i USING (ticker) "
+        "WHERE i.asset_class IN ('equity', 'etf')"
+    )
+    if df.empty or pd.isna(df.iloc[0]["d"]):
         return 0
-    cerrada = run_ingest.ultima_sesion_cerrada()
+    descargado = pd.Timestamp(df.iloc[0]["d"]).date()
+
+    dia = run_ingest.ultima_sesion_cerrada()
     dias = 0
-    dia = cerrada
-    while dia > last_date:
+    while dia > descargado:
         if dia.weekday() < 5:
             dias += 1
         dia -= timedelta(days=1)

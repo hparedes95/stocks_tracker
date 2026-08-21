@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
@@ -951,8 +952,62 @@ def puerta_de_calidad() -> bool:
     return False
 
 
+def sesiones_sin_calcular() -> tuple[int, str]:
+    """Sesiones que estan DESCARGADAS y no calculadas. (cuantas, motivo).
+
+    LA PREGUNTA QUE NADIE HACIA, Y QUE COSTO DOS DIAS DE DATOS PARADOS
+
+    El lanzador preguntaba una sola cosa —"¿hace falta descargar?"— y si la
+    respuesta era no, se iba sin calcular. Un unico "estas al dia" contestando a
+    dos preguntas distintas.
+
+    Y las dos se separan a diario: la descarga de la noche trae los precios, el
+    calculo revienta o lo para la puerta de calidad, y a partir de ahi el
+    programa nunca vuelve a calcular por su cuenta. La descarga sigue estando
+    reciente, asi que el lanzador se sigue yendo por la puerta de atras. Los
+    precios entran cada noche y el dashboard ensena el martes para siempre.
+
+    Se comparan los PRECIOS con la sesion vigente, que sale de
+    `indicators_daily`. Si hay precios mas nuevos que indicadores, hay trabajo
+    pendiente, independientemente de cuando fue la ultima descarga.
+    """
+    with connect(read_only=True) as conn:
+        ultimo_precio = conn.execute(
+            "SELECT MAX(p.date) FROM prices_daily p JOIN instruments i USING (ticker) "
+            "WHERE i.asset_class IN ('equity', 'etf')"
+        ).fetchone()[0]
+        fila = conn.execute("SELECT date FROM current_session").fetchone()
+
+    if ultimo_precio is None:
+        return 0, "no hay precios que calcular"
+    if fila is None or fila[0] is None:
+        return 1, "hay precios y no hay ningun indicador calculado"
+
+    calculado = pd.Timestamp(fila[0]).date()
+    descargado = pd.Timestamp(ultimo_precio).date()
+    if descargado <= calculado:
+        return 0, f"al dia (calculado hasta el {calculado})"
+
+    # Dias de mercado entre una y otra. Los festivos inflan la cuenta y por eso
+    # el numero es un techo, no una cifra exacta: para decidir si calcular vale,
+    # porque cero significa "no falta nada" con certeza.
+    pendientes = sum(
+        1 for n in range((descargado - calculado).days)
+        if (calculado + timedelta(days=n + 1)).weekday() < 5
+    )
+    return max(pendientes, 1), (
+        f"hay precios hasta el {descargado} y solo estan calculados hasta el "
+        f"{calculado}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Calculo de indicadores, factores y scores")
+    parser.add_argument(
+        "--check-stale", action="store_true", dest="check_stale",
+        help="solo comprueba: codigo 1 si hay precios descargados sin calcular, "
+             "0 si no. No escribe nada.",
+    )
     parser.add_argument("--only", default=None,
                         choices=["indicators", "scores", "breadth", "rotation", "regime"])
     parser.add_argument("--preset", default=None, help="perfil de pesos a usar")
@@ -977,6 +1032,15 @@ def main() -> None:
              "no seran fiables; existe para poder diagnosticar.",
     )
     args = parser.parse_args()
+
+    # Solo consulta: no escribe, asi que va ANTES de `migrate()`. Se ejecuta
+    # justo antes de arrancar el dashboard y abrir el almacen para escribir
+    # chocaria con el.
+    if args.check_stale:
+        pendientes, motivo = sesiones_sin_calcular()
+        console.print(("[yellow]Hay que calcular: " if pendientes
+                       else "[green]Calculo ") + motivo + "[/]")
+        raise SystemExit(1 if pendientes else 0)
 
     migrate()
 

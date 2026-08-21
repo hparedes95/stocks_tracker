@@ -19,6 +19,17 @@ def render_disclaimer(compact: bool = True) -> None:
         st.info(DISCLAIMER, icon=":material/info:")
 
 
+def _sesiones(n: int) -> str:
+    """"1 sesión" o "3 sesiones".
+
+    Existe porque la primera version escribia `f"sesión{'es' if n > 1 else ''}"`
+    y en pantalla salia "2 sesiónes". El acento va en la ultima silaba de
+    "sesión" y desaparece al pasar al plural; pegarle la terminacion a la forma
+    acentuada da una palabra que no existe.
+    """
+    return f"{n} sesión" if n == 1 else f"{n} sesiones"
+
+
 def render_freshness_badge() -> None:
     """Estado de los datos. Si están viejos hay que decirlo, no disimularlo."""
     if da.data_origin()["synthetic"]:
@@ -40,16 +51,27 @@ def render_freshness_badge() -> None:
     if hours is not None:
         detail += f" · última actualización hace {hours:.0f} h"
 
-    if info["sesiones_pendientes"]:
+    # El orden importa: SIN CALCULAR va primero. Cuando pasan las dos cosas, la
+    # que hay que arreglar es esta —los precios ya estan, lo que falta es
+    # convertirlos en indicadores— y mandar a descargar seria mandar a repetir
+    # lo que ya se hizo.
+    if info["sesiones_sin_calcular"]:
+        st.warning(
+            f"{detail}. **{_sesiones(info['sesiones_sin_calcular'])} "
+            "descargada(s) sin calcular.** Los precios están; falta convertirlos "
+            "en indicadores. Cierra el programa y vuelve a abrirlo desde el "
+            "acceso directo.",
+            icon=":material/calculate:",
+        )
+    elif info["sesiones_sin_descargar"]:
         # Se dice CUANTAS sesiones faltan y no "conviene actualizar", porque el
         # aviso viejo convivia con un "última actualización hace 21 h" que
         # sonaba a recién hecho. Con los dos delante no habia forma de saber que
         # el programa llevaba dos dias sin traer un cierre.
-        n = info["sesiones_pendientes"]
         st.warning(
-            f"{detail}. **Falta{'n' if n > 1 else ''} {n} sesión"
-            f"{'es' if n > 1 else ''} de mercado por descargar.** "
-            "Cierra el programa y vuelve a abrirlo desde el acceso directo.",
+            f"{detail}. **{_sesiones(info['sesiones_sin_descargar'])} "
+            "de mercado por descargar.** Cierra el programa y vuelve a abrirlo "
+            "desde el acceso directo.",
             icon=":material/schedule:",
         )
     elif info["is_stale"]:

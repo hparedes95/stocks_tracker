@@ -264,29 +264,67 @@ switch ($Task) {
     'update' {
         # Se pone al dia solo si hace falta. Lo llama el lanzador en cada
         # arranque, asi que tiene que ser instantaneo cuando no hay nada nuevo.
+        #
+        # SON DOS PREGUNTAS, NO UNA, Y CONFUNDIRLAS DEJO EL DASHBOARD PARADO.
+        #
+        # Antes esto era: preguntar "hace falta descargar?" y, si la respuesta
+        # era no, IRSE. Sin calcular.
+        #
+        # Las dos cosas se separan solas cada dos por tres: la descarga de la
+        # noche trae los precios, el calculo revienta o lo para la puerta de
+        # calidad, y desde ese momento el programa no vuelve a calcular por su
+        # cuenta nunca. La descarga sigue siendo reciente, asi que este bloque
+        # se seguia yendo por la puerta de atras en cada arranque. Los precios
+        # entrando cada noche y la portada ensenando el martes indefinidamente.
+        #
+        # Ahora se pregunta por separado y se calcula si hay precios sin
+        # calcular, se haya descargado hoy algo o no.
         Assert-Venv
+
         & $Py -m stocks_tracker.ingest.run_ingest --check-stale
+        $descargar = ($LASTEXITCODE -ne 0)
+
+        if ($descargar) {
+            Write-Step "Actualizando datos del mercado"
+            # --drop-synthetic es obligatorio aqui: el simulador genera series
+            # hasta hoy, asi que sin borrarlas la descarga incremental las ve
+            # al dia y no trae nada. Es inocuo si no hay datos de prueba.
+            & $Py -m stocks_tracker.ingest.run_ingest --drop-synthetic --what all
+            if ($LASTEXITCODE -eq 75) {
+                Write-Host "Ya hay otra actualizacion en marcha; se abre con lo que hay." -ForegroundColor Yellow
+                return
+            }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "La descarga ha fallado. Se conservan los datos anteriores." -ForegroundColor Yellow
+                # NO se sale: puede haber precios de una descarga anterior sin
+                # calcular, y eso hay que arreglarlo aunque hoy falle la red.
+            }
+            # Cripto tambien: es incremental y tarda segundos cuando no hay nada
+            # nuevo. Sin esto, el universo de acciones se mantendria al dia y el
+            # de cripto se quedaria congelado en la fecha de la instalacion, con
+            # el bot decidiendo sobre precios viejos.
+            & $Py -m stocks_tracker.ingest.ingest_crypto
+        }
+
+        & $Py -m stocks_tracker.compute.run_compute --check-stale
         if ($LASTEXITCODE -eq 0) { return }
 
-        Write-Step "Actualizando datos del mercado"
-        # --drop-synthetic es obligatorio aqui: el simulador genera series
-        # hasta hoy, asi que sin borrarlas la descarga incremental las ve
-        # al dia y no trae nada. Es inocuo si no hay datos de prueba.
-        & $Py -m stocks_tracker.ingest.run_ingest --drop-synthetic --what all
-        if ($LASTEXITCODE -eq 75) {
-            Write-Host "Ya hay otra actualizacion en marcha; se abre con lo que hay." -ForegroundColor Yellow
+        Write-Step "Calculando indicadores, ranking y senales"
+        & $Py -m stocks_tracker.compute.run_compute
+        if ($LASTEXITCODE -eq 77) {
+            # La puerta de calidad se ha negado a calcular. Es el sistema
+            # funcionando, pero si no se dice aqui el usuario ve el dashboard
+            # con datos viejos y ningun motivo: exactamente lo que pasaba.
+            Write-Host ""
+            Write-Host "  El calculo NO se ha ejecutado: los datos tienen problemas graves." -ForegroundColor Yellow
+            Write-Host "  Mira 'Estado de los datos' en el dashboard para ver cuales." -ForegroundColor Yellow
+            Write-Host ""
             return
         }
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "La descarga ha fallado. Se conservan los datos anteriores." -ForegroundColor Yellow
+            Write-Host "El calculo ha fallado. Se abre con los datos anteriores." -ForegroundColor Yellow
             return
         }
-        # Cripto tambien: es incremental y tarda segundos cuando no hay nada
-        # nuevo. Sin esto, el universo de acciones se mantendria al dia y el de
-        # cripto se quedaria congelado en la fecha de la instalacion, con el
-        # bot decidiendo sobre precios viejos.
-        & $Py -m stocks_tracker.ingest.ingest_crypto
-        & $Py -m stocks_tracker.compute.run_compute
         & $Py -m stocks_tracker.compute.run_compute --only scores --all-presets
         & $Py -m stocks_tracker.alerts.run_alerts
     }
