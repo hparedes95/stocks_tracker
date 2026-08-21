@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import timedelta
 
 import numpy as np
 import pandas as pd
@@ -967,35 +966,41 @@ def sesiones_sin_calcular() -> tuple[int, str]:
     reciente, asi que el lanzador se sigue yendo por la puerta de atras. Los
     precios entran cada noche y el dashboard ensena el martes para siempre.
 
-    Se comparan los PRECIOS con la sesion vigente, que sale de
-    `indicators_daily`. Si hay precios mas nuevos que indicadores, hay trabajo
-    pendiente, independientemente de cuando fue la ultima descarga.
+    SE COMPARA CON LOS INDICADORES, NO CON LA SESION VIGENTE. La primera version
+    de esto comparaba los precios con `current_session`, y era una pregunta que
+    NUNCA se podia satisfacer: la sesion vigente exige el 60 % de cobertura, asi
+    que con una sesion descargada a medias el calculo se ejecutaba, hacia su
+    trabajo, y el contador seguia diciendo "1 pendiente". El lanzador
+    recalculaba el universo entero en cada arranque, para siempre, sin que nada
+    cambiara.
+
+    "Descargado sin calcular" es precios que no tienen indicador. En cuanto el
+    calculo corre, eso es cero. Que ademas la sesion resultante sea completa o
+    no es otra pregunta —y tiene su propio contador.
     """
+    from ..core import sesiones as ses
+
     with connect(read_only=True) as conn:
         ultimo_precio = conn.execute(
             "SELECT MAX(p.date) FROM prices_daily p JOIN instruments i USING (ticker) "
             "WHERE i.asset_class IN ('equity', 'etf')"
         ).fetchone()[0]
-        fila = conn.execute("SELECT date FROM current_session").fetchone()
+        ultimo_indicador = conn.execute(
+            "SELECT MAX(d.date) FROM indicators_daily d JOIN instruments i USING (ticker) "
+            "WHERE i.asset_class IN ('equity', 'etf')"
+        ).fetchone()[0]
 
     if ultimo_precio is None:
         return 0, "no hay precios que calcular"
-    if fila is None or fila[0] is None:
+    if ultimo_indicador is None:
         return 1, "hay precios y no hay ningun indicador calculado"
 
-    calculado = pd.Timestamp(fila[0]).date()
+    calculado = pd.Timestamp(ultimo_indicador).date()
     descargado = pd.Timestamp(ultimo_precio).date()
     if descargado <= calculado:
         return 0, f"al dia (calculado hasta el {calculado})"
 
-    # Dias de mercado entre una y otra. Los festivos inflan la cuenta y por eso
-    # el numero es un techo, no una cifra exacta: para decidir si calcular vale,
-    # porque cero significa "no falta nada" con certeza.
-    pendientes = sum(
-        1 for n in range((descargado - calculado).days)
-        if (calculado + timedelta(days=n + 1)).weekday() < 5
-    )
-    return max(pendientes, 1), (
+    return max(ses.sesiones_de_mercado(calculado, descargado), 1), (
         f"hay precios hasta el {descargado} y solo estan calculados hasta el "
         f"{calculado}"
     )

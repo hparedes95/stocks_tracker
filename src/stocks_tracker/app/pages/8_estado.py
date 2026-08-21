@@ -95,7 +95,25 @@ st.caption(
     f"{len(da.instruments())} instrumentos]"
 )
 
-if info["sesiones_sin_calcular"]:
+if info["sesiones_a_medias"]:
+    filas = "\n".join(
+        f"- **{f:%d/%m/%Y}**: {n} valores, hacen falta {m:.0f}"
+        for f, n, m in info["sesiones_a_medias"]
+    )
+    st.warning(
+        "**Hay sesiones a medias en el almacén, y son las que explican que la "
+        "portada no avance.**\n\n"
+        f"{filas}\n\n"
+        "Una sesión se considera completa cuando reúne al menos el 60 % de los "
+        "valores del día más poblado. Por debajo de eso existe, se calcula, y "
+        "el dashboard no la enseña: enseñar un día con veinte valores de "
+        "seiscientos sería enseñar un mercado que no ocurrió.\n\n"
+        "La causa es siempre una descarga que se cortó por el camino. Se "
+        "arregla volviendo a descargar: cierra el programa y ábrelo desde el "
+        "acceso directo.",
+        icon=":material/hourglass_disabled:",
+    )
+elif info["sesiones_sin_calcular"]:
     st.warning(
         f"**Hay {info['sesiones_sin_calcular']} sesión(es) descargada(s) que no "
         "se han calculado.** Los precios están en el almacén; lo que falta es "

@@ -18,7 +18,7 @@ from datetime import time as dtime
 import pandas as pd
 from rich.console import Console
 
-from ..core import audit, corporate, membership, quality
+from ..core import audit, corporate, membership, quality, sesiones
 from ..core.config import (
     all_active_tickers,
     get_active_universes,
@@ -651,7 +651,15 @@ def needs_update(max_age_hours: float | None = None,
             synthetic = conn.execute(
                 "SELECT COUNT(*) FROM prices_daily WHERE source = 'synthetic'"
             ).fetchone()[0]
-            last_price = conn.execute("SELECT MAX(date) FROM prices_daily").fetchone()[0]
+            # LA ULTIMA SESION COMPLETA, no `MAX(date)`.
+            #
+            # `MAX(date)` miente con 623 valores: basta que UNO tenga la barra
+            # de ayer para que diga "ayer". Paso de verdad —la descarga
+            # reventaba a mitad, entraban tres indices y ni una accion— y desde
+            # entonces esta funcion respondia "al dia" en cada arranque y no se
+            # volvia a descargar nunca. Nada fallaba a la vista: el dashboard
+            # simplemente se quedo tres dias en la misma sesion.
+            last_price = sesiones.ultima_completa(conn, "prices_daily")
             last_run = conn.execute(
                 "SELECT MAX(finished_at) FROM ingest_log WHERE status IN ('OK','PARTIAL')"
             ).fetchone()[0]
@@ -663,7 +671,7 @@ def needs_update(max_age_hours: float | None = None,
     if synthetic:
         return True, f"hay {synthetic} precios de prueba"
     if last_price is None:
-        return True, "el almacen esta vacio"
+        return True, "no hay ninguna sesion completa en el almacen"
     if last_run is None:
         return True, "no consta ninguna descarga"
 
@@ -679,7 +687,7 @@ def needs_update(max_age_hours: float | None = None,
         return True, f"la ultima descarga fue hace {hours:.0f} h"
 
     sesion = ultima_sesion_cerrada(momento)
-    if pd.Timestamp(last_price).date() < sesion:
+    if last_price < sesion:
         # Y solo si no se ha intentado ya desde que esa sesion cerro. Sin esto,
         # un festivo pediria descargar en cada arranque para siempre.
         cerro = pd.Timestamp(
@@ -687,8 +695,8 @@ def needs_update(max_age_hours: float | None = None,
         ) - HORAS_DE_MADRID
         if pd.Timestamp(last_run) < cerro:
             return True, (
-                f"el mercado cerro el {sesion:%d/%m} y el ultimo precio "
-                f"guardado es del {pd.Timestamp(last_price).date():%d/%m}"
+                f"el mercado cerro el {sesion:%d/%m} y la ultima sesion "
+                f"completa que hay es la del {last_price:%d/%m}"
             )
 
     return False, f"al dia (ultima descarga hace {hours:.0f} h)"

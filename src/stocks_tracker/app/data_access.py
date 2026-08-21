@@ -7,12 +7,13 @@ responde en milisegundos y se puede cambiar el esquema en un solo sitio.
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date
 
 import pandas as pd
 import streamlit as st
 
 from ..compute.run_compute import sesiones_sin_calcular
+from ..core import sesiones
 from ..core.config import (
     get_active_universes,
     get_breadth_scope,
@@ -99,21 +100,26 @@ def data_freshness() -> dict:
     hours = hours_since(last_run)
     sin_calcular, por_que = sesiones_sin_calcular()
     sin_descargar = sesiones_sin_descargar()
+    medias = sesiones_a_medias()
     return {
         "last_price_date": last_date,
         "last_run": last_run,
         "hours_since_run": hours,
-        # DOS NUMEROS Y NO UNO, porque son dos averias distintas con dos
-        # arreglos distintos.
+        # TRES NUMEROS Y NO UNO. "El dashboard no avanza" son tres averias
+        # distintas con tres arreglos distintos, y durante dos dias se
+        # ensenaron como una sola:
         #
-        # La primera version de esto tenia un solo contador, "sesiones
-        # pendientes", calculado sobre la sesion VIGENTE —que sale de los
-        # indicadores— y etiquetado como "sin descargar". En el caso real que lo
-        # destapo, los precios estaban descargados y lo que fallaba era el
-        # calculo: el aviso mandaba a descargar lo que ya estaba y no decia una
-        # palabra de lo unico que hacia falta.
+        #   - faltan precios           -> descargar
+        #   - hay precios sin calcular -> calcular
+        #   - hay sesiones A MEDIAS    -> volver a descargar ESAS sesiones
+        #
+        # La tercera no la reportaba nadie y era justo la que habia. Una
+        # descarga que revienta a mitad deja la sesion con veinte valores de
+        # seiscientos: existe, se calcula, y el dashboard no la ensena porque no
+        # llega al 60 % de cobertura. Desde fuera se ve igual que las otras dos.
         "sesiones_sin_descargar": sin_descargar,
         "sesiones_sin_calcular": sin_calcular,
+        "sesiones_a_medias": medias,
         "por_que_sin_calcular": por_que,
         # `df.empty` NO basta, y es la trampa que tumbaba la pagina de estado en
         # una instalacion recien hecha. Un `SELECT SUM(...)` sin `GROUP BY`
@@ -123,36 +129,37 @@ def data_freshness() -> dict:
         "failures": _entero(df.iloc[0]["failures"]) if not df.empty else 0,
         "warn_hours": warn_hours,
         "is_stale": (hours is not None and hours > warn_hours)
-                    or sin_descargar > 0 or sin_calcular > 0,
+                    or sin_descargar > 0 or sin_calcular > 0 or bool(medias),
     }
 
 
 def sesiones_sin_descargar() -> int:
-    """Sesiones de mercado ya cerradas que NO estan en `prices_daily`.
+    """Sesiones de mercado ya cerradas que no estan COMPLETAS en el almacen.
 
-    Se mide contra los PRECIOS y no contra la sesion vigente. La sesion vigente
-    sale de los indicadores, asi que un calculo parado la deja congelada y este
-    numero acusaria de "no descargado" lo que si esta descargado, que es
-    exactamente el diagnostico equivocado que hubo que corregir.
+    Completas y no "presentes": con 623 valores, `MAX(date)` se satisface con
+    UNO. Cuando la descarga reventaba a mitad y entraban tres indices, el
+    maximo decia "ayer" y todo el que preguntaba recibia un si con 620 valores
+    sin bajar.
 
     Los festivos inflan la cuenta —no se conocen aqui— asi que es un TECHO. Para
     decidir si avisar vale: cero significa "no falta nada" con certeza.
     """
-    df = _fetch(
-        "SELECT MAX(p.date) AS d FROM prices_daily p JOIN instruments i USING (ticker) "
-        "WHERE i.asset_class IN ('equity', 'etf')"
-    )
-    if df.empty or pd.isna(df.iloc[0]["d"]):
-        return 0
-    descargado = pd.Timestamp(df.iloc[0]["d"]).date()
+    with connect(read_only=True) as conn:
+        completa = sesiones.ultima_completa(conn, "prices_daily")
+    return sesiones.sesiones_de_mercado(completa, run_ingest.ultima_sesion_cerrada())
 
-    dia = run_ingest.ultima_sesion_cerrada()
-    dias = 0
-    while dia > descargado:
-        if dia.weekday() < 5:
-            dias += 1
-        dia -= timedelta(days=1)
-    return dias
+
+def sesiones_a_medias() -> list[tuple]:
+    """Sesiones que estan en el almacen y el dashboard NO ensena.
+
+    Existen, se han calculado, y no llegan al 60 % de cobertura que exige la
+    sesion vigente. Es lo que deja una descarga que revienta a mitad, y el unico
+    de los tres problemas de frescura que no se veia por ningun sitio: ni sale
+    en descargas fallidas, ni en sesiones sin calcular, ni en sesiones sin
+    descargar. Simplemente el dashboard no avanzaba.
+    """
+    with connect(read_only=True) as conn:
+        return sesiones.incompletas(conn, "indicators_daily")
 
 
 def _entero(valor) -> int:

@@ -39,7 +39,7 @@ def _import_yfinance():
     return yf
 
 
-def _extraer_acciones(frames: list) -> pd.DataFrame:
+def _extraer_acciones(frames: list) -> list[dict]:
     """Dividendos y splits que venian en la misma descarga de precios.
 
     Yahoo los sirve como dos columnas mas —a cero casi todos los dias— dentro
@@ -52,9 +52,8 @@ def _extraer_acciones(frames: list) -> pd.DataFrame:
     tampoco se puede comprobar que un split conserve el valor economico, que es
     la unica manera de detectar que el proveedor lo ha aplicado mal.
     """
-    vacio = pd.DataFrame(columns=["ticker", "date", "action_type", "value"])
     if not frames:
-        return vacio
+        return []
 
     filas = []
     for frame in frames:
@@ -80,13 +79,13 @@ def _extraer_acciones(frames: list) -> pd.DataFrame:
             filas.append(trozo)
 
     if not filas:
-        return vacio
+        return []
     salida = pd.concat(filas, ignore_index=True)
     salida["date"] = pd.to_datetime(salida["date"], errors="coerce").dt.date
     salida = salida[salida["date"].notna()]
     return salida.drop_duplicates(
         subset=["ticker", "date", "action_type"]
-    ).reset_index(drop=True)
+    ).to_dict("records")
 
 
 def _is_rate_limit(exc: Exception) -> bool:
@@ -177,6 +176,20 @@ class YFinanceProvider:
         result.attrs["requests_used"] = self.requests_used
         # Los eventos viajan APARTE y no como columnas del OHLCV: el esquema
         # canonico de precios no los tiene, y `normalize_ohlcv` los tiraria.
+        #
+        # COMO LISTA DE DICCIONARIOS Y NUNCA COMO DataFrame. Aqui hubo una
+        # averia que tumbaba la descarga entera:
+        #
+        #   ValueError: The truth value of a DataFrame is ambiguous
+        #
+        # pandas propaga `attrs` en cada operacion, y para hacerlo compara los
+        # de los dos lados con `==`. Comparar dos DataFrames no devuelve
+        # True/False: devuelve otro DataFrame, y evaluarlo como condicion
+        # revienta. Asi que un DataFrame metido en `attrs` no falla al meterlo:
+        # falla mas tarde, en el primer `merge` o `concat` que toque esa tabla,
+        # con un error que no menciona `attrs` por ninguna parte.
+        #
+        # Una lista de diccionarios se compara sin drama.
         result.attrs["corporate_actions"] = _extraer_acciones(frames)
         return result
 

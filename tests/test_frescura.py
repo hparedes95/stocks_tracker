@@ -92,6 +92,11 @@ def almacen(tmp_path, monkeypatch):
 
 def sembrar(ultimo_precio: date, ultima_descarga: datetime) -> None:
     with db.connect() as conn:
+        # Con su ficha: "sesion completa" se mide sobre acciones y ETF, asi que
+        # unos precios sin instrumento no cuentan como sesion ninguna.
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": "AAA", "asset_class": "equity", "is_active": True},
+        ]), keys=["ticker"])
         db.upsert_df(conn, "prices_daily", pd.DataFrame([
             {"ticker": "AAA", "date": ultimo_precio, "open": 100.0, "high": 101.0,
              "low": 99.0, "close": 100.0, "adj_close": 100.0, "volume": 1_000,
@@ -220,7 +225,7 @@ def test_un_almacen_vacio_pide_datos(almacen):
     hace_falta, motivo = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 20, 0))
 
     assert hace_falta
-    assert "vacio" in motivo or "descarga" in motivo
+    assert "sesion completa" in motivo or "descarga" in motivo
 
 
 # ---------------------------------------------------------------------------
@@ -514,3 +519,193 @@ def test_el_plural_de_sesion_no_lleva_acento():
 
     assert _sesiones(1) == "1 sesión"
     assert _sesiones(2) == "2 sesiones"
+
+
+# ---------------------------------------------------------------------------
+# LA SESION A MEDIAS: la tercera averia, y la que de verdad tenia parado esto
+#
+# Sale del log de la maquina del usuario:
+#
+#   El almacen llega al 20/08/2026, pero la ultima sesion completa es el
+#   18/08/2026 (601 valores). Se puntua esa.
+#
+# La descarga de precios reventaba a mitad (un DataFrame en `df.attrs`, ver
+# test_attrs_no_tumban_la_descarga.py). Entraban unos pocos valores del 19 y del
+# 20, se calculaban, y el dashboard no los ensenaba porque no llegan al 60 % de
+# cobertura que exige `current_session`.
+#
+# Desde fuera eso se ve exactamente igual que "no se ha descargado" y que "no se
+# ha calculado", y no lo reportaba nadie.
+# ---------------------------------------------------------------------------
+
+def con_sesion_a_medias(completa: date, medias: date, cuantos: int = 3) -> None:
+    """Una sesion entera y otra con cuatro gatos, como la deja un crash."""
+    with db.connect() as conn:
+        nombres = [f"T{i:02d}" for i in range(20)]
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": t, "asset_class": "equity", "is_active": True}
+            for t in nombres
+        ]), keys=["ticker"])
+        filas = [
+            {"ticker": t, "date": completa, "close": 100.0} for t in nombres
+        ] + [
+            {"ticker": t, "date": medias, "close": 100.0}
+            for t in nombres[:cuantos]
+        ]
+        db.upsert_df(conn, "indicators_daily", pd.DataFrame(filas),
+                     keys=["ticker", "date"])
+        db.upsert_df(conn, "prices_daily", pd.DataFrame([
+            {"ticker": f["ticker"], "date": f["date"], "open": 100.0,
+             "high": 101.0, "low": 99.0, "close": 100.0, "adj_close": 100.0,
+             "volume": 1_000, "source": "yfinance"}
+            for f in filas
+        ]), keys=["ticker", "date"])
+
+
+def test_una_sesion_a_medias_se_nombra(almacen):
+    """Existe, esta calculada, y el dashboard no la ensena. Sin nombrarla, el
+    usuario no tiene forma de saber por que no avanza."""
+    from stocks_tracker.app import data_access as da
+
+    con_sesion_a_medias(completa=MARTES, medias=MIERCOLES, cuantos=3)
+
+    medias = da.sesiones_a_medias()
+
+    assert len(medias) == 1
+    fecha, valores, minimo = medias[0]
+    assert fecha == MIERCOLES
+    assert valores == 3
+    assert minimo == pytest.approx(20 * 0.6)
+
+
+def test_una_sesion_completa_no_se_nombra(almacen):
+    from stocks_tracker.app import data_access as da
+
+    con_sesion_a_medias(completa=MARTES, medias=MIERCOLES, cuantos=20)
+
+    assert da.sesiones_a_medias() == []
+
+
+def test_una_sesion_a_medias_no_cuenta_como_descargada(almacen, monkeypatch):
+    """EL FALLO QUE DEJO AL USUARIO SIN DESCARGAR DURANTE DIAS.
+
+    `MAX(date)` se satisface con UN ticker. Con tres indices dentro del 20/08 y
+    ni una accion, el maximo decia "20/08", el lanzador respondia "al dia" y no
+    se volvia a descargar nunca. Nada fallaba a la vista.
+    """
+    from stocks_tracker.app import data_access as da
+
+    monkeypatch.setattr(run_ingest, "ultima_sesion_cerrada",
+                        lambda ahora=None: MIERCOLES)
+    con_sesion_a_medias(completa=MARTES, medias=MIERCOLES, cuantos=3)
+
+    assert da.sesiones_sin_descargar() == 1, (
+        "una sesion con 3 valores de 20 cuenta como descargada"
+    )
+
+
+def test_el_contador_de_sin_calcular_se_puede_satisfacer(almacen):
+    """REGRESION MIA, Y DE LAS MALAS.
+
+    La primera version comparaba los precios con la sesion VIGENTE, que exige el
+    60 % de cobertura. Con una sesion a medias, el calculo se ejecutaba, hacia
+    su trabajo, y el contador seguia diciendo "1 pendiente": el lanzador
+    recalculaba el universo entero en cada arranque, para siempre, sin que nada
+    cambiara nunca.
+
+    Un "hay trabajo pendiente" que ninguna cantidad de trabajo puede satisfacer
+    no es un aviso, es un bucle.
+    """
+    from stocks_tracker.compute.run_compute import sesiones_sin_calcular
+
+    con_sesion_a_medias(completa=MARTES, medias=MIERCOLES, cuantos=3)
+
+    pendientes, motivo = sesiones_sin_calcular()
+
+    assert pendientes == 0, (
+        f"con todo calculado sigue pidiendo calcular: {motivo}. El lanzador "
+        "recalcularia el universo entero en cada arranque."
+    )
+
+
+def test_el_aviso_de_sesion_a_medias_sale_antes_que_los_otros(tmp_path, almacen,
+                                                              monkeypatch):
+    """Se PINTA y se lee. Es la averia que explica las otras dos, asi que es la
+    que hay que nombrar; mandar a calcular lo que ya esta calculado fue lo que
+    hizo perder dos dias."""
+    monkeypatch.setattr(run_ingest, "ultima_sesion_cerrada",
+                        lambda ahora=None: MIERCOLES)
+    con_sesion_a_medias(completa=MARTES, medias=MIERCOLES, cuantos=3)
+    sembrar(ultimo_precio=MIERCOLES, ultima_descarga=datetime(2026, 8, 19, 21, 30))
+
+    avisos = _pintar_cabecera(tmp_path)
+
+    assert "medias" in avisos.lower(), avisos
+    assert "3 valores" in avisos, avisos
+
+
+def test_una_sesion_a_medias_no_deja_al_dia_a_la_ingesta(almacen):
+    """EL ESTADO EXACTO EN QUE QUEDO LA MAQUINA DEL USUARIO.
+
+    La descarga reventaba a mitad. Entraban unos pocos valores del miercoles y
+    ninguno mas. `MAX(date)` decia "miercoles", `needs_update` respondia "al
+    dia", y el lanzador no volvia a descargar NUNCA: ni ese dia ni los
+    siguientes. Cero descargas fallidas en pantalla, porque el proceso moria
+    antes de escribir la fila de fallo.
+
+    Escrito porque faltaba: mutando `ultima_completa` de vuelta a `MAX(date)`,
+    los 34 tests de este fichero seguian en verde.
+    """
+    con_sesion_a_medias(completa=MARTES, medias=MIERCOLES, cuantos=3)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO ingest_log VALUES ('r1', ?, ?, 'prices', 'all', 'OK', 1, 1, '')",
+            [pd.Timestamp(datetime(2026, 8, 19, 15, 0)),
+             pd.Timestamp(datetime(2026, 8, 19, 15, 0))],
+        )
+
+    hace_falta, motivo = run_ingest.needs_update(
+        ahora=datetime(2026, 8, 20, 20, 0))
+
+    assert hace_falta, (
+        f"tres valores de veinte cuentan como sesion descargada: {motivo}. "
+        "Asi es como el programa dejo de descargar durante dias."
+    )
+
+
+def test_el_umbral_de_python_y_el_del_esquema_no_se_separan():
+    """La misma regla escrita en dos sitios: la vista `current_ession` la lleva
+    en SQL y `core/sesiones` en Python.
+
+    Estan duplicadas a proposito —la vista tiene que poder consultarse sin pasar
+    por Python— pero si se separan, el dashboard ensena una sesion y el lanzador
+    decide sobre otra. Es el mismo fallo que ya hubo con el ranking puntuando un
+    dia y las pantallas leyendo otro.
+    """
+    from stocks_tracker.core import sesiones as ses
+    from stocks_tracker.core.config import project_root
+
+    esquema = (project_root() / "src/stocks_tracker/core/schema.sql").read_text("utf-8")
+    vista = esquema[esquema.index("CREATE OR REPLACE VIEW current_session"):]
+    vista = vista[:vista.index(";")]
+
+    assert f"* {ses.UMBRAL_COMPLETA}" in vista, (
+        f"la vista no usa {ses.UMBRAL_COMPLETA}: {vista}"
+    )
+    assert f"LIMIT {ses.VENTANA}" in vista, (
+        f"la vista mira una ventana distinta de {ses.VENTANA} sesiones"
+    )
+
+
+def test_la_vista_y_python_dan_la_misma_sesion(almacen):
+    """Y la prueba de verdad de lo anterior: los dos caminos sobre los mismos
+    datos tienen que devolver la misma fecha."""
+    from stocks_tracker.core import sesiones as ses
+
+    con_sesion_a_medias(completa=MARTES, medias=MIERCOLES, cuantos=3)
+
+    with db.connect(read_only=True) as conn:
+        de_la_vista = conn.execute("SELECT date FROM current_session").fetchone()[0]
+        de_python = ses.ultima_completa(conn, "indicators_daily")
+
+    assert pd.Timestamp(de_la_vista).date() == de_python

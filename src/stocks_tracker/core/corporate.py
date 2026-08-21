@@ -233,9 +233,21 @@ def comprobar_splits(precios: pd.DataFrame,
     return fuera
 
 
-def guardar(conn, acciones: pd.DataFrame) -> int:
-    """Escribe los eventos, sin duplicar los que ya estaban."""
-    if acciones is None or acciones.empty:
+def guardar(conn, acciones) -> int:
+    """Escribe los eventos, sin duplicar los que ya estaban.
+
+    Acepta un DataFrame o una lista de diccionarios. Los proveedores los mandan
+    como lista a proposito: viajan dentro de `df.attrs`, y un DataFrame ahi
+    dentro tumba la descarga entera en el primer `merge` que pandas haga
+    —compara los `attrs` con `==` y comparar DataFrames no da un booleano—.
+    """
+    if acciones is None:
+        return 0
+    if not isinstance(acciones, pd.DataFrame):
+        acciones = pd.DataFrame(
+            list(acciones), columns=["ticker", "date", "action_type", "value"]
+        )
+    if acciones.empty:
         return 0
     filas = acciones[["ticker", "date", "action_type", "value"]].copy()
     filas["date"] = pd.to_datetime(filas["date"]).dt.date

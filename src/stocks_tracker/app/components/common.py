@@ -51,11 +51,23 @@ def render_freshness_badge() -> None:
     if hours is not None:
         detail += f" · última actualización hace {hours:.0f} h"
 
-    # El orden importa: SIN CALCULAR va primero. Cuando pasan las dos cosas, la
-    # que hay que arreglar es esta —los precios ya estan, lo que falta es
-    # convertirlos en indicadores— y mandar a descargar seria mandar a repetir
-    # lo que ya se hizo.
-    if info["sesiones_sin_calcular"]:
+    # El orden es de causa a efecto, no de gravedad. Una sesion A MEDIAS es lo
+    # que deja una descarga que revienta, y mientras siga a medias las otras dos
+    # cuentas dicen cosas raras. Se nombra primero porque es la que explica el
+    # resto.
+    if info["sesiones_a_medias"]:
+        fecha, valores, minimo = info["sesiones_a_medias"][-1]
+        st.warning(
+            f"{detail}. **La sesión del {fecha:%d/%m} está a medias: "
+            f"{valores} valores de los {minimo:.0f} que hacen falta.** "
+            "Una descarga se cortó por el camino. Cierra el programa y vuelve a "
+            "abrirlo desde el acceso directo para completarla.",
+            icon=":material/hourglass_disabled:",
+        )
+    # SIN CALCULAR antes que SIN DESCARGAR: cuando pasan las dos, los precios ya
+    # estan y lo que falta es convertirlos en indicadores. Mandar a descargar
+    # seria mandar a repetir lo que ya se hizo.
+    elif info["sesiones_sin_calcular"]:
         st.warning(
             f"{detail}. **{_sesiones(info['sesiones_sin_calcular'])} "
             "descargada(s) sin calcular.** Los precios están; falta convertirlos "

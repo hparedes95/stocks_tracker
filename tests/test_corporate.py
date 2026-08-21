@@ -300,9 +300,12 @@ def test_los_dias_sin_evento_no_se_guardan():
 
     salida = _extraer_acciones([frame])
 
+    # Lista de diccionarios y NO un DataFrame: viaja dentro de `df.attrs`, y
+    # un DataFrame ahi dentro tumba la descarga entera en el primer merge.
+    # Ver tests/test_attrs_no_tumban_la_descarga.py.
     assert len(salida) == 2
-    assert set(salida["action_type"]) == {"dividend", "split"}
-    assert salida.set_index("action_type").loc["split", "value"] == 4.0
+    assert {e["action_type"] for e in salida} == {"dividend", "split"}
+    assert next(e["value"] for e in salida if e["action_type"] == "split") == 4.0
 
 
 def test_sin_columnas_de_eventos_no_revienta():
@@ -311,5 +314,5 @@ def test_sin_columnas_de_eventos_no_revienta():
 
     frame = pd.DataFrame({"ticker": ["^GSPC"], "date": [INICIO], "close": [4000.0]})
 
-    assert _extraer_acciones([frame]).empty
-    assert _extraer_acciones([]).empty
+    assert _extraer_acciones([frame]) == []
+    assert _extraer_acciones([]) == []

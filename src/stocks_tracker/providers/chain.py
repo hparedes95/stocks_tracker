@@ -44,6 +44,7 @@ class ChainPriceProvider:
         requests_used = 0
         by_source: dict[str, int] = {}
         relayed: dict[str, str] = {}
+        eventos: list[dict] = []
 
         for provider in self._providers:
             if not pending:
@@ -71,6 +72,7 @@ class ChainPriceProvider:
                 continue
 
             requests_used += int(df.attrs.get("requests_used", 0))
+            eventos.extend(df.attrs.get("corporate_actions") or [])
             if df.empty:
                 continue
 
@@ -100,6 +102,14 @@ class ChainPriceProvider:
         result.attrs["requests_used"] = requests_used
         result.attrs["rows_by_source"] = by_source
         result.attrs["relayed_tickers"] = relayed
+        # Los dividendos y splits que traiga cualquier proveedor de la cadena.
+        #
+        # Se perdian aqui, y por eso `corporate_actions` seguia vacia aunque
+        # yfinance los estuviera trayendo: la cadena construye un DataFrame
+        # nuevo con `concat` y `attrs` no viaja solo. En la practica, el trabajo
+        # de pedirlos se hacia y el resultado se tiraba a la basura una linea
+        # antes de guardarlo.
+        result.attrs["corporate_actions"] = eventos
         return result
 
     # ------------------------------------------------------------------
