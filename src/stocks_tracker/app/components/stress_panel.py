@@ -26,6 +26,34 @@ def _mercado(desde, hasta) -> float | None:
     return devuelto.get(da.MERCADO_TICKER)
 
 
+def cartera_en_euros(positions: pd.DataFrame) -> tuple[list[dict], int]:
+    """La cartera que se puede analizar, y CUANTAS posiciones se han quedado
+    fuera.
+
+    Devuelve las dos cosas juntas a proposito. Todo lo que sale de este panel es
+    un PESO RELATIVO —cuanto pierde la cartera en una caida, cuantas apuestas
+    independientes hay—, asi que:
+
+    - Se pesa en euros (`valor_eur`) y no en la divisa de cada valor. Pesar
+      dolares contra euros sin convertir hace las posiciones en dolares un 17 %
+      mas grandes de lo que son. Se cae a `valor` si la columna no viene, para
+      no romper a quien llame sin ella.
+    - Las posiciones que no se pueden valorar se caen del filtro SIN HACER
+      RUIDO, y el resultado se presentaba como si fuera la cartera entera. Por
+      eso el numero de descartadas sale por la puerta principal y no como un
+      detalle interno: quien pinte esto tiene que decirlo.
+    """
+    columna = "valor_eur" if "valor_eur" in positions.columns else "valor"
+    filas = positions[["ticker", columna, "gics_sector"]]
+    cartera = [
+        {"ticker": str(f[0]), "valor": float(f[1]),
+         "sector": (None if pd.isna(f[2]) else str(f[2]))}
+        for f in filas.itertuples(index=False)
+        if pd.notna(f[1]) and float(f[1]) > 0
+    ]
+    return cartera, len(positions) - len(cartera)
+
+
 def render_stress_panel(positions: pd.DataFrame) -> None:
     st.subheader("Qué pasaría si volviera a pasar")
     st.caption(
@@ -40,21 +68,18 @@ def render_stress_panel(positions: pd.DataFrame) -> None:
         st.caption("Sin posiciones que poner a prueba.")
         return
 
-    # `valor_eur` y no `valor`: todo lo que sale de aqui es un PESO relativo
-    # dentro de la cartera —cuanto pesa cada posicion en la caida y cuantas
-    # apuestas de verdad hay—, y pesar dolares contra euros sin convertir hace
-    # las posiciones en dolares un 17 % mas grandes de lo que son. Se cae a
-    # `valor` si la columna no viene, para no romper a quien llame sin ella.
-    columna = "valor_eur" if "valor_eur" in positions.columns else "valor"
-    cartera = [
-        {"ticker": str(f[0]), "valor": float(f[1]),
-         "sector": (None if pd.isna(f[2]) else str(f[2]))}
-        for f in positions[["ticker", columna, "gics_sector"]].itertuples(index=False)
-        if pd.notna(f[1]) and float(f[1]) > 0
-    ]
+    cartera, sin_valorar = cartera_en_euros(positions)
     if not cartera:
         st.caption("Sin posiciones valoradas.")
         return
+
+    if sin_valorar:
+        st.warning(
+            f"{sin_valorar} de tus {len(positions)} posiciones no se han podido "
+            "valorar en euros y quedan FUERA de este análisis. Lo que sale "
+            "abajo es tu cartera sin ellas, no tu cartera.",
+            icon=":material/warning:",
+        )
 
     tickers = tuple(sorted({p["ticker"] for p in cartera}))
 

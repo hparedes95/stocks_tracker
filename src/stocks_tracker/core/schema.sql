@@ -796,3 +796,19 @@ ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS intentos INTEGER;
 -- automaticos al reimportar el extracto), y ahi se sigue estimando, pero ahora
 -- se puede distinguir un dato de una aproximacion.
 ALTER TABLE positions ADD COLUMN IF NOT EXISTS close_price DOUBLE;
+
+-- POR QUE se cerro una posicion. No todo cierre es una venta.
+--
+-- `replace_positions` cierra filas por dos motivos que no se parecen en nada:
+--
+--   'venta'         el valor ya no sale en el extracto: lo vendiste.
+--   'consolidacion' el valor SIGUE en el extracto, pero tenias varios lotes y
+--                   el extracto trae una sola linea agregada. Se conserva el
+--                   lote mas antiguo y los demas se cierran. No has vendido
+--                   nada: es una fusion contable.
+--
+-- Sin distinguirlas, una consolidacion aparecia en `get_closed_sales` como una
+-- venta con perdida y disparaba la regla de los dos meses sobre una posicion
+-- que sigue intacta. NULL en las filas antiguas se lee como 'venta', que es lo
+-- que eran antes de que existiera la consolidacion.
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS closed_reason VARCHAR;

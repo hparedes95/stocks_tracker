@@ -85,16 +85,19 @@ def tipos(conn, hasta: object | None = None) -> dict[str, float]:
         list(PARES.values()),
     ).fetchall()
 
-    referencia = pd.Timestamp(hasta) if hasta is not None else None
-    if referencia is None and filas:
-        referencia = max(pd.Timestamp(f[2]) for f in filas)
+    # La referencia es HOY, no la fecha mas nueva de los propios tipos.
+    #
+    # Comparando cada par contra el maximo de los pares, si TODOS estan igual de
+    # viejos la guarda no salta nunca: el mas nuevo es su propia referencia,
+    # antiguedad cero, y la cartera se valora con tipos de hace un mes sin que
+    # nada lo diga. Justo el caso que importa —el programa lleva dias sin
+    # descargar— era el unico que la guarda no veia.
+    referencia = pd.Timestamp(hasta) if hasta is not None else pd.Timestamp.today()
 
     por_ticker = {}
     for ticker, close, fecha in filas:
-        if referencia is not None:
-            antiguedad = (referencia - pd.Timestamp(fecha)).days
-            if antiguedad > MAX_DIAS_TIPO:
-                continue
+        if (referencia - pd.Timestamp(fecha)).days > MAX_DIAS_TIPO:
+            continue
         por_ticker[ticker] = float(close)
 
     return {divisa: por_ticker[t] for divisa, t in PARES.items() if t in por_ticker}
@@ -129,7 +132,21 @@ def total(importes: pd.Series) -> float:
     return float(pd.to_numeric(importes, errors="coerce").sum(skipna=False))
 
 
+SIN_DIVISA = "(sin divisa)"
+
+
 def sin_tipo(divisas: pd.Series, tipos_cambio: dict[str, float]) -> list[str]:
-    """Las divisas presentes para las que no hay tipo. Para poder decirlo."""
-    codigos = set(divisas.astype("string").str.upper().dropna())
-    return sorted(c for c in codigos if c != BASE and c not in tipos_cambio)
+    """Las divisas presentes para las que no hay tipo. Para poder decirlo.
+
+    Una divisa NULL cuenta y se nombra. Antes esto hacia `dropna()` mientras
+    `a_base` hacia `fillna("")`, asi que una posicion sin divisa anulaba el
+    total pero no aparecia en la lista de lo que falta. Y como la pantalla
+    decide entre el aviso y la nota con `if faltan / elif hay varias divisas`,
+    el resultado era un total vacio sin una sola linea que lo explicara.
+    """
+    codigos = divisas.astype("string").str.upper()
+    fuera = {c for c in codigos.dropna()
+             if c and c != BASE and c not in tipos_cambio}
+    if codigos.isna().any() or (codigos.fillna("") == "").any():
+        fuera.add(SIN_DIVISA)
+    return sorted(fuera)

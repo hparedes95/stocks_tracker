@@ -323,6 +323,25 @@ def _last_dates() -> dict[str, date]:
     return {r.ticker: pd.Timestamp(r.last_date).date() for r in df.itertuples()}
 
 
+def ambito_de(full: bool) -> str:
+    """Contra que se mide la fraccion de barras imposibles de esta descarga.
+
+    Lo decide el TAMANO DEL DENOMINADOR, no quien llama.
+
+    Una ingesta incremental trae unas decenas de filas, y ahi el umbral estricto
+    (0,1 %) salta con una sola barra rara: todas las noches. Pero una descarga
+    COMPLETA trae el equivalente al almacen entero, y aplicarle el umbral del
+    lote (5 %) lo afloja cincuenta veces justo en el caso que el estricto existe
+    para proteger: 8.000 barras imposibles de 170.000 pasarian por normales.
+
+    Vive fuera de `ingest_prices` para poder comprobarse sin montar una descarga
+    entera. Antes esto era una constante dentro de la funcion y el unico test
+    posible era buscar un texto en el codigo fuente, que pasa en verde con
+    cualquier cambio que conserve la cadena.
+    """
+    return quality.AMBITO_ALMACEN if full else quality.AMBITO_LOTE
+
+
 def ingest_prices(provider_name: str | None = None, full: bool = False,
                   years: int | None = None,
                   universes: list[str] | None = None,
@@ -410,9 +429,9 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
             _log(conn, run_id, "prices", str(start), status, rows=n,
                  requests=df.attrs.get("requests_used", 0),
                  error="; ".join(notes))
-            hallazgos = quality.evaluar(df, revisadas, filas_lote=len(df),
-                                        ambito=quality.AMBITO_LOTE,
-                                        instrumentos_ohlc=_con_ohlc(conn))
+            hallazgos = quality.evaluar(
+                df, revisadas, filas_lote=len(df), ambito=ambito_de(full),
+                instrumentos_ohlc=_con_ohlc(conn))
             quality.guardar(conn, hallazgos, run_id, list(quality.COMPROBACIONES))
         total += n
         revisiones_totales += barras

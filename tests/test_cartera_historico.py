@@ -176,6 +176,117 @@ def test_varios_lotes_del_mismo_valor_dejan_uno_y_cierran_el_resto(almacen):
         assert len(_cerradas(conn)) == 1
 
 
+def test_consolidar_lotes_no_es_una_venta(almacen):
+    """LA REGRESION QUE INTRODUJO EL ARREGLO DE ARRIBA, encontrada en revision.
+
+    Al cambiar el borrado por un cierre, los lotes que se fusionan pasaron a
+    quedar cerrados igual que una venta, y `get_closed_sales` no sabia
+    distinguirlos.
+
+    Reproducido: dos lotes de AAPL (10 a 100 el 1/03 y 5 a 120 hoy), el extracto
+    trae la linea agregada de 15 titulos, el precio de hoy es 90.
+
+        posiciones abiertas: 1        <- correcto, sigue entera
+        VENTAS que ve el historico: 1 <- 5 titulos a -25 %
+        la regla de los dos meses ve 150 EUR de perdida
+
+    No se ha vendido nada. El aviso fiscal saltaba sobre una posicion intacta, y
+    el resultado acumulado de las ventas quedaba contaminado con una operacion
+    que no existio.
+
+    Se arregla marcando POR QUE se cerro cada fila: `venta` o `consolidacion`.
+    """
+    from stocks_tracker.app import data_access as da
+
+    _con_aapl_desde_marzo()
+    da.add_position("AAPL", 5, 120.0, "EUR")
+    with db.connect() as conn:
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": "AAPL", "asset_class": "equity", "is_active": True},
+        ]), keys=["ticker"])
+        db.upsert_df(conn, "prices_daily", pd.DataFrame([
+            {"ticker": "AAPL", "date": date.today(), "open": 90.0, "high": 90.0,
+             "low": 90.0, "close": 90.0, "adj_close": 90.0, "volume": 1_000,
+             "source": "yfinance"},
+        ]), keys=["ticker", "date"])
+
+    da.replace_positions(_extracto(("AAPL", 15, 106.67)))
+
+    assert da.get_closed_sales("AAPL").empty, (
+        "consolidar dos lotes esta apareciendo como una venta que nadie hizo"
+    )
+
+    from stocks_tracker.app.components import cost_panel
+    ventas, _ = cost_panel._ventas_recientes("AAPL")
+    assert ventas == [], (
+        "la regla de los dos meses salta por una consolidacion de lotes"
+    )
+
+
+def test_el_motivo_del_cierre_queda_escrito(almacen):
+    """Vender y consolidar se guardan distinto, o no hay forma de separarlos
+    despues."""
+    from stocks_tracker.app import data_access as da
+
+    _con_aapl_desde_marzo()
+    da.add_position("AAPL", 5, 120.0, "EUR")
+    da.add_position("MSFT", 3, 300.0, "EUR")
+
+    # AAPL sigue (se consolida), MSFT desaparece (se vende).
+    da.replace_positions(_extracto(("AAPL", 15, 106.67)))
+
+    with db.connect(read_only=True) as conn:
+        motivos = dict(conn.execute(
+            "SELECT ticker, closed_reason FROM positions "
+            "WHERE closed_at IS NOT NULL"
+        ).fetchall())
+
+    assert motivos == {"AAPL": da.CIERRE_CONSOLIDACION, "MSFT": da.CIERRE_VENTA}
+
+
+def test_una_venta_de_verdad_sigue_llegando_al_historico(almacen):
+    """Contraprueba del arreglo: filtrar las consolidaciones no puede llevarse
+    por delante las ventas, que es justo lo que este modulo protege."""
+    from stocks_tracker.app import data_access as da
+
+    _con_aapl_desde_marzo()
+    with db.connect() as conn:
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": "AAPL", "asset_class": "equity", "is_active": True},
+        ]), keys=["ticker"])
+        db.upsert_df(conn, "prices_daily", pd.DataFrame([
+            {"ticker": "AAPL", "date": date.today(), "open": 90.0, "high": 90.0,
+             "low": 90.0, "close": 90.0, "adj_close": 90.0, "volume": 1_000,
+             "source": "yfinance"},
+        ]), keys=["ticker", "date"])
+
+    da.replace_positions(_extracto(("MSFT", 5, 300.0)))
+
+    assert len(da.get_closed_sales("AAPL")) == 1
+
+
+def test_los_cierres_antiguos_sin_motivo_cuentan_como_ventas(almacen):
+    """Compatibilidad. Las filas cerradas antes de que existiera la columna
+    tienen `closed_reason` NULL, y entonces todos los cierres eran ventas.
+    Tratarlas como consolidaciones vaciaria el historico de golpe."""
+    from stocks_tracker.app import data_access as da
+
+    _con_aapl_desde_marzo()
+    with db.connect() as conn:
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": "AAPL", "asset_class": "equity", "is_active": True},
+        ]), keys=["ticker"])
+        db.upsert_df(conn, "prices_daily", pd.DataFrame([
+            {"ticker": "AAPL", "date": date.today(), "open": 90.0, "high": 90.0,
+             "low": 90.0, "close": 90.0, "adj_close": 90.0, "volume": 1_000,
+             "source": "yfinance"},
+        ]), keys=["ticker", "date"])
+        conn.execute("UPDATE positions SET closed_at = ?, closed_reason = NULL",
+                     [date.today()])
+
+    assert len(da.get_closed_sales("AAPL")) == 1
+
+
 def test_un_extracto_vacio_no_borra_la_cartera(almacen):
     """Un fichero mal leido no puede vaciar la cartera: se prefiere no hacer
     nada a destruir lo que hay."""

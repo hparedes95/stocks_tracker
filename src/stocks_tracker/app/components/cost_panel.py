@@ -14,6 +14,8 @@ Tres preguntas, en orden de lo que sorprende:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pandas as pd
 import streamlit as st
 
@@ -32,14 +34,74 @@ from ...core import costs
 MARGEN_ESTIMACION_PCT = 2.0
 
 
-def _ventas_recientes(ticker: str) -> tuple[list[dict], dict]:
-    """Ventas de este valor que podrían activar la regla, y su estimación.
+@dataclass(frozen=True)
+class Resultado:
+    """Como fue una venta, y con cuanta certeza se sabe.
+
+    Las tres cosas van JUNTAS porque el texto del aviso depende de las tres, y
+    tenerlas en diccionarios paralelos garantiza que tarde o temprano digan
+    cosas distintas:
+
+    - `pct`: el resultado en porcentaje. `None` es "no se sabe", que no es lo
+      mismo que "fue cero".
+    - `real`: si sale de un precio de venta registrado (un hecho) o del cierre
+      de aquel dia (una estimacion que puede equivocarse de signo). El aviso
+      decia "Estimamos que la cerraste..." tambien cuando el precio lo habia
+      tecleado el usuario.
+    - `ventas`: cuantas operaciones hay ese dia. El aviso es por FECHA, y con
+      dos ventas el mismo dia un solo porcentaje no describe ninguna de las dos.
+    """
+
+    pct: float | None
+    real: bool
+    ventas: int = 1
+
+    def mas(self, otra: Resultado) -> Resultado:
+        """Junta dos ventas del mismo dia.
+
+        No se promedian: promediar dos operaciones distintas da un numero que no
+        le paso a ninguna. Se cuenta que son varias y se deja de dar porcentaje.
+        """
+        return Resultado(pct=None, real=self.real and otra.real,
+                         ventas=self.ventas + otra.ventas)
+
+
+def texto_del_resultado(res: Resultado | None) -> str:
+    """La frase que describe como fue la venta, dentro del aviso fiscal.
+
+    Funcion aparte —y no un `if` dentro del render— porque es la unica parte del
+    aviso que puede decir algo falso, y metida en la pantalla solo se puede
+    comprobar levantando Streamlit. Los cuatro casos son distintos de verdad:
+
+    - Varias ventas ese dia: no hay UNA cifra que las describa.
+    - Sin precio ni estimacion: no se sabe, y no saber no es haber ganado.
+    - Con precio de venta registrado: es un HECHO, no una estimacion.
+    - Solo con el cierre del dia: es una estimacion, y se dice.
+    """
+    if res is None or res.ventas > 1:
+        cuantas = f"Hubo **{res.ventas} ventas** ese día. " if res else ""
+        return (f"{cuantas}No se puede resumir el resultado en una cifra, así "
+                "que **puede que alguna fuera con pérdidas**.")
+    if res.pct is None:
+        return ("No hay precio de aquel día para estimar el resultado, así que "
+                "**puede que fuera con pérdidas**.")
+    if res.real:
+        # Decir "estimamos" sobre el numero que tecleo el usuario etiqueta como
+        # aproximacion el unico dato firme que hay aqui.
+        return (f"La cerraste con un **{res.pct:+.1f} %** (sobre el precio de "
+                "venta que registraste).")
+    return (f"Estimamos que la cerraste en torno al **{res.pct:+.1f} %** (con "
+            "el cierre de aquel día, que no es el precio exacto de tu venta).")
+
+
+def _ventas_recientes(ticker: str) -> tuple[list[dict], dict[object, Resultado]]:
+    """Ventas de este valor que podrían activar la regla, y cómo fue cada una.
 
     Se leen del almacen y no se piden por pantalla: si hubiera que teclearlas,
     el aviso no aparecería nunca justo cuando hace falta.
 
     Devuelve las ventas en el formato que espera `costs.comprobar_dos_meses` y,
-    aparte, el resultado estimado de cada una para poder enseñarlo. `None`
+    aparte, un `Resultado` POR FECHA para poder enseñarlo. `pct` a `None`
     significa "no se sabe", que no es lo mismo que "fue ganancia": esas también
     se avisan.
     """
@@ -51,7 +113,7 @@ def _ventas_recientes(ticker: str) -> tuple[list[dict], dict]:
         return [], {}
 
     ventas: list[dict] = []
-    estimado: dict = {}
+    resultados: dict[object, Resultado] = {}
     for fila in filas.itertuples():
         pct = getattr(fila, "resultado_pct", None)
         conocido = pct is not None and pd.notna(pct)
@@ -75,8 +137,17 @@ def _ventas_recientes(ticker: str) -> tuple[list[dict], dict]:
         if hasattr(cuando, "date"):
             cuando = cuando.date()
         ventas.append({"closed_at": cuando, "perdida_eur": perdida})
-        estimado[cuando] = float(pct) if conocido else None
-    return ventas, estimado
+
+        # El aviso es POR FECHA, y en un mismo dia puede haber mas de una venta
+        # del mismo valor. Antes esto era `estimado[cuando] = pct` y la segunda
+        # pisaba a la primera: dos operaciones distintas, un solo porcentaje, y
+        # ninguna forma de saber cual se estaba viendo. Se guarda cuantas son y
+        # se deja de dar un porcentaje concreto cuando hay varias.
+        previo = resultados.get(cuando)
+        nuevo = Resultado(pct=float(pct) if conocido else None,
+                          real=real, ventas=1)
+        resultados[cuando] = nuevo if previo is None else previo.mas(nuevo)
+    return ventas, resultados
 
 
 def render_cost_panel(ticker: str, currency: str = "EUR",
@@ -93,7 +164,7 @@ def render_cost_panel(ticker: str, currency: str = "EUR",
         step=100.0, key=f"coste_importe_{ticker}",
     )
 
-    ventas, estimado = _ventas_recientes(ticker)
+    ventas, resultados = _ventas_recientes(ticker)
     resumen = costs.resumen(
         importe_eur=importe, moneda=currency,
         dividendo_bruto_pct=dividend_yield,
@@ -172,14 +243,7 @@ def render_cost_panel(ticker: str, currency: str = "EUR",
     if resumen.dos_meses.bloquea:
         st.subheader("Cuidado con la regla de los dos meses")
         for aviso in resumen.dos_meses.avisos:
-            pct = estimado.get(aviso.vendido_el)
-            if pct is None:
-                cuanto = ("No hay precio de aquel día para estimar el resultado, "
-                          "así que **puede que fuera con pérdidas**.")
-            else:
-                cuanto = (f"Estimamos que la cerraste en torno al **{pct:+.1f} %** "
-                          "(con el cierre de aquel día, que no es el precio exacto "
-                          "de tu venta).")
+            cuanto = texto_del_resultado(resultados.get(aviso.vendido_el))
             st.error(
                 f"Vendiste **{ticker}** el {aviso.vendido_el:%d/%m/%Y}, hace "
                 f"{aviso.dias_desde_venta} días. {cuanto} **Si fue con pérdidas**, "

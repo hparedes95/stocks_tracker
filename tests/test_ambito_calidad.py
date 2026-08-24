@@ -136,15 +136,35 @@ def test_el_mensaje_cita_el_umbral_que_de_verdad_se_ha_aplicado():
 # ---------------------------------------------------------------------------
 # Que la ingesta lo diga de verdad
 # ---------------------------------------------------------------------------
-def test_la_ingesta_declara_que_lo_que_pasa_es_un_lote():
+def test_una_ingesta_incremental_mide_contra_el_lote():
     """El arreglo no vale de nada si el unico sitio que mide un lote sigue sin
-    decirlo. Se comprueba sobre el codigo real, no sobre un doble."""
+    decirlo."""
+    from stocks_tracker.ingest.run_ingest import ambito_de
+
+    assert ambito_de(full=False) == q.AMBITO_LOTE
+
+
+def test_una_descarga_completa_mide_contra_el_almacen():
+    """SEGUNDO FALLO, encontrado en revision del propio arreglo.
+
+    El ambito estaba fijo a LOTE sin mirar `full`. Una descarga completa trae el
+    equivalente al almacen entero y se estaba evaluando con el umbral del 5 %:
+    cincuenta veces mas flojo justo donde el estricto protege. 8.000 barras
+    imposibles de 170.000 habrian pasado por normales.
+    """
+    from stocks_tracker.ingest.run_ingest import ambito_de
+
+    assert ambito_de(full=True) == q.AMBITO_ALMACEN
+
+
+def test_la_ingesta_usa_esa_decision_y_no_una_constante():
+    """Sin esto, `ambito_de` podria ser correcta y no llamarla nadie."""
     import inspect
 
     from stocks_tracker.ingest import run_ingest
 
     fuente = inspect.getsource(run_ingest.ingest_prices)
 
-    assert "ambito=quality.AMBITO_LOTE" in fuente, (
-        "la ingesta vuelve a medir el lote con el umbral del almacen"
+    assert "ambito=ambito_de(full)" in fuente, (
+        "la ingesta ha vuelto a fijar el ambito sin mirar si es completa"
     )

@@ -207,88 +207,112 @@ with tab_portfolio:
         st.divider()
         st.subheader("Diagnóstico de concentración")
 
-        diag_left, diag_right = st.columns(2)
+        # Los dos diagnosticos de aqui abajo son REPARTOS PORCENTUALES, y un
+        # reparto al que le falta una posicion no es un reparto aproximado: es
+        # otro reparto.
+        #
+        # Sin esta guarda, `groupby(...).sum()` cuenta la posicion sin tipo de
+        # cambio como cero —su sector desaparece del grafico Y del denominador,
+        # asi que el aviso de concentracion podia senalar al sector equivocado—
+        # y `peso.fillna(0)` deja el perfil factorial con ceros en todos los
+        # ejes, que se lee como "esta cartera no tiene ningun sesgo factorial".
+        # Dos afirmaciones falsas dichas con un grafico, que es la forma en la
+        # que menos se cuestionan.
+        if bool(faltan) or bool(positions["valor_eur"].isna().any()):
+            st.info(
+                "Falta el tipo de cambio de alguna posición, asi que no se "
+                "puede repartir el peso de la cartera. La exposición por sector "
+                "y el perfil factorial aparecen cuando estén todos los tipos: "
+                "un reparto al que le falta una posición señalaría al sector "
+                "equivocado.",
+                icon=":material/pie_chart:",
+            )
+        else:
+            diag_left, diag_right = st.columns(2)
 
-        with diag_left:
-            st.markdown("**Exposición por sector**")
-            known = positions[positions["gics_sector"].notna()]
-            if known.empty:
-                # Sin sector no hay diagnostico posible, y decir "Sin sector:
-                # 100%" sonaria a una concentracion que en realidad no sabemos
-                # si existe.
-                st.info(
-                    "Tus posiciones no tienen sector asignado todavía. Se "
-                    "rellena con `make ingest`, que descarga la ficha de cada "
-                    "valor.",
-                    icon=":material/help:",
-                )
-            else:
-                # En euros: esto es un reparto porcentual entre sectores y
-                # dispara un aviso de concentracion por encima del 40 %. Con las
-                # divisas sin convertir, un sector de valores americanos se ve
-                # un 17 % mas grande de lo que es y otro de europeos mas
-                # pequeno, que es cambiar el sentido del aviso.
-                by_sector = (
-                    known.groupby("gics_sector")["valor_eur"].sum()
-                    .sort_values(ascending=False)
-                )
-                covered = float(by_sector.sum())
-                st.plotly_chart(
-                    charts.weight_bars(
-                        by_sector / covered, height=max(180, 46 * len(by_sector))
-                    ),
-                    width="stretch", config={"displayModeBar": False},
-                    key="cartera_sectores",
-                )
-                if len(known) < len(positions):
+            with diag_left:
+                st.markdown("**Exposición por sector**")
+                known = positions[positions["gics_sector"].notna()]
+                if known.empty:
+                    # Sin sector no hay diagnostico posible, y decir "Sin
+                    # sector: 100%" sonaria a una concentracion que en realidad
+                    # no sabemos si existe.
+                    st.info(
+                        "Tus posiciones no tienen sector asignado todavía. Se "
+                        "rellena con `make ingest`, que descarga la ficha de "
+                        "cada valor.",
+                        icon=":material/help:",
+                    )
+                else:
+                    # En euros: esto es un reparto porcentual entre sectores y
+                    # dispara un aviso por encima del 40 %. Con las divisas sin
+                    # convertir, un sector de valores americanos se ve un 17 %
+                    # mas grande de lo que es y otro de europeos mas pequeno,
+                    # que es cambiar el sentido del aviso.
+                    by_sector = (
+                        known.groupby("gics_sector")["valor_eur"].sum()
+                        .sort_values(ascending=False)
+                    )
+                    covered = float(by_sector.sum())
+                    st.plotly_chart(
+                        charts.weight_bars(
+                            by_sector / covered,
+                            height=max(180, 46 * len(by_sector)),
+                        ),
+                        width="stretch", config={"displayModeBar": False},
+                        key="cartera_sectores",
+                    )
+                    if len(known) < len(positions):
+                        st.caption(
+                            f"Calculado sobre {len(known)} de {len(positions)} "
+                            "posiciones: el resto no tiene sector asignado."
+                        )
+
+                    top_weight = float(by_sector.iloc[0] / covered)
+                    if top_weight > 0.40:
+                        st.warning(
+                            f"**{by_sector.index[0]}** pesa el {top_weight:.0%} "
+                            "de la cartera. Una concentración así hace que el "
+                            "resultado dependa de un solo sector más que de tu "
+                            "selección de valores.",
+                            icon=":material/warning:",
+                        )
+
+            with diag_right:
+                st.markdown("**Perfil factorial de la cartera**")
+                factor_cols = ["value_z", "growth_z", "quality_z", "momentum_z",
+                               "lowvol_z", "dividend_z", "technical_z"]
+                weights = positions["peso"].fillna(0)
+                profile = {}
+                for col in factor_cols:
+                    if col in positions.columns and positions[col].notna().any():
+                        values = positions[col].fillna(0)
+                        profile[col] = float((values * weights).sum())
+                if len(profile) >= 3:
+                    st.plotly_chart(
+                        charts.factor_radar(profile, height=300),
+                        width="stretch", config={"displayModeBar": False},
+                        key="cartera_radar",
+                    )
+                    dominant = max(profile.items(), key=lambda kv: abs(kv[1]))
+                    names = {
+                        "value_z": "valor", "growth_z": "crecimiento",
+                        "quality_z": "calidad", "momentum_z": "momentum",
+                        "lowvol_z": "estabilidad", "dividend_z": "dividendo",
+                        "technical_z": "técnico",
+                    }
+                    if abs(dominant[1]) > 0.5:
+                        direction = "hacia" if dominant[1] > 0 else "en contra de"
+                        st.caption(
+                            f"Tu cartera esta inclinada {direction} "
+                            f"**{names.get(dominant[0], dominant[0])}** "
+                            f"({dominant[1]:+.2f}). No es bueno ni malo: es una "
+                            "apuesta implicita que conviene conocer."
+                        )
+                else:
                     st.caption(
-                        f"Calculado sobre {len(known)} de {len(positions)} "
-                        "posiciones: el resto no tiene sector asignado."
+                        "Sin puntuación factorial suficiente para el perfil."
                     )
-
-                top_weight = float(by_sector.iloc[0] / covered)
-                if top_weight > 0.40:
-                    st.warning(
-                        f"**{by_sector.index[0]}** pesa el {top_weight:.0%} de "
-                        "la cartera. Una concentración así hace que el "
-                        "resultado dependa de un solo sector más que de tu "
-                        "selección de valores.",
-                        icon=":material/warning:",
-                    )
-
-        with diag_right:
-            st.markdown("**Perfil factorial de la cartera**")
-            factor_cols = ["value_z", "growth_z", "quality_z", "momentum_z",
-                           "lowvol_z", "dividend_z", "technical_z"]
-            weights = positions["peso"].fillna(0)
-            profile = {}
-            for col in factor_cols:
-                if col in positions.columns and positions[col].notna().any():
-                    values = positions[col].fillna(0)
-                    profile[col] = float((values * weights).sum())
-            if len(profile) >= 3:
-                st.plotly_chart(
-                    charts.factor_radar(profile, height=300),
-                    width="stretch", config={"displayModeBar": False},
-                    key="cartera_radar",
-                )
-                dominant = max(profile.items(), key=lambda kv: abs(kv[1]))
-                names = {
-                    "value_z": "valor", "growth_z": "crecimiento",
-                    "quality_z": "calidad", "momentum_z": "momentum",
-                    "lowvol_z": "estabilidad", "dividend_z": "dividendo",
-                    "technical_z": "técnico",
-                }
-                if abs(dominant[1]) > 0.5:
-                    direction = "hacia" if dominant[1] > 0 else "en contra de"
-                    st.caption(
-                        f"Tu cartera esta inclinada {direction} "
-                        f"**{names.get(dominant[0], dominant[0])}** "
-                        f"({dominant[1]:+.2f}). No es bueno ni malo: es una "
-                        "apuesta implicita que conviene conocer."
-                    )
-            else:
-                st.caption("Sin puntuación factorial suficiente para el perfil.")
 
         # -------------------------------------------------------------------
         # Stress test

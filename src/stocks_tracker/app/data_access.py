@@ -987,6 +987,10 @@ def replace_positions(frame: pd.DataFrame, note: str = "") -> int:
     lotes sobrantes se cierran. Un libro de operaciones lo resolveria bien; esto
     no lo es, y por eso lo dice en vez de aparentar que lo sabe.
 
+    Esos cierres por consolidacion se marcan como tales (`closed_reason`) y NO
+    son ventas: no entran en `get_closed_sales` ni en la regla de los dos meses.
+    Mezclarlos inventaba ventas con perdida que nadie habia hecho.
+
     Todo en una transaccion: si algo falla a medias es preferible quedarse con
     la cartera anterior que con media importada.
     """
@@ -1024,16 +1028,32 @@ def replace_positions(frame: pd.DataFrame, note: str = "") -> int:
                     superviviente[ticker] = id_
                     desde[ticker] = opened or today
 
-            # Todo lo abierto que no sea el superviviente de un ticker que sigue
-            # en el extracto se cierra: o se vendio, o era un lote duplicado.
-            a_cerrar = [id_ for id_, ticker, _ in abiertas
-                        if superviviente.get(ticker) != id_]
-            if a_cerrar:
-                marcas = ", ".join("?" * len(a_cerrar))
+            # Se cierran dos cosas MUY distintas, y confundirlas inventaba
+            # ventas que nadie hizo:
+            #
+            #   VENTA         el ticker ya no sale en el extracto. Lo vendiste.
+            #   CONSOLIDACION el ticker SIGUE en el extracto, pero tenias varios
+            #                 lotes y el extracto trae una sola linea agregada.
+            #                 Sobrevive el mas antiguo y los demas se cierran.
+            #                 No has vendido nada.
+            #
+            # Reproducido cuando estaban mezclados: dos lotes de AAPL (10 a 100
+            # y 5 a 120), extracto con la linea agregada de 15, precio de hoy
+            # 90 -> el historico ensenaba una venta de 5 titulos a -25 % y la
+            # regla de los dos meses veia 150 EUR de perdida. Sobre una posicion
+            # intacta que no se habia tocado.
+            ventas = [id_ for id_, ticker, _ in abiertas if ticker not in llega]
+            fusionados = [id_ for id_, ticker, _ in abiertas
+                          if ticker in llega and superviviente.get(ticker) != id_]
+            for ids, motivo in ((ventas, CIERRE_VENTA),
+                                (fusionados, CIERRE_CONSOLIDACION)):
+                if not ids:
+                    continue
+                marcas = ", ".join("?" * len(ids))
                 conn.execute(
-                    f"UPDATE positions SET closed_at = ?, updated_at = ? "
-                    f"WHERE id IN ({marcas})",
-                    [today, now, *a_cerrar],
+                    f"UPDATE positions SET closed_at = ?, closed_reason = ?, "
+                    f"updated_at = ? WHERE id IN ({marcas})",
+                    [today, motivo, now, *ids],
                 )
 
             for ticker, (qty, coste, moneda) in llega.items():
@@ -1088,14 +1108,24 @@ def close_position(position_id: str, close_price: float | None = None,
     """
     with connect() as conn:
         conn.execute(
-            "UPDATE positions SET closed_at = ?, close_price = ? WHERE id = ?",
+            "UPDATE positions SET closed_at = ?, close_price = ?, "
+            "closed_reason = ? WHERE id = ?",
             [closed_at or date.today(),
              float(close_price) if close_price else None,
-             position_id],
+             CIERRE_VENTA, position_id],
         )
     get_positions.clear()
     get_closed_sales.clear()
 
+
+# Por que se cerro una posicion. Ver `positions.closed_reason` en el esquema.
+#
+# Solo CIERRE_VENTA es una venta. CIERRE_CONSOLIDACION es la fusion de varios
+# lotes del mismo valor en la unica linea que trae el extracto: el valor sigue
+# en cartera y no se ha vendido nada. NULL —las filas anteriores a esta
+# columna— se lee como venta, que es lo que eran entonces.
+CIERRE_VENTA = "venta"
+CIERRE_CONSOLIDACION = "consolidacion"
 
 # Cuantos dias de margen se admiten entre la fecha de venta y la ultima sesion
 # con precio. Un fin de semana o un festivo largo caben; si hay que retroceder
@@ -1140,6 +1170,12 @@ def get_closed_sales(ticker: str, days: int = 400) -> pd.DataFrame:
                  ON pr.ticker = p.ticker AND pr.date <= p.closed_at
             WHERE p.ticker = ?
               AND p.closed_at IS NOT NULL
+              -- Solo VENTAS. Una consolidacion de lotes cierra una fila sin que
+              -- se haya vendido nada, y colarla aqui inventaba una venta con
+              -- perdida que disparaba la regla de los dos meses sobre una
+              -- posicion intacta. NULL es de antes de que existiera la columna:
+              -- entonces todos los cierres eran ventas.
+              AND (p.closed_reason IS NULL OR p.closed_reason = '{CIERRE_VENTA}')
               AND p.closed_at >= CURRENT_DATE - INTERVAL (?) DAY
         ),
         vigentes AS (
@@ -1255,7 +1291,7 @@ def get_attribution_inputs() -> pd.DataFrame:
     for sector, etf in por_sector.items():
         params.extend([sector, etf])
 
-    return _fetch(
+    datos = _fetch(
         f"""
         WITH etf_de_sector(sector, etf) AS (VALUES {filas}),
         -- Una fila por COMPRA, no por valor. Dos lotes del mismo valor
@@ -1265,7 +1301,7 @@ def get_attribution_inputs() -> pd.DataFrame:
         -- mercado que ya habia pasado.
         abiertas AS (
             SELECT p.id, p.ticker, p.opened_at, p.qty, p.qty * p.avg_cost AS coste,
-                   inst.gics_sector AS sector
+                   p.currency, inst.gics_sector AS sector
             FROM positions p
             LEFT JOIN instruments inst ON inst.ticker = p.ticker
             WHERE p.closed_at IS NULL AND p.qty > 0 AND p.avg_cost > 0
@@ -1303,6 +1339,7 @@ def get_attribution_inputs() -> pd.DataFrame:
             FROM prices_daily GROUP BY ticker
         )
         SELECT c.id, c.ticker, c.sector, c.etf, c.opened_at, c.qty, c.coste,
+               c.currency,
                date_diff('day', c.opened_at, CURRENT_DATE) AS dias,
                p.cierre / (c.coste / c.qty) - 1.0 AS retorno,
                m.cierre / NULLIF(c.mercado_entonces, 0) - 1.0 AS retorno_mercado,
@@ -1315,6 +1352,25 @@ def get_attribution_inputs() -> pd.DataFrame:
         """,
         [*params, MERCADO_TICKER, MERCADO_TICKER],
     )
+
+    # `coste` sale en la divisa de cada valor y la atribucion lo usa como PESO
+    # para ponderar los efectos mercado, sector y seleccion. Sin convertir, una
+    # posicion en dolares pesa un 17 % mas de lo que le toca y el reparto del
+    # resultado sale escorado hacia lo que se compro fuera del euro.
+    #
+    # Se convierte aqui y no en SQL porque el tipo vive en `prices_daily` bajo
+    # otro ticker y meterlo en la consulta la duplicaria entera.
+    if not datos.empty and "currency" in datos.columns:
+        from ..core import fx
+
+        datos = datos.copy()
+        # Lo que no se puede convertir se queda con su cifra sin convertir en
+        # vez de salir NaN: aqui el coste es un peso relativo y un NaN no vacia
+        # una celda, saca la posicion entera del reparto sin decirlo. Es una
+        # aproximacion, y peor que eso seria perder la posicion.
+        convertido = fx.a_base(datos["coste"], datos["currency"], get_fx_rates())
+        datos["coste"] = convertido.fillna(datos["coste"])
+    return datos
 
 
 # Cuanto puede alejarse el precio disponible de la fecha pedida. Un puente
