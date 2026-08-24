@@ -22,6 +22,7 @@ from stocks_tracker.app.components.common import render_disclaimer
 from stocks_tracker.app.components.health_panel import render_health_panel
 from stocks_tracker.app.components.stress_panel import render_stress_panel
 from stocks_tracker.app.components.theme import format_money, format_pct
+from stocks_tracker.core import fx
 
 st.title("Cartera y watchlist")
 
@@ -65,39 +66,76 @@ with tab_portfolio:
         st.info("Sin posiciones registradas. Añade la primera arriba.")
     else:
         positions = positions.copy()
+        # Valor y coste en la divisa del valor: es lo unico correcto para el
+        # resultado de CADA posicion, que es un porcentaje y no depende del
+        # cambio.
         positions["valor"] = positions["qty"] * positions["close"]
         positions["coste"] = positions["qty"] * positions["avg_cost"]
         positions["pnl"] = positions["valor"] - positions["coste"]
         positions["pnl_pct"] = (
             positions["valor"] / positions["coste"].replace(0, np.nan) - 1.0
         )
-        total_value = float(positions["valor"].sum())
-        positions["peso"] = positions["valor"] / total_value if total_value else np.nan
+
+        # Y en euros para todo lo que se SUMA. Antes se sumaban dolares con
+        # euros como si valieran lo mismo: con EUR/USD a 1,17, una cartera
+        # mitad y mitad se presentaba un 8 % por encima de lo que vale, y el
+        # peso de cada posicion —la cifra con la que se decide si una pesa
+        # demasiado— salia inflado en dolares y encogido en euros.
+        tipos = da.get_fx_rates()
+        positions["valor_eur"] = fx.a_base(
+            positions["valor"], positions["currency"], tipos)
+        positions["coste_eur"] = fx.a_base(
+            positions["coste"], positions["currency"], tipos)
+        faltan = fx.sin_tipo(positions["currency"], tipos)
+
+        total_value = fx.total(positions["valor_eur"])
+        positions["peso"] = positions["valor_eur"] / total_value if total_value else np.nan
 
         # -------------------------------------------------------------------
         # Resumen
         # -------------------------------------------------------------------
-        total_cost = float(positions["coste"].sum())
+        total_cost = fx.total(positions["coste_eur"])
         total_pnl = total_value - total_cost
-        day_change = float((positions["valor"] * positions["ret_1d"]).sum())
+        # `ret_1d` vacio se cuenta como cero y no contagia: una posicion recien
+        # anadida todavia no tiene indicadores, y eso no puede dejar sin cifra
+        # el movimiento del dia de toda la cartera. Lo que si contagia es el
+        # hueco de divisa, que viene por `valor_eur`.
+        day_change = fx.total(positions["valor_eur"] * positions["ret_1d"].fillna(0.0))
 
+        # Los tres importes llevan el simbolo del EURO porque estan
+        # convertidos a euros. `format_money` pone el dolar por defecto, y
+        # ensenar "1 759,40 $" sobre una cifra en euros es exactamente el
+        # tipo de etiqueta falsa que este arreglo venia a quitar.
         summary = st.columns(4)
-        summary[0].metric("Valor actual", format_money(total_value))
+        summary[0].metric("Valor actual", format_money(total_value, "EUR"))
         summary[1].metric(
-            "Resultado", format_money(total_pnl),
+            "Resultado", format_money(total_pnl, "EUR"),
             format_pct(total_pnl / total_cost if total_cost else None),
         )
         summary[2].metric(
-            "Hoy", format_money(day_change),
+            "Hoy", format_money(day_change, "EUR"),
             format_pct(day_change / total_value if total_value else None),
         )
         summary[3].metric("Posiciones", len(positions))
 
-        if positions["currency"].nunique() > 1:
+        if faltan:
+            # Ya no es "trata los totales como orientativos": ahora se convierte
+            # de verdad, y lo unico que hay que decir es QUE se ha quedado
+            # fuera. Esas posiciones salen NaN y arrastran el total a NaN a
+            # proposito: un total al que le falta una posicion es un numero mal
+            # con toda la pinta de estar bien.
             st.warning(
-                "Hay posiciones en varias divisas y los totales se suman sin "
-                "convertir. Trata las cifras agregadas como orientativas.",
+                f"No hay tipo de cambio para {', '.join(faltan)}, asi que esas "
+                "posiciones no se pueden valorar en euros y los totales salen "
+                "vacios. Se arregla anadiendo el par a `config/universe.yaml` "
+                "(bloque MACRO) y volviendo a descargar.",
                 icon=":material/currency_exchange:",
+            )
+        elif positions["currency"].nunique() > 1:
+            st.caption(
+                "Los totales estan convertidos a euros al ultimo cambio "
+                "disponible. El coste en euros es aproximado: se convierte al "
+                "cambio de hoy y no al del dia en que compraste."
             )
 
         # -------------------------------------------------------------------
@@ -124,7 +162,11 @@ with tab_portfolio:
                 "Titulos": positions["qty"],
                 "Coste medio": positions["avg_cost"],
                 "Precio": positions["close"],
-                "Valor": positions["valor"],
+                # En euros, y no en la divisa del valor, porque va al lado de
+                # "Peso" —que es un porcentaje del total en euros— y porque la
+                # columna se lee de arriba abajo comparando unas con otras. Dos
+                # cifras en dos monedas en la misma columna no se comparan.
+                "Valor (EUR)": positions["valor_eur"],
                 "Resultado": positions["pnl_pct"] * 100,
                 "Peso": positions["peso"] * 100,
                 "Hoy": positions["ret_1d"] * 100,
@@ -141,7 +183,7 @@ with tab_portfolio:
                 "Titulos": st.column_config.NumberColumn(format="%.4f"),
                 "Coste medio": st.column_config.NumberColumn(format="%.2f"),
                 "Precio": st.column_config.NumberColumn(format="%.2f"),
-                "Valor": st.column_config.NumberColumn(format="%.2f"),
+                "Valor (EUR)": st.column_config.NumberColumn(format="%.2f"),
                 "Resultado": st.column_config.NumberColumn(format="%+.2f%%"),
                 "Peso": st.column_config.ProgressColumn(
                     min_value=0.0, max_value=100.0, format="%.1f%%"
@@ -181,8 +223,13 @@ with tab_portfolio:
                     icon=":material/help:",
                 )
             else:
+                # En euros: esto es un reparto porcentual entre sectores y
+                # dispara un aviso de concentracion por encima del 40 %. Con las
+                # divisas sin convertir, un sector de valores americanos se ve
+                # un 17 % mas grande de lo que es y otro de europeos mas
+                # pequeno, que es cambiar el sentido del aviso.
                 by_sector = (
-                    known.groupby("gics_sector")["valor"].sum()
+                    known.groupby("gics_sector")["valor_eur"].sum()
                     .sort_values(ascending=False)
                 )
                 covered = float(by_sector.sum())
@@ -270,8 +317,21 @@ with tab_portfolio:
                 format_func=lambda i: labels[i], index=None,
                 placeholder="Elige una posición",
             )
+            # El precio de venta se pide aquí y no se estima después. Sin él, el
+            # resultado se calcula con el cierre del día, que no es el precio de
+            # ejecución: una venta con pérdida puede salir en ganancia y la
+            # regla de los dos meses se calla justo cuando tenía que avisar.
+            # Se puede dejar en blanco —entonces se estima y se dice que es una
+            # estimación—, pero teclearlo cuesta cinco segundos.
+            precio_venta = st.number_input(
+                "Precio de venta (opcional)", min_value=0.0, value=None,
+                step=0.01, format="%.4f", placeholder="Se estima si lo dejas vacío",
+                help="A cuánto vendiste de verdad. Sin este dato el resultado "
+                     "se estima con el cierre de ese día, y la estimación "
+                     "puede equivocarse de signo.",
+            )
             if to_close and st.button("Cerrar"):
-                da.close_position(to_close)
+                da.close_position(to_close, close_price=precio_venta)
                 st.rerun()
 
     render_disclaimer()

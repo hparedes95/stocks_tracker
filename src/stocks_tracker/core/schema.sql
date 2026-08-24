@@ -788,3 +788,11 @@ ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS estado VARCHAR;
 ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS spec_hash VARCHAR;
 ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS fase VARCHAR;
 ALTER TABLE signal_evidence ADD COLUMN IF NOT EXISTS intentos INTEGER;
+
+-- El precio al que se vendio de verdad. Sin el, el resultado de cada venta se
+-- ESTIMABA con el cierre del dia, y esa estimacion alimenta la regla de los dos
+-- meses: una venta con perdida real puede parecer ganancia —o al reves— porque
+-- el cierre no es el precio de ejecucion. Es NULL cuando no se sabe (cierres
+-- automaticos al reimportar el extracto), y ahi se sigue estimando, pero ahora
+-- se puede distinguir un dato de una aproximacion.
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS close_price DOUBLE;

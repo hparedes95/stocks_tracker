@@ -208,10 +208,10 @@ def test_las_posiciones_del_almacen_excluyen_las_cerradas(warehouse):
 
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO positions VALUES ('p1','AAA',10,95.0,'EUR',?,NULL,'',NULL)",
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES ('p1','AAA',10,95.0,'EUR',?,NULL,'',NULL)",
             [date(2026, 1, 5)])
         conn.execute(
-            "INSERT INTO positions VALUES ('p2','BBB',5,50.0,'EUR',?,?,'',NULL)",
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES ('p2','BBB',5,50.0,'EUR',?,?,'',NULL)",
             [date(2026, 1, 5), date(2026, 6, 1)])
         propio = reconcile.posiciones_del_almacen(conn)
 
@@ -268,7 +268,7 @@ def test_el_comando_traduce_las_posiciones_del_broker(warehouse):
 
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO positions VALUES ('p1','AAA',10,95.0,'EUR',?,NULL,'',NULL)",
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES ('p1','AAA',10,95.0,'EUR',?,NULL,'',NULL)",
             [date(2026, 1, 5)])
 
     diferencias = reconcile_cli.reconciliar(

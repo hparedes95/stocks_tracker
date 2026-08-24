@@ -51,7 +51,7 @@ def sembrar(*, margen_entonces=0.22, margen_hoy=0.14, comprada=COMPRA,
             [ticker],
         )
         conn.execute(
-            "INSERT INTO positions VALUES (?, ?, 10, 100.0, 'EUR', ?, NULL, '', NULL)",
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES (?, ?, 10, 100.0, 'EUR', ?, NULL, '', NULL)",
             [f"pos-{ticker}", ticker, comprada],
         )
         for as_of, margen in ((foto_entonces, margen_entonces),

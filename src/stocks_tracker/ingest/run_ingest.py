@@ -411,6 +411,7 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
                  requests=df.attrs.get("requests_used", 0),
                  error="; ".join(notes))
             hallazgos = quality.evaluar(df, revisadas, filas_lote=len(df),
+                                        ambito=quality.AMBITO_LOTE,
                                         instrumentos_ohlc=_con_ohlc(conn))
             quality.guardar(conn, hallazgos, run_id, list(quality.COMPROBACIONES))
         total += n

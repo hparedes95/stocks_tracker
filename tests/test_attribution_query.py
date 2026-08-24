@@ -70,7 +70,7 @@ def sembrar(*, comprada: date, precio_compra: float = 100.0,
             "VALUES (?, 'equity', ?)", [ticker, gics],
         )
         conn.execute(
-            "INSERT INTO positions VALUES (?, ?, ?, ?, 'EUR', ?, NULL, '', NULL)",
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES (?, ?, ?, ?, 'EUR', ?, NULL, '', NULL)",
             [f"pos-{ticker}", ticker, QTY, precio_compra, comprada],
         )
         precios(conn, ticker, {comprada: precio_compra, HOY: precio_hoy})
@@ -125,7 +125,7 @@ def test_a_purchase_on_a_holiday_still_finds_a_reference(warehouse):
             "INSERT INTO instruments (ticker, asset_class, gics_sector) "
             "VALUES ('AAA', 'equity', 'Information Technology')")
         conn.execute(
-            "INSERT INTO positions VALUES ('p', 'AAA', 10, 10.0, 'EUR', ?, "
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES ('p', 'AAA', 10, 10.0, 'EUR', ?, "
             "NULL, '', NULL)", [comprada])
         precios(conn, "AAA", {comprada: 100.0, HOY: 120.0})
     fila = entradas().iloc[0]
@@ -184,7 +184,7 @@ def test_a_position_without_a_market_reference_is_dropped(warehouse):
     with db.connect() as conn:
         conn.execute("INSERT INTO instruments (ticker, asset_class) "
                      "VALUES ('AAA', 'equity')")
-        conn.execute("INSERT INTO positions VALUES ('p', 'AAA', 10, 10.0, "
+        conn.execute("INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES ('p', 'AAA', 10, 10.0, "
                      "'EUR', ?, NULL, '', NULL)", [comprada])
         precios(conn, "AAA", {comprada: 100.0, HOY: 120.0})
     assert posiciones_desde(entradas()) == []
@@ -203,7 +203,7 @@ def test_a_position_with_no_cost_does_not_divide_by_zero(warehouse):
     with db.connect() as conn:
         conn.execute("INSERT INTO instruments (ticker, asset_class) "
                      "VALUES ('AAA', 'equity')")
-        conn.execute("INSERT INTO positions VALUES ('p', 'AAA', 10, 0.0, "
+        conn.execute("INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES ('p', 'AAA', 10, 0.0, "
                      "'EUR', ?, NULL, '', NULL)", [comprada])
         precios(conn, "AAA", {comprada: 100.0, HOY: 120.0})
         precios(conn, "SPY", {comprada: 200.0, HOY: 220.0})
@@ -226,7 +226,7 @@ def test_two_lots_of_the_same_stock_are_two_decisions(warehouse):
         precios(conn, "XLK", {nueva: 410.0})
         precios(conn, "AAA", {nueva: 110.0})
         conn.execute(
-            "INSERT INTO positions VALUES ('pos-2', 'AAA', 10, 110.0, 'EUR', "
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES ('pos-2', 'AAA', 10, 110.0, 'EUR', "
             "?, NULL, '', NULL)", [nueva])
 
     # `pd.Timestamp` y no `date`: DuckDB devuelve las fechas como datetime64 al
@@ -283,7 +283,7 @@ def test_all_legs_are_measured_with_the_same_kind_of_price(warehouse):
     with db.connect() as conn:
         conn.execute("INSERT INTO instruments (ticker, asset_class, gics_sector) "
                      "VALUES ('AAA', 'equity', 'Information Technology')")
-        conn.execute("INSERT INTO positions VALUES ('p', 'AAA', 10, 100.0, "
+        conn.execute("INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES ('p', 'AAA', 10, 100.0, "
                      "'EUR', ?, NULL, '', NULL)", [comprada])
         for cuando, precio in ((comprada, 100.0), (HOY, 120.0)):
             conn.execute(

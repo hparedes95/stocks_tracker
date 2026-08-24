@@ -112,6 +112,14 @@ universes:
       - BTC-USD, ETH-USD          # apetito por riesgo
       - GC=F, SI=F, HG=F, CL=F    # oro, plata, cobre, petroleo
       - DX-Y.NYB, EURUSD=X        # dolar y euro
+      # Los tipos de cambio con los que se valora la cartera. Sin ellos, una
+      # posicion en dolares o en libras se suma al total como si fueran euros
+      # —con EUR/USD a 1,17 eso infla la cartera un 17 % en esa posicion— y el
+      # peso de cada valor sale mal. Ver `core/fx.py`: lo que no se puede
+      # convertir sale vacio, no a la par.
+      - EURGBP=X, EURCHF=X, EURJPY=X
+      - EURSEK=X, EURNOK=X, EURDKK=X
+      - EURCAD=X, EURAUD=X
 
 # Universos activos.
 #

@@ -159,7 +159,29 @@ SESIONES_ESCALA_VOLUMEN = 60
 MAX_ESCALA_VOLUMEN = 10.0
 
 SESIONES_RECIENTES_CRITICAS = 10  # solo para decirlo en el mensaje
-MAX_BARRAS_IMPOSIBLES = 0.001
+# Cuantas barras imposibles hacen falta para que sea un problema GRAVE.
+#
+# HAY DOS UMBRALES PORQUE HAY DOS DENOMINADORES, y confundirlos convirtio el
+# aviso en ruido diario. La misma funcion se llama desde dos sitios:
+#
+#   - la PUERTA DE CALIDAD, con el almacen entero (170.000 barras). Ahi 34
+#     barras raras son el 0,02 %: una rareza del proveedor, no una averia.
+#   - la INGESTA, con el LOTE que se acaba de descargar (91 filas). Ahi las
+#     mismas 34 barras son el 37 %, que si es una descarga entera mal.
+#
+# Con un unico umbral del 0,1 %, en una ingesta incremental UNA sola barra mala
+# ya es el 1,1 % y se declaraba "problema grave". Todas las noches. Un semaforo
+# que siempre esta en rojo deja de mirarse, que es exactamente como se pierde
+# una puerta de calidad.
+MAX_BARRAS_IMPOSIBLES = 0.001          # sobre el almacen
+MAX_BARRAS_IMPOSIBLES_LOTE = 0.05      # sobre el lote recien descargado
+
+# Como se llama el conjunto sobre el que se esta midiendo. Va en el mensaje:
+# decir "el 37 % del almacen" cuando es del lote es dar una cifra correcta con
+# una etiqueta falsa, y quien la lea buscara una averia mucho mayor de la que
+# hay.
+AMBITO_ALMACEN = "almacen"
+AMBITO_LOTE = "lote descargado"
 
 
 @dataclass(frozen=True)
@@ -766,7 +788,8 @@ def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
             filas_lote: int = 0,
             instrumentos_ohlc: set[str] | None = None,
             acciones: pd.DataFrame | None = None,
-            hoy: date | None = None) -> list[Hallazgo]:
+            hoy: date | None = None,
+            ambito: str = AMBITO_ALMACEN) -> list[Hallazgo]:
     """Todas las comprobaciones sobre un conjunto de precios.
 
     `revisadas` y `filas_lote` solo existen durante la ingesta: comparar lo que
@@ -853,7 +876,9 @@ def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
             # camino de salida, `--ignorar-calidad`, que apaga TODAS las
             # comprobaciones. Una puerta que se cierra a menudo se acaba abriendo
             # a lo bruto, y entonces deja de comprobar nada.
-            grave = fraccion > MAX_BARRAS_IMPOSIBLES
+            maximo = (MAX_BARRAS_IMPOSIBLES_LOTE if ambito == AMBITO_LOTE
+                      else MAX_BARRAS_IMPOSIBLES)
+            grave = fraccion > maximo
 
             donde = (
                 f"{len(usan_ohlc)} sesiones con precios imposibles en "
@@ -871,8 +896,8 @@ def evaluar(precios: pd.DataFrame, revisadas: pd.DataFrame | None = None,
             )
             if grave:
                 porque = (
-                    f" Son el {fraccion:.2%} del almacen, por encima del "
-                    f"{MAX_BARRAS_IMPOSIBLES:.2%} que se explica por una rareza "
+                    f" Son el {fraccion:.2%} del {ambito}, por encima del "
+                    f"{maximo:.2%} que se explica por una rareza "
                     "suelta del proveedor: esto apunta a una descarga entera mal, "
                     "y por eso si se para el calculo."
                 )

@@ -47,7 +47,7 @@ def sembrar(*, dias_atras: int, avg_cost: float, cierre: float | None,
     vendida = date.today() - timedelta(days=dias_atras)
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO positions VALUES (?, 'AAA', ?, ?, 'EUR', ?, ?, '', NULL)",
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES (?, 'AAA', ?, ?, 'EUR', ?, ?, '', NULL)",
             [f"p{dias_atras}", qty, avg_cost,
              vendida - timedelta(days=30), vendida],
         )
@@ -158,7 +158,7 @@ def test_an_open_position_is_not_a_sale(warehouse, monkeypatch):
     """Sin `closed_at` no se ha vendido nada: la regla no tiene nada que mirar."""
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO positions VALUES "
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES "
             "('abierta', 'AAA', 10, 100.0, 'EUR', ?, NULL, '', NULL)",
             [date.today() - timedelta(days=5)],
         )
@@ -171,7 +171,7 @@ def test_another_ticker_does_not_leak_into_this_one(warehouse, monkeypatch):
     vendida = date.today() - timedelta(days=10)
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO positions VALUES "
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES "
             "('otra', 'BBB', 10, 100.0, 'EUR', ?, ?, '', NULL)",
             [vendida - timedelta(days=30), vendida],
         )

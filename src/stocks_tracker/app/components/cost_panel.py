@@ -19,11 +19,16 @@ import streamlit as st
 
 from ...core import costs
 
-# Margen sobre el que se considera "claramente una ganancia". El resultado de
-# cada venta es una ESTIMACION: se calcula con el cierre del dia, que no es el
-# precio de ejecucion, y `avg_cost` no incluye comisiones. Una venta estimada
-# en +1 % pudo ser una perdida real, asi que por debajo de este margen se avisa
-# igualmente. Callar un aviso que importa es peor que darlo de mas.
+# Margen sobre el que una venta ESTIMADA se considera "claramente una ganancia".
+#
+# Solo se aplica a las estimadas: las que se cerraron sin registrar el precio de
+# venta y cuyo resultado se calcula con el cierre del dia, que no es el precio
+# de ejecucion. Una venta estimada en +1 % pudo ser una perdida real, asi que
+# por debajo de este margen se avisa igualmente: callar un aviso que importa es
+# peor que darlo de mas.
+#
+# A las ventas con precio real no se les aplica —ver `_ventas_recientes`—. Ahi
+# el numero es un hecho y el colchon solo produciria avisos falsos.
 MARGEN_ESTIMACION_PCT = 2.0
 
 
@@ -50,8 +55,14 @@ def _ventas_recientes(ticker: str) -> tuple[list[dict], dict]:
     for fila in filas.itertuples():
         pct = getattr(fila, "resultado_pct", None)
         conocido = pct is not None and pd.notna(pct)
-        if conocido and float(pct) >= MARGEN_ESTIMACION_PCT:
-            continue        # ganancia clara: la regla de los dos meses no aplica
+        # El margen es para lo ESTIMADO. Si la venta se registro con su precio
+        # real, un +0,5 % es un +0,5 %: aplicarle el mismo colchon del 2 % es
+        # avisar de una perdida que no existe, y los avisos de mas se acaban
+        # ignorando igual que los que faltan.
+        real = bool(getattr(fila, "precio_real", False))
+        margen = 0.0 if real else MARGEN_ESTIMACION_PCT
+        if conocido and float(pct) >= margen:
+            continue        # ganancia: la regla de los dos meses no aplica
         perdida = 0.0
         if conocido and fila.avg_cost and fila.qty:
             perdida = max(0.0, (float(fila.avg_cost) - float(fila.precio_estimado))

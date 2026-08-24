@@ -82,10 +82,25 @@ def coste_operacion(importe_eur: float, moneda: str = "EUR") -> CosteOperacion:
     cfg = _broker()
     importe = max(0.0, float(importe_eur))
 
+    # LA COMISION ES FIJO MAS PORCENTAJE, CON UN SUELO. No el mayor de tres.
+    #
+    # Antes era `max(fija, porcentual, minima)`, y esa formula no sabe escribir
+    # el modelo mas comun en Espana —una parte fija MAS un porcentaje—, que es
+    # el de ING, Trade Republic o DEGIRO:
+    #
+    #     ING: 8 EUR + 0,10 %. Una compra de 20.000 EUR cuesta 28 EUR.
+    #     max(8, 20, 1) devolvia 20 EUR: ocho euros de menos, un 29 % por debajo.
+    #
+    # Y en esa formula `comision_fija_eur` y `comision_minima_eur` eran el mismo
+    # mando con dos nombres: gana el mayor y el otro no hace nada nunca. Ahora
+    # cada uno significa una cosa distinta —la parte fija se SUMA, la minima es
+    # un SUELO— y un broker que solo cobre porcentaje pone la fija a cero.
+    #
+    # Con la configuracion que se entrega (fija 1, pct 0, minima 1) el resultado
+    # no cambia: max(1 + 0, 1) = 1.
     porcentual = importe * as_float(cfg.get("comision_pct")) / 100.0
     comision = max(
-        as_float(cfg.get("comision_fija_eur")),
-        porcentual,
+        as_float(cfg.get("comision_fija_eur")) + porcentual,
         as_float(cfg.get("comision_minima_eur")),
     ) if importe > 0 else 0.0
 

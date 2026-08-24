@@ -832,6 +832,24 @@ def all_tickers() -> list[str]:
     return df["ticker"].tolist()
 
 
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_fx_rates() -> dict[str, float]:
+    """Tipos de cambio vigentes contra el euro, para valorar la cartera.
+
+    Las divisas que no esten devuelven NaN al convertir, no 1,0. Ver
+    `core/fx.py`: una posicion en una divisa desconocida tiene que salir vacia
+    y arrastrar el total a vacio, porque un total al que le falta una posicion
+    es un numero mal con toda la pinta de estar bien.
+    """
+    from ..core import fx
+
+    try:
+        with connect(read_only=True) as conn:
+            return fx.tipos(conn)
+    except Exception:  # noqa: BLE001 — sin almacen, sin conversion
+        return {}
+
+
 # --------------------------------------------------------------------------
 # Watchlist (escritura: la unica excepcion al solo-lectura)
 # --------------------------------------------------------------------------
@@ -917,7 +935,13 @@ def add_position(ticker: str, qty: float, avg_cost: float,
 
     with connect() as conn:
         conn.execute(
-            "INSERT INTO positions VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+            # Columnas nombradas y no posicionales: `positions` ya ha crecido
+            # una vez (`close_price`) y un INSERT por posicion se rompe en
+            # silencio —o peor, mete el valor en la columna de al lado— la
+            # siguiente vez que crezca.
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, "
+            "opened_at, closed_at, note, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)",
             [str(uuid.uuid4()), ticker, float(qty), float(avg_cost), currency,
              date.today(), note, utcnow()],
         )
@@ -925,14 +949,46 @@ def add_position(ticker: str, qty: float, avg_cost: float,
 
 
 def replace_positions(frame: pd.DataFrame, note: str = "") -> int:
-    """Sustituye la cartera entera por la importada.
+    """Pone la cartera al dia con el extracto importado.
 
-    Se reemplaza en vez de anadir porque un extracto es una FOTO completa de lo
-    que tienes. Anadiendo, reimportar el mismo fichero duplicaria cada
-    posicion; y una posicion que vendiste seguiria contando para siempre.
+    Un extracto es una FOTO completa: lo que no sale en el ya no lo tienes. Pero
+    "ya no lo tienes" significa QUE LO VENDISTE, y eso es un hecho que hay que
+    guardar, no una fila que sobra.
 
-    Se hace en una transaccion: si algo falla a medias, es preferible quedarse
-    con la cartera anterior que con media importada.
+    LO QUE HACIA ANTES, Y POR QUE ERA GRAVE
+
+        DELETE FROM positions WHERE closed_at IS NULL
+
+    Borraba las abiertas y reinsertaba el extracto entero. Con eso:
+
+    - Una posicion vendida entre dos importaciones DESAPARECIA. No quedaba
+      cerrada: quedaba borrada. `get_closed_sales` no la veia nunca, asi que el
+      historico de ventas —y con el la regla de los dos meses, que necesita
+      saber que vendiste con perdida y cuando— se vaciaba en silencio.
+    - `opened_at` se reescribia a HOY en cada importacion, incluso en las que
+      llevas dos anos. "Dias en cartera" no volvia a ser cierto nunca.
+
+    Reproducido: comprar AAPL el 1/03, venderla, reimportar -> cero filas de
+    AAPL y cero ventas cerradas. La operacion entera evaporada.
+
+    LO QUE HACE AHORA
+
+    - Lo que sigue en el extracto: se actualizan cantidad y precio medio y se
+      CONSERVA `opened_at`.
+    - Lo que ya no esta: se cierra con `closed_at = hoy`. Se queda en el
+      historico, que es donde tiene que estar.
+    - Lo nuevo: se inserta con `opened_at = hoy`.
+
+    UNA LIMITACION QUE SE DICE
+
+    Si un valor tiene varios lotes abiertos, el extracto trae UNA linea
+    agregada y no hay forma de repartirla entre ellos. Se conserva el
+    `opened_at` mas antiguo —el que de verdad marca cuanto llevas dentro— y los
+    lotes sobrantes se cierran. Un libro de operaciones lo resolveria bien; esto
+    no lo es, y por eso lo dice en vez de aparentar que lo sabe.
+
+    Todo en una transaccion: si algo falla a medias es preferible quedarse con
+    la cartera anterior que con media importada.
     """
     import uuid
 
@@ -943,34 +999,99 @@ def replace_positions(frame: pd.DataFrame, note: str = "") -> int:
 
     now = utcnow()
     today = date.today()
-    rows = [
-        (
-            str(uuid.uuid4()), str(r["ticker"]), float(r["qty"]), float(r["avg_cost"]),
-            as_text(r.get("currency")) or "EUR", today, None, note, now,
+    llega = {
+        str(r["ticker"]): (
+            float(r["qty"]), float(r["avg_cost"]),
+            as_text(r.get("currency")) or "EUR",
         )
         for _, r in frame.iterrows()
-    ]
+    }
 
     with connect() as conn:
         conn.execute("BEGIN TRANSACTION")
         try:
-            conn.execute("DELETE FROM positions WHERE closed_at IS NULL")
-            conn.executemany(
-                "INSERT INTO positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows
-            )
+            abiertas = conn.execute(
+                "SELECT id, ticker, opened_at FROM positions "
+                "WHERE closed_at IS NULL ORDER BY ticker, opened_at"
+            ).fetchall()
+
+            # El lote mas antiguo de cada ticker es el que sobrevive: es el que
+            # marca desde cuando llevas ese valor.
+            superviviente: dict[str, str] = {}
+            desde: dict[str, date] = {}
+            for id_, ticker, opened in abiertas:
+                if ticker in llega and ticker not in superviviente:
+                    superviviente[ticker] = id_
+                    desde[ticker] = opened or today
+
+            # Todo lo abierto que no sea el superviviente de un ticker que sigue
+            # en el extracto se cierra: o se vendio, o era un lote duplicado.
+            a_cerrar = [id_ for id_, ticker, _ in abiertas
+                        if superviviente.get(ticker) != id_]
+            if a_cerrar:
+                marcas = ", ".join("?" * len(a_cerrar))
+                conn.execute(
+                    f"UPDATE positions SET closed_at = ?, updated_at = ? "
+                    f"WHERE id IN ({marcas})",
+                    [today, now, *a_cerrar],
+                )
+
+            for ticker, (qty, coste, moneda) in llega.items():
+                if ticker in superviviente:
+                    conn.execute(
+                        "UPDATE positions SET qty = ?, avg_cost = ?, currency = ?, "
+                        "note = ?, updated_at = ? WHERE id = ?",
+                        [qty, coste, moneda, note, now, superviviente[ticker]],
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO positions (id, ticker, qty, avg_cost, "
+                        "currency, opened_at, closed_at, note, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+                        [str(uuid.uuid4()), ticker, qty, coste, moneda,
+                         today, note, now],
+                    )
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
             raise
 
     get_positions.clear()
-    return len(rows)
+    get_closed_sales.clear()
+    return len(llega)
 
 
-def close_position(position_id: str) -> None:
+def close_position(position_id: str, close_price: float | None = None,
+                   closed_at: date | None = None) -> None:
+    """Cierra una posicion, guardando a que precio se vendio si se sabe.
+
+    EL PRECIO IMPORTA, Y ANTES NO SE GUARDABA
+
+    Se marcaba `closed_at` y nada mas. El resultado de la venta se ESTIMABA
+    despues con el cierre de ese dia, y esa estimacion es la que alimenta la
+    regla de los dos meses: si sale ganancia, la regla no avisa.
+
+    El cierre del dia no es el precio de ejecucion. Un valor que abre en 100,
+    toca 104 y cierra en 99 puede haberse vendido en cualquiera de los tres. Si
+    compraste a 101 y vendiste a 104, ganaste; el cierre de 99 dice que
+    perdiste un 2 % y activa un aviso que no toca. Al reves es peor: vendiste a
+    99 con perdida, el cierre marca 104, la regla calla, recompras dentro de
+    dos meses y la minusvalia no se puede compensar —punto a confirmar con un
+    asesor fiscal, pero el aviso tiene que darse—.
+
+    `close_price` a None sigue siendo valido y honesto: es lo que pasa cuando la
+    posicion se cierra sola al reimportar el extracto, donde el precio de venta
+    no viene. Entonces se estima, y `get_closed_sales` lo marca como estimado en
+    vez de darlo por bueno.
+
+    `closed_at` permite registrar una venta de un dia anterior; por defecto, hoy.
+    """
     with connect() as conn:
         conn.execute(
-            "UPDATE positions SET closed_at = ? WHERE id = ?", [date.today(), position_id]
+            "UPDATE positions SET closed_at = ?, close_price = ? WHERE id = ?",
+            [closed_at or date.today(),
+             float(close_price) if close_price else None,
+             position_id],
         )
     get_positions.clear()
     get_closed_sales.clear()
@@ -984,16 +1105,26 @@ _MAX_DIAS_SIN_PRECIO = 7
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_closed_sales(ticker: str, days: int = 400) -> pd.DataFrame:
-    """Ventas cerradas de un valor con el resultado ESTIMADO de cada una.
+    """Ventas cerradas de un valor con el resultado de cada una.
 
-    `positions` guarda a que precio se compro pero no a que precio se vendio,
-    asi que el resultado no se puede saber: se estima con el cierre del dia de
-    la venta. Es una aproximacion —el precio de ejecucion no es el de cierre y
-    `avg_cost` no lleva comisiones— y por eso se devuelve el porcentaje y quien
-    lo use decide con margen.
+    DOS ORIGENES, Y LA COLUMNA QUE LO DICE
 
-    Sin precio para ese dia, `resultado_pct` sale nulo: significa "no se sabe",
-    que no es lo mismo que "fue ganancia".
+    Si la venta se registro con su precio (`close_price`), el resultado es un
+    HECHO. Si no —cierres automaticos al reimportar el extracto, donde el precio
+    de venta no viene—, se ESTIMA con el cierre del dia de la venta.
+
+    `precio_real` distingue las dos cosas, y no es un adorno: un resultado
+    estimado puede equivocarse de signo, porque el cierre del dia no es el
+    precio de ejecucion. Quien consume esto —la regla de los dos meses— tiene
+    que poder aplicar margen a lo estimado y creerse lo medido. Antes no habia
+    forma: todo era estimado y todo se trataba con la misma desconfianza, lo que
+    dejaba avisos de mas sobre ganancias reales.
+
+    En los dos casos `avg_cost` no lleva comisiones, asi que el resultado real
+    es algo peor que el que sale aqui.
+
+    Sin precio de venta Y sin cierre cercano, `resultado_pct` sale nulo:
+    significa "no se sabe", que no es lo mismo que "fue ganancia".
     """
     # El limite de antiguedad va FUERA del ASOF y no dentro: DuckDB solo admite
     # una desigualdad en la condicion del ASOF, y con dos falla al enlazar la
@@ -1002,7 +1133,7 @@ def get_closed_sales(ticker: str, days: int = 400) -> pd.DataFrame:
     return _fetch(
         f"""
         WITH cerradas AS (
-            SELECT p.closed_at, p.qty, p.avg_cost, p.currency,
+            SELECT p.closed_at, p.qty, p.avg_cost, p.currency, p.close_price,
                    pr.close AS cierre, pr.date AS fecha_cierre
             FROM positions p
             ASOF LEFT JOIN prices_daily pr
@@ -1012,14 +1143,15 @@ def get_closed_sales(ticker: str, days: int = 400) -> pd.DataFrame:
               AND p.closed_at >= CURRENT_DATE - INTERVAL (?) DAY
         ),
         vigentes AS (
-            SELECT *, CASE
+            SELECT *, COALESCE(close_price, CASE
                 WHEN fecha_cierre IS NOT NULL
                  AND date_diff('day', fecha_cierre, closed_at)
                      <= {_MAX_DIAS_SIN_PRECIO}
-                THEN cierre END AS precio_estimado
+                THEN cierre END) AS precio_estimado
             FROM cerradas
         )
         SELECT closed_at, qty, avg_cost, currency, precio_estimado,
+               close_price IS NOT NULL AS precio_real,
                CASE WHEN avg_cost > 0 AND precio_estimado IS NOT NULL
                     THEN (precio_estimado / avg_cost - 1) * 100.0
                END AS resultado_pct

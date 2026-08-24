@@ -40,11 +40,17 @@ def render_stress_panel(positions: pd.DataFrame) -> None:
         st.caption("Sin posiciones que poner a prueba.")
         return
 
+    # `valor_eur` y no `valor`: todo lo que sale de aqui es un PESO relativo
+    # dentro de la cartera —cuanto pesa cada posicion en la caida y cuantas
+    # apuestas de verdad hay—, y pesar dolares contra euros sin convertir hace
+    # las posiciones en dolares un 17 % mas grandes de lo que son. Se cae a
+    # `valor` si la columna no viene, para no romper a quien llame sin ella.
+    columna = "valor_eur" if "valor_eur" in positions.columns else "valor"
     cartera = [
-        {"ticker": str(f.ticker), "valor": float(f.valor),
-         "sector": (None if pd.isna(f.gics_sector) else str(f.gics_sector))}
-        for f in positions.itertuples()
-        if pd.notna(f.valor) and float(f.valor) > 0
+        {"ticker": str(f[0]), "valor": float(f[1]),
+         "sector": (None if pd.isna(f[2]) else str(f[2]))}
+        for f in positions[["ticker", columna, "gics_sector"]].itertuples(index=False)
+        if pd.notna(f[1]) and float(f[1]) > 0
     ]
     if not cartera:
         st.caption("Sin posiciones valoradas.")

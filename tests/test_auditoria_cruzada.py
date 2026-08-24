@@ -55,7 +55,7 @@ def sembrar(*, en_cartera=("AAA",), con_senal=("BBB",),
         db.upsert_df(conn, "prices_daily", precios, keys=["ticker", "date"])
         for t in en_cartera:
             conn.execute(
-                "INSERT INTO positions VALUES (?, ?, 10, 90.0, 'EUR', ?, NULL, '', NULL)",
+                "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES (?, ?, 10, 90.0, 'EUR', ?, NULL, '', NULL)",
                 [f"pos-{t}", t, HOY - timedelta(days=30)],
             )
         for t in con_senal:
@@ -122,7 +122,7 @@ def test_una_posicion_cerrada_no_se_audita(warehouse):
     sembrar(en_cartera=(), con_senal=())
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO positions VALUES ('p1', 'AAA', 10, 90.0, 'EUR', ?, ?, '', NULL)",
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, opened_at, closed_at, note, updated_at) VALUES ('p1', 'AAA', 10, 90.0, 'EUR', ?, ?, '', NULL)",
             [HOY - timedelta(days=60), HOY - timedelta(days=5)],
         )
     with db.connect(read_only=True) as conn:

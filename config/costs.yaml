@@ -18,7 +18,19 @@
 # por las tuyas: una comision mal puesta hace que compares mal.
 broker:
   nombre: "Generico (edita esto)"
-  # Comision por operacion: lo que sea mayor entre el fijo y el porcentaje.
+  # Comision por operacion = parte fija + porcentaje, con un suelo.
+  #
+  #     comision = max(comision_fija_eur + comision_pct % del importe,
+  #                    comision_minima_eur)
+  #
+  # Los tres campos son cosas DISTINTAS y hay que ponerlos segun cobre tu
+  # broker, o el coste sale mal:
+  #
+  #   - Fijo mas porcentaje (ING, Trade Republic, DEGIRO): pon los dos.
+  #     ING seria comision_fija_eur: 8.0 y comision_pct: 0.10.
+  #   - Solo porcentaje con un minimo: comision_fija_eur: 0.0, el porcentaje
+  #     en comision_pct y el minimo en comision_minima_eur.
+  #   - Solo una tarifa plana: dejala en comision_fija_eur y pon 0 en el resto.
   comision_fija_eur: 1.0
   comision_pct: 0.0
   comision_minima_eur: 1.0
