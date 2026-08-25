@@ -195,10 +195,33 @@ def test_two_grave_reasons_are_red():
     assert d.nivel is Nivel.ROJO
 
 
-def test_one_grave_reason_plus_two_minor_ones_is_red():
-    """Tres cosas a la vez es un patron, no una casualidad."""
+def test_un_motivo_grave_confirmado_por_el_precio_no_son_tres_motivos():
+    """CAMBIADO POR LA AUDITORIA DE FALSOS POSITIVOS. Antes esto exigia ROJO.
+
+    Un payout del 150 % es un problema real y grave. Que ademas el precio caiga
+    y se quede por detras del indice NO son dos problemas mas: es el mercado
+    dandose cuenta del mismo. Contarlos como tres motivos independientes es lo
+    que hacia que empresas sanas con el precio corrigiendo salieran en rojo.
+
+    Sigue siendo AMBAR —hay algo que mirar, y el payout se ensena— y el asesor
+    sigue diciendo REDUCIR, porque la senal grave es de FUNDAMENTALES. Lo que
+    cambia es que el color ya no exagera.
+    """
     d = diagnosticar("AAA", fund_hoy={"payout_ratio": 1.5},
                      ind_hoy={"rs_vs_bench_3m": -0.18, "drawdown": -0.35})
+
+    assert d.nivel is Nivel.AMBAR
+    assert d.puntos == 3, "el bloque de precio vuelve a contar dos veces"
+    assert len(d.senales) == 3, "los motivos se siguen ensenando todos"
+
+
+def test_dos_problemas_de_NEGOCIO_distintos_si_son_rojo():
+    """Contraprueba. Agrupar el precio no puede apagar el rojo cuando hay dos
+    cosas de verdad distintas rotas en el negocio."""
+    d = diagnosticar("AAA",
+                     fund_hoy={"payout_ratio": 1.5, "net_debt_to_ebitda": 4.5},
+                     fund_entonces={"net_debt_to_ebitda": 1.2})
+
     assert d.nivel is Nivel.ROJO
 
 

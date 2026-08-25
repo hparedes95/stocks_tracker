@@ -385,3 +385,152 @@ def test_ninguna_recomendacion_promete_el_futuro():
             assert palabra not in texto, (
                 f"{r.veredicto} promete el futuro: '{palabra}'"
             )
+
+
+# ===========================================================================
+# FALSOS POSITIVOS EN LA CARTERA, reportados desde el uso real
+# ===========================================================================
+def _empresa_sana() -> dict:
+    """Una MSFT o una NVDA: margenes altos, poca deuda, creciendo."""
+    return {"profit_margin": 0.35, "roe": 0.40, "revenue_growth_yoy": 0.15,
+            "net_debt_to_ebitda": 0.5, "payout_ratio": 0.25}
+
+
+def _diagnosticar(hoy: dict, entonces: dict) -> det.Diagnostico:
+    return det.diagnosticar("X", fund_hoy=hoy, fund_entonces=entonces,
+                            ind_hoy=hoy, ind_entonces=entonces)
+
+
+def _al_comprar() -> dict:
+    return {**_empresa_sana(), "above_sma200": True, "death_cross": False,
+            "drawdown": -0.02, "rs_vs_bench_3m": 0.10}
+
+
+def test_una_correccion_con_el_negocio_intacto_no_es_para_reducir():
+    """EL CASO REPORTADO: MSFT y NVDA saliendo como REDUCIR.
+
+    Fundamentales IDENTICOS al dia de la compra —margen 35 %, ROE 40 %, deuda
+    0,5x, crecimiento 15 %— y una correccion normal del precio: cae un 32 %
+    desde maximos, pierde la MM200, cruce de la muerte y se queda un 12 % por
+    detras del indice.
+
+    Antes sumaban 4 puntos = ROJO = REDUCIR. Pero no son cuatro hechos: cuando
+    una accion cae un 30 % pierde la MM200 y cruza a la baja POR CONSTRUCCION.
+    Es una noticia contada cuatro veces.
+    """
+    hoy = {**_empresa_sana(), "drawdown": -0.32, "above_sma200": False,
+           "death_cross": True, "rs_vs_bench_3m": -0.12}
+
+    d = _diagnosticar(hoy, _al_comprar())
+    r = advice.sobre_una_posicion("X", diagnostico=d, precio=100.0, stop=70.0)
+
+    assert d.puntos == 1, "las senales de precio se estan sumando entre si"
+    assert r.veredicto is Veredicto.MANTENER, (
+        "una correccion con el negocio intacto vuelve a pedir recortar"
+    )
+    # Los motivos NO desaparecen: se siguen viendo, solo dejan de contar cuatro
+    # veces. Esconderlos seria el fallo contrario.
+    assert len(d.senales) == 4
+
+
+def test_un_desplome_con_el_negocio_intacto_tampoco():
+    """La puerta de atras del mismo fallo. Una caida del 52 % es una senal
+    GRAVE y entraba por la regla de "una sola senal grave -> REDUCIR".
+
+    Pero una caida no dice nada del negocio: dice que el mercado paga menos, y
+    para eso esta el stop, que se comprueba antes. Reducir ademas por precio es
+    cobrarle dos veces a la misma noticia.
+    """
+    hoy = {**_empresa_sana(), "drawdown": -0.52, "above_sma200": False,
+           "death_cross": True, "rs_vs_bench_3m": -0.25}
+
+    r = advice.sobre_una_posicion(
+        "X", diagnostico=_diagnosticar(hoy, _al_comprar()), precio=100.0,
+        stop=70.0)
+
+    assert r.veredicto is Veredicto.MANTENER
+    assert "el negocio no" in " ".join(r.motivos)
+
+
+def test_pero_el_stop_sigue_mandando():
+    """Que el precio no rompa la tesis NO significa ignorarlo. El stop se
+    comprueba antes que nada y sigue sacando la posicion."""
+    hoy = {**_empresa_sana(), "drawdown": -0.52, "above_sma200": False}
+
+    r = advice.sobre_una_posicion(
+        "X", diagnostico=_diagnosticar(hoy, _al_comprar()), precio=65.0,
+        stop=70.0, titulos=10)
+
+    assert r.veredicto is Veredicto.VENDER
+
+
+def test_lo_que_SI_rompe_la_tesis_sigue_saltando():
+    """Contraprueba imprescindible. Bajar los falsos positivos no puede
+    convertir el asesor en uno que nunca dice nada: el margen cayendo del 35 %
+    al 22 % son trece puntos, y eso ya es otra empresa."""
+    hoy = {**_empresa_sana(), "profit_margin": 0.22, "drawdown": -0.10}
+
+    r = advice.sobre_una_posicion(
+        "X", diagnostico=_diagnosticar(hoy, _al_comprar()), precio=100.0,
+        stop=70.0, titulos=10)
+
+    assert r.veredicto is Veredicto.REDUCIR
+
+
+def test_dos_cosas_rotas_en_el_negocio_siguen_siendo_venta():
+    hoy = {**_empresa_sana(), "profit_margin": 0.22,
+           "revenue_growth_yoy": -0.08, "drawdown": -0.10}
+
+    r = advice.sobre_una_posicion(
+        "X", diagnostico=_diagnosticar(hoy, _al_comprar()), precio=100.0,
+        stop=70.0, titulos=10)
+
+    assert r.veredicto is Veredicto.VENDER
+
+
+def test_en_un_ETF_el_precio_SI_puede_decidir():
+    """La excepcion, y es necesaria. Un ETF, un indice o una cripto no tienen
+    balances que mirar: quitarle el voto al precio los dejaria sin diagnostico
+    ninguno."""
+    hoy = {"drawdown": -0.52, "above_sma200": False, "death_cross": True}
+    entonces = {"above_sma200": True, "drawdown": -0.02}
+
+    r = advice.sobre_una_posicion(
+        "X", diagnostico=_diagnosticar(hoy, entonces), precio=100.0,
+        stop=70.0, titulos=10)
+
+    assert r.veredicto is Veredicto.REDUCIR
+
+
+def test_lo_que_ya_era_cierto_al_comprar_no_es_un_deterioro():
+    """SEGUNDO HALLAZGO DE LA AUDITORIA. `_precio` media el PRESENTE y lo
+    presentaba como un cambio a peor.
+
+    Si compraste algo que ya caia un 45 % desde maximos y hoy cae un 35 %, ha
+    MEJORADO desde tu compra. Antes salian cuatro senales de deterioro.
+    """
+    hoy = {**_empresa_sana(), "drawdown": -0.35, "above_sma200": False,
+           "death_cross": True, "rs_vs_bench_3m": -0.12}
+    compre_en_el_suelo = {**_empresa_sana(), "drawdown": -0.45,
+                          "above_sma200": False, "death_cross": True,
+                          "rs_vs_bench_3m": -0.30}
+
+    d = _diagnosticar(hoy, compre_en_el_suelo)
+
+    assert d.senales == [], (
+        f"sigue contando como deterioro lo que ya estaba peor al comprar: "
+        f"{[s.clave for s in d.senales]}"
+    )
+
+
+def test_reducir_por_concentracion_no_es_un_falso_positivo():
+    """Que quede dicho: este SI tiene que saltar. No dice nada de la empresa,
+    dice que un solo error en ella te costaria demasiado."""
+    hoy = {**_empresa_sana(), "drawdown": -0.05}
+
+    r = advice.sobre_una_posicion(
+        "X", diagnostico=_diagnosticar(hoy, _al_comprar()), precio=100.0,
+        stop=70.0, peso_pct=30.0, titulos=100)
+
+    assert r.veredicto is Veredicto.REDUCIR
+    assert "no dice nada malo de la empresa" in " ".join(r.motivos).lower()

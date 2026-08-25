@@ -284,6 +284,44 @@ def sobre_una_posicion(
     #
     # La duda siempre cae del lado de REDUCIR, que fue la decision del usuario.
 
+    # EL PRECIO NO ES LA TESIS, Y PARA EL PRECIO YA ESTA EL STOP
+    #
+    # Segundo fallo del mismo caso real. Con los fundamentales intactos, una
+    # caida del 52 % desde maximos entraba por la regla 3 —una senal grave— y
+    # salia como REDUCIR. Pero una caida no dice nada del negocio: dice que el
+    # mercado paga menos, que es exactamente lo que el stop de 2,5xATR existe
+    # para gestionar, y ese ya se ha comprobado arriba.
+    #
+    # Reducir ADEMAS por precio es cobrarle dos veces a la misma noticia, y
+    # ademas contradice la decision del usuario: vender solo si la tesis se
+    # rompe.
+    #
+    # La excepcion son los instrumentos SIN fundamentales —ETF, indices,
+    # cripto—. Ahi el precio es lo unico que hay, y quitarle el voto dejaria
+    # esas posiciones sin diagnostico ninguno.
+    if (diagnostico is not None and diagnostico.solo_es_precio
+            and diagnostico.con_fundamentales):
+        peor = max(diagnostico.senales, key=lambda s: s.puntos)
+        return Recomendacion(
+            ticker, Veredicto.MANTENER, Conviccion.BAJA,
+            motivos=(
+                ["El precio ha ido a peor, pero el negocio no:"]
+                + [f"  {s.texto}" for s in diagnostico.senales]
+                + ["Ninguno de los fundamentales que mirabas al comprar ha "
+                   "empeorado. Una caida de precio con el negocio intacto no "
+                   "es una tesis rota: para el precio esta tu stop, y no se ha "
+                   "perforado."]
+            ),
+            desmentiria=[
+                "Esto deja de valer en cuanto empeore algo del NEGOCIO "
+                "—margen, deuda, crecimiento—, o si el precio pierde "
+                f"{stop:.2f}." if stop else
+                "Esto deja de valer en cuanto empeore algo del negocio.",
+                f"La senal mas seria ahora mismo es '{peor.clave}'. Si el "
+                "proximo dato de resultados la acompana, cambia el veredicto.",
+            ],
+        )
+
     # --- 2. La tesis rota -------------------------------------------------
     if nivel is det.Nivel.ROJO and graves:
         return Recomendacion(

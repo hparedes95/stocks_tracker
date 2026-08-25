@@ -69,6 +69,11 @@ RETRASO_INDICE_3M = -0.10
 # que al mercado le ha pasado algo con este valor.
 SALTO_VOLATILIDAD = 2.0
 
+# Cuanto tiene que EMPEORAR una condicion respecto al dia de la compra para que
+# cuente. Cinco puntos porcentuales: por debajo es el ruido de medir lo mismo
+# dos dias distintos, y contarlo convertiria cualquier oscilacion en deterioro.
+EMPEORAMIENTO_MINIMO = 0.05
+
 # Puntos para encender cada color. `grave` vale 2 y `vigilar` vale 1, asi que
 # hacen falta dos motivos graves —o uno grave y dos leves— para el rojo. Un
 # solo motivo, por serio que sea, deja el semaforo en ambar: merece mirarlo, no
@@ -106,13 +111,21 @@ ETIQUETA = {
 }
 
 
+GRUPO_PRECIO = "precio"
+
+
 @dataclass(frozen=True)
 class Senal:
-    """Un motivo concreto, con el número que lo sostiene."""
+    """Un motivo concreto, con el número que lo sostiene.
+
+    `grupo` marca las señales que son LA MISMA NOTICIA contada de varias
+    formas. Ver `Diagnostico.puntos`: dentro de un grupo solo puntúa la peor.
+    """
 
     clave: str
     grave: bool
     texto: str
+    grupo: str = ""
 
     @property
     def puntos(self) -> int:
@@ -129,10 +142,54 @@ class Diagnostico:
     # se ejecutan las comprobaciones que miran el presente —payout, caida desde
     # maximos— y las de "ha cambiado a peor" no llegan a correr.
     comparado: bool = True
+    # Si el instrumento TIENE fundamentales que mirar. Un ETF, un indice o una
+    # cripto no los tienen, y ahi el precio es el unico diagnostico posible.
+    # Lo usa el asesor para decidir si una senal de precio puede por si sola
+    # cambiar un veredicto. Ver `advice.sobre_una_posicion`.
+    con_fundamentales: bool = False
 
     @property
     def puntos(self) -> int:
-        return sum(s.puntos for s in self.senales)
+        """Los puntos, contando UNA VEZ lo que es una sola noticia.
+
+        EL FALLO QUE ESTO ARREGLA, REPORTADO DESDE EL USO REAL
+
+        Antes esto era `sum(s.puntos for s in self.senales)`. Con eso, una
+        empresa de calidad que corrige acumulaba cuatro señales de precio
+        —cae desde máximos, pierde la MM200, cruce de la muerte, se queda por
+        detrás del índice— y llegaba a ROJO con los fundamentales INTACTOS.
+
+        Reproducido: margen 35 %, ROE 40 %, deuda 0,5x y crecimiento 15 %,
+        idénticos al día de la compra. Cuatro puntos, rojo, y el asesor decía
+        REDUCIR. Es el caso de MSFT y NVDA que llegó desde el uso real.
+
+        Y no eran cuatro hechos. Cuando una acción cae un 30 % pierde la MM200
+        y cruza a la baja POR CONSTRUCCIÓN, y si el índice no cayó igual queda
+        por detrás. Son cuatro maneras de decir que el precio bajó. Cuatro
+        confirmaciones de lo mismo suben la confianza en que el precio bajó,
+        no la evidencia de que la empresa esté peor.
+
+        Ahora dentro de cada grupo puntúa solo la peor señal. Los
+        fundamentales siguen sumando entre sí porque el margen, la deuda y el
+        crecimiento SÍ son hechos distintos sobre el negocio.
+        """
+        sueltas = sum(s.puntos for s in self.senales if not s.grupo)
+        grupos: dict[str, int] = {}
+        for s in self.senales:
+            if s.grupo:
+                grupos[s.grupo] = max(grupos.get(s.grupo, 0), s.puntos)
+        return sueltas + sum(grupos.values())
+
+    @property
+    def solo_es_precio(self) -> bool:
+        """Si todo lo encontrado viene de la cotización y no del negocio.
+
+        Lo usa el asesor: con el horizonte en meses y la regla de vender solo
+        si la tesis se rompe, que el precio haya caído no es que la tesis se
+        haya roto. Para eso está el stop.
+        """
+        return bool(self.senales) and all(
+            s.grupo == GRUPO_PRECIO for s in self.senales)
 
     @property
     def nivel(self) -> Nivel:
@@ -285,10 +342,27 @@ def _fundamentales(hoy: Any, entonces: Any) -> list[Senal]:
 
 
 def _precio(hoy: Any, entonces: Any) -> list[Senal]:
-    """Lo que ha empeorado en la cotización.
+    """Lo que ha empeorado en la cotización DESDE QUE COMPRASTE.
 
-    Llega más tarde que lo anterior, pero es lo único disponible cuando no hay
-    fundamentales —índices, ETF, cripto—.
+    Llega más tarde que los fundamentales, pero es lo único disponible cuando
+    no hay balances que mirar —índices, ETF, cripto—.
+
+    LO QUE YA ERA CIERTO EL DÍA QUE COMPRASTE NO ES UN DETERIORO
+
+    Este bloque medía el PRESENTE y lo presentaba como un cambio a peor. Con el
+    mismo estado de hoy, comprar en máximos daba 5 señales y comprar en el
+    suelo —cuando la acción ya estaba peor— daba 4. Deberían ser 0 en el
+    segundo caso: si compraste algo que ya caía un 45 % y hoy cae un 35 %, ha
+    MEJORADO desde tu compra.
+
+    Ahora cada condición se compara contra la del día de la compra donde hay
+    dato, y donde no lo hay se dice que es una condición del presente. Sin la
+    foto de entonces se sigue avisando —es mejor que callar— pero el texto no
+    afirma que haya cambiado nada.
+
+    Todas las señales de aquí llevan `grupo=GRUPO_PRECIO`: son la misma noticia
+    contada de varias formas y no deben sumarse entre sí. Ver
+    `Diagnostico.puntos`.
     """
     fuera: list[Senal] = []
 
@@ -299,41 +373,69 @@ def _precio(hoy: Any, entonces: Any) -> list[Senal]:
             "mm200", False,
             "Cotiza por debajo de su media de 200 sesiones; cuando compraste "
             "estaba por encima. Es el cambio de tendencia de fondo más seguido.",
+            GRUPO_PRECIO,
         ))
 
-    if _bool(hoy, "death_cross") is True:
+    # El cruce de la muerte solo es noticia si NO estaba ya cruzado al comprar.
+    if _bool(hoy, "death_cross") is True and _bool(entonces, "death_cross") is not True:
         fuera.append(Senal(
             "cruce", False,
             "La media de 50 sesiones ha cortado a la baja la de 200 (cruce de "
             "la muerte). Llega tarde por construcción, pero mucha gente lo mira.",
+            GRUPO_PRECIO,
         ))
 
     caida = _num(hoy, "drawdown")
+    caida_antes = _num(entonces, "drawdown")
     if caida is not None and caida <= CAIDA_VIGILAR:
-        fuera.append(Senal(
-            "caida", caida <= CAIDA_GRAVE,
-            f"Cae un {_pct(abs(caida))} desde su máximo. Para volver al máximo "
-            f"tiene que subir un {abs(caida) / (1 + caida) * 100:.0f} %: una "
-            "caída grande necesita una subida mayor solo para empatar.",
-        ))
+        # Si ya caía tanto o más cuando compraste, no ha empeorado: compraste
+        # una acción castigada y sigue castigada. Eso no es un deterioro, es la
+        # tesis que tenías.
+        empeoro = caida_antes is None or caida < caida_antes - EMPEORAMIENTO_MINIMO
+        if empeoro:
+            desde = (f" Cuando compraste caía un {_pct(abs(caida_antes))}."
+                     if caida_antes is not None else
+                     " (No hay dato del día de tu compra con el que comparar.)")
+            fuera.append(Senal(
+                "caida", caida <= CAIDA_GRAVE,
+                f"Cae un {_pct(abs(caida))} desde su máximo. Para volver al "
+                f"máximo tiene que subir un "
+                f"{abs(caida) / (1 + caida) * 100:.0f} %: una caída grande "
+                f"necesita una subida mayor solo para empatar.{desde}",
+                GRUPO_PRECIO,
+            ))
 
     relativa = _num(hoy, "rs_vs_bench_3m")
+    relativa_antes = _num(entonces, "rs_vs_bench_3m")
     if relativa is not None and relativa <= RETRASO_INDICE_3M:
-        fuera.append(Senal(
-            "relativa", False,
-            f"Se queda {_pct(abs(relativa))} por detrás de su índice a tres "
-            "meses. Si el mercado sube y este no, el problema es de este valor.",
-        ))
+        empeoro = (relativa_antes is None
+                   or relativa < relativa_antes - EMPEORAMIENTO_MINIMO)
+        if empeoro:
+            fuera.append(Senal(
+                "relativa", False,
+                f"Se queda {_pct(abs(relativa))} por detrás de su índice a tres "
+                "meses. Si el mercado sube y este no, el problema es de este "
+                "valor.",
+                GRUPO_PRECIO,
+            ))
 
     vol_corta, vol_larga = _num(hoy, "realized_vol_20"), _num(hoy, "realized_vol_252")
     if (vol_corta is not None and vol_larga is not None and vol_larga > 0
             and vol_corta / vol_larga >= SALTO_VOLATILIDAD):
-        fuera.append(Senal(
-            "volatilidad", False,
-            f"Se mueve {vol_corta / vol_larga:.1f} veces más de lo habitual en "
-            "el último mes. Que la volatilidad se dispare suele significar que "
-            "hay algo que el mercado todavía esta digiriendo.",
-        ))
+        # Y tampoco es noticia si ya se movía asi cuando compraste.
+        antes_corta = _num(entonces, "realized_vol_20")
+        antes_larga = _num(entonces, "realized_vol_252")
+        ya_estaba = (antes_corta is not None and antes_larga is not None
+                     and antes_larga > 0
+                     and antes_corta / antes_larga >= SALTO_VOLATILIDAD)
+        if not ya_estaba:
+            fuera.append(Senal(
+                "volatilidad", False,
+                f"Se mueve {vol_corta / vol_larga:.1f} veces más de lo habitual "
+                "en el último mes. Que la volatilidad se dispare suele "
+                "significar que hay algo que el mercado todavía esta digiriendo.",
+                GRUPO_PRECIO,
+            ))
 
     return fuera
 
@@ -396,6 +498,10 @@ def diagnosticar(ticker: str, *, fund_hoy: Any = None, fund_entonces: Any = None
         or _bool(ind_entonces, campo) is not None
         for campo in CAMPOS_PRECIO
     )
+    con_fundamentales = any(
+        _num(fund_hoy, campo) is not None for campo in CAMPOS_FUNDAMENTALES
+    )
     return Diagnostico(ticker=ticker, senales=senales,
                        comparado_con=comparado_con, hay_datos=hay_datos,
-                       comparado=comparado)
+                       comparado=comparado,
+                       con_fundamentales=con_fundamentales)

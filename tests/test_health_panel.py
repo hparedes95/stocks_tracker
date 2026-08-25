@@ -125,7 +125,14 @@ def test_the_whole_chain_lights_the_light(warehouse, monkeypatch):
     d = diagnosticos(salud(monkeypatch))[0]
     assert d.ticker == "AAA"
     assert {"margen", "mm200", "caida"} <= {s.clave for s in d.senales}
-    assert d.nivel is Nivel.ROJO
+    # AMBAR y no ROJO desde la auditoria de falsos positivos: el margen hundido
+    # es UN problema (grave, 2 puntos) y `mm200` + `caida` son el precio
+    # reflejandolo, que cuenta como uno. Total 3.
+    #
+    # Los tres motivos se siguen ensenando; lo que ya no pasa es que el precio
+    # confirmando un problema lo convierta en varios problemas.
+    assert d.nivel is Nivel.AMBAR
+    assert d.puntos == 3
 
 
 def test_a_healthy_position_stays_green(warehouse, monkeypatch):
