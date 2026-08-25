@@ -338,6 +338,31 @@ def _precio(hoy: Any, entonces: Any) -> list[Senal]:
     return fuera
 
 
+SUFIJO_ENTONCES = "_entonces"
+
+
+def partir(datos: Any) -> tuple[dict, dict]:
+    """Parte una fila ancha de `get_position_health` en el hoy y el entonces.
+
+    Vive aqui y no en la pantalla porque ya hay dos sitios que lo necesitan —el
+    semaforo de salud y el asesor— y dos copias de esto se separan el dia que
+    alguien anada una columna. Ademas es justo el paso donde se comete el error
+    que este modulo existe para evitar: pasar la misma fila por los dos lados
+    hace que no haya nada que comparar y que todo salga en verde.
+
+    Devuelve `(hoy, entonces)`.
+    """
+    hoy, entonces = {}, {}
+    items = datos.items() if hasattr(datos, "items") else []
+    for col, valor in items:
+        nombre = str(col)
+        if nombre.endswith(SUFIJO_ENTONCES):
+            entonces[nombre[: -len(SUFIJO_ENTONCES)]] = valor
+        else:
+            hoy[nombre] = valor
+    return hoy, entonces
+
+
 def diagnosticar(ticker: str, *, fund_hoy: Any = None, fund_entonces: Any = None,
                  ind_hoy: Any = None, ind_entonces: Any = None,
                  comparado_con: Any = None) -> Diagnostico:

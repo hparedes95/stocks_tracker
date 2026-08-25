@@ -51,7 +51,7 @@ PAGINAS = sorted(
 # Si esto deja de cuadrar es que se ha anadido o quitado una pagina, y hay que
 # mirar si la nueva entra aqui. Un descubrimiento por glob que se queda a cero
 # pasaria en verde sin comprobar nada.
-ESPERADAS = 11
+ESPERADAS = 12
 
 HOY = date(2026, 8, 20)
 
@@ -82,7 +82,7 @@ def _pintar(ruta: pathlib.Path):
     return prueba
 
 
-def test_estan_las_once_paginas():
+def test_estan_las_doce_paginas():
     assert len(PAGINAS) == ESPERADAS, [p.name for p in PAGINAS]
 
 

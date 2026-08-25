@@ -832,6 +832,25 @@ def all_tickers() -> list[str]:
     return df["ticker"].tolist()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def get_advice_scoreboard() -> tuple:
+    """El marcador del asesor: aciertos, fallos y exceso sobre el indice.
+
+    Devuelve `(puntuadas, resultados)`. Vacio significa que todavia no ha
+    vencido ninguna recomendacion, que es el estado normal durante meses y no
+    un error: el marcador mide hacia delante y no hay forma honesta de
+    rellenarlo con historia.
+    """
+    from ..core import advice_store
+
+    try:
+        with connect(read_only=True) as conn:
+            puntuadas = advice_store.puntuar(conn)
+    except Exception:  # noqa: BLE001 — sin almacen, sin marcador
+        return pd.DataFrame(), []
+    return puntuadas, advice_store.marcador(puntuadas)
+
+
 @st.cache_data(ttl=TTL, show_spinner=False)
 def scoring_universe(preset: str | None = None) -> dict:
     """Contra QUE universo se calculo el ranking que se esta mirando.

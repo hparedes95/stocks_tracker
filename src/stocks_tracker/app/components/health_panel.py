@@ -14,7 +14,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from ...core.deterioration import ETIQUETA, Nivel, diagnosticar
+from ...core.deterioration import ETIQUETA, Nivel, diagnosticar, partir
 
 ICONO = {
     Nivel.ROJO: ":material/error:",
@@ -29,28 +29,16 @@ ICONO = {
 ORDEN = {Nivel.ROJO: 0, Nivel.AMBAR: 1, Nivel.GRIS: 2, Nivel.VERDE: 3}
 
 
-def _fila(datos: pd.Series) -> dict:
-    """Parte la fila ancha en el 'hoy' y el 'entonces' que espera el núcleo."""
-    hoy, entonces = {}, {}
-    for col, valor in datos.items():
-        nombre = str(col)
-        if nombre.endswith("_entonces"):
-            entonces[nombre[: -len("_entonces")]] = valor
-        else:
-            hoy[nombre] = valor
-    return {"hoy": hoy, "entonces": entonces}
-
-
 def diagnosticos(salud: pd.DataFrame) -> list:
     """Un diagnóstico por posición, ordenados por lo que hay que mirar antes."""
     fuera = []
     for _, fila in salud.iterrows():
-        partes = _fila(fila)
+        hoy, entonces = partir(fila)
         fuera.append(diagnosticar(
             str(fila["ticker"]),
-            fund_hoy=partes["hoy"], fund_entonces=partes["entonces"],
-            ind_hoy=partes["hoy"], ind_entonces=partes["entonces"],
-            comparado_con=partes["hoy"].get("opened_at"),
+            fund_hoy=hoy, fund_entonces=entonces,
+            ind_hoy=hoy, ind_entonces=entonces,
+            comparado_con=hoy.get("opened_at"),
         ))
     return sorted(fuera, key=lambda d: (ORDEN[d.nivel], -d.puntos, d.ticker))
 

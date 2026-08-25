@@ -836,3 +836,36 @@ CREATE TABLE IF NOT EXISTS scoring_runs (
   git_commit    VARCHAR,
   PRIMARY KEY (date, weights_hash)
 );
+
+-- Cada recomendacion, guardada EL DIA QUE SE EMITE y no reescrita nunca.
+--
+-- Es la misma disciplina de `decision_journal`: contra el sesgo retrospectivo
+-- no vale la buena intencion. Cuando algo sale bien, el recuerdo del motivo se
+-- reescribe solo para que encaje, y se aprende una leccion que nunca ocurrio.
+--
+-- Sin esta tabla, la seccion de recomendaciones seria un horoscopo: convincente
+-- cada manana e imposible de comprobar. Con ella, dentro de seis meses se puede
+-- decir cuantas veces acerto y cuantas no.
+--
+-- `precio` y `stop` son los de ESE dia: sin ellos no hay forma de puntuar
+-- despues, porque el precio de hoy ya no dice a que se recomendo comprar.
+CREATE TABLE IF NOT EXISTS recommendations (
+  fecha           DATE,
+  ticker          VARCHAR,
+  weights_hash    VARCHAR,       -- con que perfil de pesos se decidio
+  veredicto       VARCHAR,
+  conviccion      VARCHAR,
+  precio          DOUBLE,        -- el del dia de la recomendacion
+  stop            DOUBLE,
+  importe_eur     DOUBLE,
+  titulos         DOUBLE,
+  riesgo_eur      DOUBLE,
+  motivos         VARCHAR,       -- JSON
+  desmentiria     VARCHAR,       -- JSON
+  aviso_fiscal    VARCHAR,
+  horizonte_meses INTEGER,
+  universe_hash   VARCHAR,       -- contra que universo se puntuo ese dia
+  git_commit      VARCHAR,
+  emitida_at      TIMESTAMP,
+  PRIMARY KEY (fecha, ticker, weights_hash)
+);
