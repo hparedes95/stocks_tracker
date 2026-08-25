@@ -27,6 +27,39 @@ def weights_hash(weights: dict[str, float]) -> str:
     return hashlib.blake2s(payload.encode(), digest_size=6).hexdigest()
 
 
+def huella_universo(tickers) -> str:
+    """Identificador estable del CONJUNTO de valores contra el que se puntuo.
+
+    POR QUE HACE FALTA, Y ES EL PROBLEMA MAS SERIO DE ESTE MODULO
+
+    Todo lo que hay aqui es TRANSVERSAL: el z-score de un valor se calcula
+    contra la mediana y la MAD de los demas valores presentes, el percentil es
+    su puesto entre los presentes, y la winsorizacion usa los cuantiles de los
+    presentes. La consecuencia es que **el ranking no es una propiedad del
+    valor: es una propiedad del valor Y DE CON QUIEN SE LE COMPARA**.
+
+    Eso esta bien —es lo que significa "el mejor del mercado"— pero convierte al
+    universo en una entrada del calculo tan importante como los precios, y hasta
+    ahora no se guardaba en ningun sitio.
+
+    MEDIDO, no supuesto. Con 620 valores frente a los mismos 620 menos 380 —el
+    tamano exacto del respaldo manual cuando Wikipedia falla—:
+
+        Top-20 en comun ................................. 7 de 20
+        Cambio de puesto entre los valores comunes ...... mediana 8, maximo 48
+        Salto de percentil .............................. hasta 0,21
+
+    Dos ordenadores con el mismo codigo, el mismo dia y los mismos precios
+    ensenaban trece oportunidades distintas de veinte, sin ningun error y sin
+    una sola linea que lo dijera.
+
+    Con la huella, comparar dos instalaciones es comparar ocho caracteres.
+    """
+    limpios = sorted({str(t).strip().upper() for t in tickers if str(t).strip()})
+    payload = "\n".join(limpios)
+    return hashlib.blake2s(payload.encode(), digest_size=4).hexdigest()
+
+
 PRESET_LABELS = {
     "balanced": "Equilibrado", "value": "Valor", "growth": "Crecimiento",
     "dividend": "Dividendo", "momentum": "Momentum", "bot_core": "Nucleo del bot",

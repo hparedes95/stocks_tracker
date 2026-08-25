@@ -812,3 +812,27 @@ ALTER TABLE positions ADD COLUMN IF NOT EXISTS close_price DOUBLE;
 -- que sigue intacta. NULL en las filas antiguas se lee como 'venta', que es lo
 -- que eran antes de que existiera la consolidacion.
 ALTER TABLE positions ADD COLUMN IF NOT EXISTS closed_reason VARCHAR;
+
+-- Contra QUE universo se calculo cada ranking.
+--
+-- El score de un valor es transversal: su z-score sale de la mediana y la MAD
+-- de los demas valores presentes, y su percentil es su puesto entre ellos. Eso
+-- convierte al universo en una entrada del calculo tan importante como los
+-- precios, y no se guardaba en ningun sitio.
+--
+-- Medido: 620 valores frente a los mismos menos 380 —el tamano del respaldo
+-- manual cuando la descarga de constituyentes falla— dejan 7 nombres comunes
+-- en el Top-20. Dos instalaciones ensenaban trece oportunidades distintas de
+-- veinte, el mismo dia, sin ningun error a la vista.
+--
+-- Con esto, comparar dos instalaciones es comparar `universe_hash`.
+CREATE TABLE IF NOT EXISTS scoring_runs (
+  date          DATE,
+  weights_hash  VARCHAR,
+  n_tickers     INTEGER,
+  universe_hash VARCHAR,          -- huella del conjunto exacto de tickers
+  n_sectores    INTEGER,
+  computed_at   TIMESTAMP,
+  git_commit    VARCHAR,
+  PRIMARY KEY (date, weights_hash)
+);

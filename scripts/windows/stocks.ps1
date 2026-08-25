@@ -32,6 +32,9 @@
       reconciliar Contrasta tu cartera con la del broker
       oro       Reescribe la referencia de regresion financiera
       auditar   Cruza precios con un segundo proveedor y da su veredicto
+      huella    Dice contra que universo se calculo el ranking. Compara la
+                huella entre dos ordenadores: si difiere, es normal que las
+                oportunidades no coincidan
       alerts    Evalua las reglas de aviso
       watch     Vigila el mercado en vivo
       watchtest Simula un desplome del 8% para probar los avisos
@@ -48,7 +51,7 @@ param(
                  'tiene-universo',
                  'compute', 'presets', 'validate',
                  'validate-freeze', 'validate-confirm',
-                 'auditar', 'oro',
+                 'auditar', 'oro', 'huella',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
@@ -650,6 +653,15 @@ switch ($Task) {
         Write-Step "Recalculando la referencia de regresion financiera"
         Write-Host "  Imprime lo que cambia ANTES de escribirlo. Revisalo."
         & $Py scripts/regenerar_oro.py
+    }
+
+    'huella' {
+        Assert-Venv
+        # Existe porque el sintoma "en mi otro ordenador salen otras
+        # oportunidades" no se diagnostica mirando las dos pantallas: las
+        # dos ensenan una lista igual de convincente. Comparar dos huellas
+        # de ocho caracteres lo resuelve en un segundo.
+        & $Py -m stocks_tracker.compute.run_compute --universo
     }
 
     'auditar' {

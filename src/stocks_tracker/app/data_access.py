@@ -833,6 +833,37 @@ def all_tickers() -> list[str]:
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
+def scoring_universe(preset: str | None = None) -> dict:
+    """Contra QUE universo se calculo el ranking que se esta mirando.
+
+    El score de un valor es transversal: sale de compararlo con los demas. Dos
+    instalaciones con universos distintos dan rankings distintos con los mismos
+    precios y sin ningun error —medido: 7 nombres comunes en el Top-20 entre un
+    universo de 620 y uno de 240—, asi que la pantalla tiene que decir contra
+    cuantos valores se ha puntuado y con que huella.
+
+    Devuelve `{}` si el ranking se calculo antes de que esto se registrara.
+    """
+    df = _fetch(
+        """
+        SELECT date, n_tickers, universe_hash, n_sectores, computed_at
+        FROM scoring_runs WHERE weights_hash = ?
+        ORDER BY date DESC LIMIT 1
+        """,
+        [_preset_hash(preset)],
+    )
+    if df.empty or df["n_tickers"].isna().all():
+        return {}
+    fila = df.iloc[0]
+    return {
+        "fecha": fila["date"],
+        "n_tickers": _entero(fila["n_tickers"]),
+        "huella": as_text(fila["universe_hash"]),
+        "n_sectores": _entero(fila["n_sectores"]),
+    }
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
 def get_fx_rates() -> dict[str, float]:
     """Tipos de cambio vigentes contra el euro, para valorar la cartera.
 

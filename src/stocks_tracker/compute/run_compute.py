@@ -26,7 +26,13 @@ from ..core.config import (
     get_universes,
 )
 from ..core.db import connect, migrate, upsert_df
-from ..core.scoring import compute_scores, preset_names, weights_hash
+from ..core.scoring import (
+    compute_scores,
+    huella_universo,
+    preset_names,
+    weights_hash,
+)
+from ..core.timeutils import utcnow
 
 console = Console()
 
@@ -405,10 +411,69 @@ def compute_factor_scores(preset: str | None = None, all_presets: bool = False) 
                 )
             _prune_stale_scores(conn, last_date, whash, scores["ticker"].tolist())
 
+            _registrar_universo(conn, last_date, whash, scores["ticker"].tolist(),
+                                scores["peer_group"])
+
         total += n
-        console.print(f"[green]Scores: {n} valores[/] (perfil '{name}', hash {whash})")
+        huella = huella_universo(scores["ticker"])
+        console.print(
+            f"[green]Scores: {n} valores[/] (perfil '{name}', hash {whash}, "
+            f"universo {huella})"
+        )
 
     return total
+
+
+# Cuanto puede encoger el universo de una noche para otra sin que sea un aviso.
+#
+# Un 5 % son unos 30 valores de 620: cabe una descarga con fallos sueltos, un
+# valor que deja de cotizar o una fusion. Por debajo de eso ya no es ruido: lo
+# que de verdad pasa es que la descarga de constituyentes falla y el universo
+# cae al respaldo manual, de 620 a 240 de golpe, sin un solo error a la vista.
+MAX_ENCOGIMIENTO = 0.05
+
+
+def _registrar_universo(conn, day, whash: str, tickers: list[str],
+                        sectores) -> None:
+    """Deja constancia de CONTRA QUE se puntuo, y avisa si el universo encogio.
+
+    Sin esto, dos instalaciones del mismo programa con universos distintos daban
+    rankings distintos y no habia forma de saber cual era cual: en pantalla solo
+    salian las oportunidades, iguales de convincentes en las dos.
+    """
+    from ..core import lineage
+
+    anterior = conn.execute(
+        "SELECT date, n_tickers, universe_hash FROM scoring_runs "
+        "WHERE weights_hash = ? AND date < ? ORDER BY date DESC LIMIT 1",
+        [whash, day],
+    ).fetchone()
+
+    huella = huella_universo(tickers)
+    conn.execute(
+        "INSERT OR REPLACE INTO scoring_runs (date, weights_hash, n_tickers, "
+        "universe_hash, n_sectores, computed_at, git_commit) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [day, whash, len(tickers), huella, int(pd.Series(sectores).nunique()),
+         utcnow(), lineage.git_commit()],
+    )
+
+    if not anterior:
+        return
+    antes = int(anterior[1] or 0)
+    if antes and len(tickers) < antes * (1 - MAX_ENCOGIMIENTO):
+        perdidos = antes - len(tickers)
+        console.print(
+            f"[bold red]El universo ha encogido: {antes} -> {len(tickers)} "
+            f"valores ({perdidos} menos).[/]"
+        )
+        console.print(
+            "[yellow]El ranking es TRANSVERSAL: cada valor se puntua contra los "
+            "demas, asi que con menos valores el orden cambia aunque los precios "
+            "sean los mismos. Lo habitual es que haya fallado la descarga de "
+            "constituyentes y el universo se haya caido a la lista manual. "
+            "Comprueba la ingesta antes de fiarte de estas oportunidades.[/]"
+        )
 
 
 # Factores que salen solo del precio. Los demas —calidad, valor, crecimiento,
@@ -1009,6 +1074,66 @@ def sesiones_sin_calcular() -> tuple[int, str]:
     )
 
 
+def _informe_del_universo(preset: str | None) -> int:
+    """Contra que universo se calculo el ranking, para comparar dos maquinas.
+
+    Existe porque el sintoma —"en mi otro ordenador salen otras
+    oportunidades"— no se puede diagnosticar mirando las dos pantallas: las dos
+    ensenan una lista igual de convincente. Comparar las dos huellas resuelve la
+    duda en un segundo, y el numero de valores dice cual de las dos instalaciones
+    esta viendo el mercado entero.
+    """
+    from ..core.scoring import preset_hash
+
+    whash = preset_hash(preset or get_settings().compute.get(
+        "weights_preset", "balanced"))
+    with connect(read_only=True) as conn:
+        fila = conn.execute(
+            "SELECT date, n_tickers, universe_hash, n_sectores, computed_at, "
+            "git_commit FROM scoring_runs WHERE weights_hash = ? "
+            "ORDER BY date DESC LIMIT 1",
+            [whash],
+        ).fetchone()
+
+    if not fila:
+        console.print(
+            "[yellow]Este almacen no tiene registrado contra que universo se "
+            "puntuo. Vuelve a ejecutar el calculo para que quede constancia.[/]"
+        )
+        return 1
+
+    fecha, n, huella, sectores, cuando, commit = fila
+    console.print("[bold]Universo del ranking[/]")
+    console.print(f"  sesion puntuada : {pd.Timestamp(fecha):%d/%m/%Y}")
+    console.print(f"  valores         : {n}")
+    console.print(f"  sectores        : {sectores}")
+    console.print(f"  [bold]huella universo : {huella}[/]")
+    console.print(f"  [bold]perfil de pesos : {whash}[/]")
+    console.print(f"  [bold]version codigo  : {commit or 'desconocida'}[/]")
+    console.print(f"  calculado el    : {cuando}")
+    console.print()
+    console.print(
+        "[dim]Compara las TRES lineas en negrita con las del otro ordenador. "
+        "Cualquiera de ellas explica por si sola que las oportunidades no "
+        "coincidan:[/]"
+    )
+    console.print(
+        "[dim]  - huella distinta: han puntuado contra universos distintos. "
+        "Cada valor se puntua comparandolo con los demas, asi que con otro "
+        "universo el orden cambia aunque los precios sean identicos. El que "
+        "tenga MAS valores esta viendo el mercado mas completo.[/]"
+    )
+    console.print(
+        "[dim]  - perfil distinto: uno esta usando otro estilo de inversion "
+        "(`weights_preset` en config/settings.yaml). No filtra, reordena.[/]"
+    )
+    console.print(
+        "[dim]  - version distinta: no son el mismo programa. Actualiza el que "
+        "vaya atrasado antes de comparar nada mas.[/]"
+    )
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Calculo de indicadores, factores y scores")
     parser.add_argument(
@@ -1039,7 +1164,18 @@ def main() -> None:
         help="Calcula aunque los datos tengan problemas graves. Los resultados "
              "no seran fiables; existe para poder diagnosticar.",
     )
+    parser.add_argument(
+        "--universo", action="store_true",
+        help="Solo dice contra que universo se calculo el ranking. Para "
+             "comparar dos ordenadores: si la huella no coincide, las "
+             "oportunidades no tienen por que coincidir.",
+    )
     args = parser.parse_args()
+
+    # Solo consulta, como `--check-stale`: va antes de `migrate()` para no
+    # chocar con el dashboard abierto.
+    if args.universo:
+        raise SystemExit(_informe_del_universo(args.preset))
 
     # Solo consulta: no escribe, asi que va ANTES de `migrate()`. Se ejecuta
     # justo antes de arrancar el dashboard y abrir el almacen para escribir

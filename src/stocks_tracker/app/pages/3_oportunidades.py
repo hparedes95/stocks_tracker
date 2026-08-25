@@ -34,6 +34,25 @@ st.caption(
     "más criterios ahora mismo, no que vayan a subir."
 )
 
+# Contra cuantos valores se ha puntuado, y con que huella.
+#
+# NO es un detalle tecnico. El score de un valor sale de compararlo con los
+# demas, asi que el universo es una entrada del calculo tan importante como los
+# precios. Dos instalaciones con universos distintos dan rankings distintos con
+# los mismos precios y sin ningun error: medido, 7 nombres comunes en el Top-20
+# entre un universo de 620 y uno de 240.
+#
+# Con la huella a la vista, comparar dos ordenadores es comparar ocho
+# caracteres, en vez de mirar dos listas y no entender nada.
+_universo = da.scoring_universe(None)
+if _universo:
+    st.caption(
+        f"Puntuado contra **{_universo['n_tickers']} valores** de "
+        f"{_universo['n_sectores']} sectores · huella `{_universo['huella']}`. "
+        "Cada valor se compara con los demás, así que este ranking solo es "
+        "comparable con otro que tenga la misma huella."
+    )
+
 filters = sidebar_filters("oport")
 cfg = get_factor_config()
 
