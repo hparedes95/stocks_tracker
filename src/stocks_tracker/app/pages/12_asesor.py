@@ -77,6 +77,22 @@ if resultados:
         },
     )
 
+# La OTRA mitad de la evidencia, y va separada a proposito.
+#
+# El marcador de arriba mide hacia delante y tarda meses. Esto mide hacia atras
+# y esta disponible hoy, pero SOLO sirve para la parte del ranking que sale de
+# precios. Juntar las dos cifras en un mismo bloque las haria parecer la misma
+# clase de prueba, y no lo son: una es el asesor entero midiendose en real, la
+# otra es una regla suelta medida sobre el pasado.
+with st.expander("¿Y ha funcionado esto en el pasado?"):
+    st.markdown(da.get_advice_calibration())
+    st.caption(
+        "Mide **una sola cosa**: si el corte del percentil 90 separó a los que "
+        "luego lo hicieron mejor que el índice. No simula comprar ni vender. "
+        "Un backtest completo tiene decenas de decisiones y cada una es una "
+        "oportunidad de ajustar hasta que salga bonito; esto tiene una."
+    )
+
 with st.expander("Qué mide y qué NO mide este marcador"):
     st.markdown(
         "- **Se puntúa contra el índice, no contra cero.** Comprar algo que "

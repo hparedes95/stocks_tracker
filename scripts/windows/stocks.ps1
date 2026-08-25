@@ -34,6 +34,8 @@
       auditar   Cruza precios con un segundo proveedor y da su veredicto
       consejo   Calcula que hacer hoy con tu cartera y con el mercado, y lo
                 deja escrito. Acepta -Caja para decir cuanto efectivo tienes
+      calibrar  Mide si el liston de compra ha batido al indice en el pasado.
+                Solo vale para la mitad del ranking que sale de precios
       huella    Dice contra que universo se calculo el ranking. Compara la
                 huella entre dos ordenadores: si difiere, es normal que las
                 oportunidades no coincidan
@@ -53,7 +55,7 @@ param(
                  'tiene-universo',
                  'compute', 'presets', 'validate',
                  'validate-freeze', 'validate-confirm',
-                 'auditar', 'oro', 'huella', 'consejo',
+                 'auditar', 'oro', 'huella', 'consejo', 'calibrar',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
@@ -672,6 +674,13 @@ switch ($Task) {
             Write-Host "  Usa -Caja 1500 para decir cuanto tienes disponible."
         }
         & $Py -m stocks_tracker.compute.run_advice --caja $Caja
+    }
+
+    'calibrar' {
+        Assert-Venv
+        Write-Step "Midiendo el liston de compra contra el pasado"
+        Write-Host "  Necesita el ranking historico: stocks.ps1 compute con --history."
+        & $Py -m stocks_tracker.compute.run_advice --calibrar
     }
 
     'huella' {

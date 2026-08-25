@@ -231,10 +231,50 @@ def _informar(recomendaciones: list, guardadas: int, dia: date,
                   "(los 'mantener' no se guardan: nadie actua sobre ellos)")
 
 
+def calibrar(preset: str | None = None, horizonte_meses: int = 6):
+    """Mide si el liston de compra ha batido al indice, en lo que se puede.
+
+    Vive con el resto del asesor y no en `backtest/` porque mide UNA regla
+    concreta de este modulo —el corte del percentil 90— y no una estrategia
+    entera. Lo segundo ya existe y tiene su propia puerta.
+    """
+    from ..core import advice_calib
+    from ..trading import gate
+
+    nombre = preset or "bot_core"
+    bloqueos = tuple(gate.find_blockers(preset=nombre))
+
+    with connect(read_only=True) as conn:
+        scores = conn.execute(
+            "SELECT ticker, date, composite_pctile FROM factor_scores "
+            "WHERE weights_hash = ?", [preset_hash(nombre)]).fetchdf()
+        precios = conn.execute(
+            "SELECT ticker, date, adj_close FROM prices_daily "
+            "ORDER BY ticker, date").fetchdf()
+        bench = conn.execute(
+            "SELECT date, adj_close FROM prices_daily WHERE ticker = '^GSPC' "
+            "ORDER BY date").fetchdf()
+
+    serie = (bench.set_index("date")["adj_close"] if not bench.empty
+             else pd.Series(dtype=float))
+    resultado = advice_calib.calibrar(
+        scores, precios, serie, preset=nombre,
+        horizonte_meses=horizonte_meses, bloqueos=bloqueos)
+
+    console.print("[bold]Calibracion del liston de compra[/]")
+    console.print(advice_calib.veredicto(resultado))
+    return resultado
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Calcula y guarda las recomendaciones del dia")
     parser.add_argument("--preset", default=None, help="perfil de pesos")
+    parser.add_argument(
+        "--calibrar", action="store_true",
+        help="No calcula consejos: mide si el liston de compra ha batido al "
+             "indice historicamente. Solo vale para perfiles de solo precio.",
+    )
     parser.add_argument(
         "--caja", type=float, default=0.0,
         help="Efectivo disponible en EUR. El programa no puede saberlo: sin "
@@ -242,6 +282,9 @@ def main() -> None:
              "lo correcto.",
     )
     args = parser.parse_args()
+    if args.calibrar:
+        calibrar(args.preset)
+        return
     calcular_y_guardar(args.preset, args.caja)
 
 

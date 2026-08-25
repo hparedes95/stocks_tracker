@@ -832,6 +832,26 @@ def all_tickers() -> list[str]:
     return df["ticker"].tolist()
 
 
+@st.cache_data(ttl=TTL, show_spinner=False)
+def get_advice_calibration(preset: str = "bot_core") -> str:
+    """El veredicto de la calibracion, ya en castellano.
+
+    Devuelve la frase y no los numeros sueltos porque la frase es la parte
+    delicada: un exceso medio sin su intervalo invita a creer, y montarla en la
+    pantalla la dejaria sin test. Se arma en `advice_calib.veredicto`, que si lo
+    tiene.
+    """
+    from ..core import advice_calib
+
+    try:
+        from ..compute.run_advice import calibrar
+
+        return advice_calib.veredicto(calibrar(preset))
+    except Exception:  # noqa: BLE001 — sin almacen o sin historico, sin cifra
+        return ("No se ha podido calibrar. Hace falta el ranking historico: "
+                "`run_compute --history 6`.")
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def get_advice(preset: str | None = None) -> pd.DataFrame:
     """Las recomendaciones GUARDADAS de la ultima sesion calculada.

@@ -241,3 +241,32 @@ def test_con_efectivo_declarado_si_se_puede_comprar(almacen):
     assert fila and fila[0] == "comprar"
     assert fila[1] > 0, "una compra sin importe no es accionable"
     assert fila[2] == pytest.approx(50.0 - 2.5 * 1.0), "el stop no cuadra"
+
+
+def test_la_calibracion_sale_en_pantalla_y_no_promete_de_mas(almacen):
+    """La calibracion mide hacia ATRAS y solo la mitad de precio; el marcador
+    mide hacia DELANTE y el asesor entero. Van en bloques separados porque no
+    son la misma clase de prueba, y juntarlas las haria parecerlo.
+
+    Sin ranking historico —el caso del primer dia— la pantalla tiene que decir
+    como generarlo, no quedarse en blanco.
+    """
+    prueba = _pintar()
+
+    texto = " ".join(str(m.value) for m in prueba.markdown)
+    assert "--history" in texto or "historico" in texto
+
+
+def test_la_calibracion_se_niega_con_un_perfil_de_fundamentales(almacen):
+    """LA NEGATIVA QUE MAS IMPORTA, comprobada desde el comando real.
+
+    `balanced` es el perfil por defecto y lleva valor, crecimiento, calidad y
+    dividendo. De esos no hay serie punto-en-el-tiempo, asi que un t-stat sobre
+    ellos mide supervivencia, no la estrategia.
+    """
+    from stocks_tracker.compute.run_advice import calibrar
+
+    resultado = calibrar(preset="balanced")
+
+    assert not resultado.solo_precio
+    assert not resultado.concluyente
