@@ -231,6 +231,96 @@ def _informar(recomendaciones: list, guardadas: int, dia: date,
                   "(los 'mantener' no se guardan: nadie actua sobre ellos)")
 
 
+def por_que(ticker: str) -> int:
+    """Por que esta posicion ha recibido su veredicto, con los numeros crudos.
+
+    POR QUE ESTO ES UN COMANDO Y NO UNA CONSULTA A MANO
+
+    Cuando el usuario reporto que MSFT y NVDA le salian como REDUCIR, la unica
+    forma de diagnosticarlo era teclear una linea de SQL con comillas anidadas
+    dentro de `cmd`. No funciono, y perdimos un intercambio entero en el
+    escapado en vez de en el problema.
+
+    Una pantalla que da consejos tiene que poder explicar cualquiera de ellos
+    sin que haga falta abrir la base de datos.
+    """
+    from ..core import deterioration as det
+
+    ticker = ticker.strip().upper()
+    with connect(read_only=True) as conn:
+        fila = conn.execute(
+            "SELECT * FROM positions WHERE ticker = ? AND closed_at IS NULL",
+            [ticker]).fetchdf()
+        if fila.empty:
+            console.print(f"[yellow]{ticker} no esta en tu cartera abierta.[/]")
+            return 1
+
+        salud = _salud(conn)
+        posiciones, pesos_sector, _ = _cartera(conn)
+
+    suya = salud[salud["ticker"] == ticker] if not salud.empty else salud
+    if suya.empty:
+        console.print(f"[yellow]No hay datos de salud para {ticker}.[/]")
+        return 1
+
+    hoy, entonces = det.partir(suya.iloc[0])
+    diagnostico = det.diagnosticar(
+        ticker, fund_hoy=hoy, fund_entonces=entonces,
+        ind_hoy=hoy, ind_entonces=entonces, comparado_con=hoy.get("opened_at"))
+
+    console.print(f"[bold]Por que {ticker} recibe su veredicto[/]")
+    console.print()
+    console.print("[bold]Los numeros[/] (hoy / cuando compraste)")
+    for campo in det.CAMPOS_FUNDAMENTALES + det.CAMPOS_PRECIO:
+        a, b = hoy.get(campo), entonces.get(campo)
+        if a is None and b is None:
+            continue
+        console.print(f"  {campo:<22} {_cifra(a):>12}  /  {_cifra(b):>12}")
+
+    mia = posiciones[posiciones["ticker"] == ticker]
+    if not mia.empty and mia["peso_pct"].notna().any():
+        peso = float(mia["peso_pct"].iloc[0])
+        tope = _limites_del_asesor()["max_position_pct"]
+        console.print()
+        console.print(f"  peso en tu cartera     {peso:>11.1f} %  "
+                      f"(tu tope: {tope:.0f} %)")
+
+    console.print()
+    console.print(f"[bold]Diagnostico:[/] {diagnostico.nivel.value} "
+                  f"({diagnostico.puntos} puntos)")
+    if not diagnostico.senales:
+        console.print("  Nada ha empeorado desde que la compraste.")
+    for s in diagnostico.senales:
+        marca = "GRAVE" if s.grave else "leve "
+        grupo = f" [grupo: {s.grupo}]" if s.grupo else ""
+        console.print(f"  [{marca}]{grupo} {s.texto}")
+
+    if diagnostico.solo_es_precio and diagnostico.con_fundamentales:
+        console.print()
+        console.print(
+            "[dim]Todo lo encontrado es PRECIO y el negocio no ha empeorado. "
+            "Las senales de precio cuentan como UNA —cuando una accion cae, "
+            "pierde la MM200 y cruza a la baja por construccion— y no cambian "
+            "el veredicto: para el precio esta tu stop.[/]"
+        )
+    return 0
+
+
+def _cifra(v) -> str:
+    if v is None:
+        return "-"
+    try:
+        return f"{float(v):.4g}"
+    except (TypeError, ValueError):
+        return str(v)[:12]
+
+
+def _limites_del_asesor() -> dict:
+    from ..core.advice import _limites
+
+    return _limites()
+
+
 def calibrar(preset: str | None = None, horizonte_meses: int = 6):
     """Mide si el liston de compra ha batido al indice, en lo que se puede.
 
@@ -271,6 +361,11 @@ def main() -> None:
         description="Calcula y guarda las recomendaciones del dia")
     parser.add_argument("--preset", default=None, help="perfil de pesos")
     parser.add_argument(
+        "--por-que", default=None, metavar="TICKER", dest="por_que",
+        help="Explica por que esa posicion tuya recibe su veredicto, con los "
+             "numeros de hoy y los del dia en que la compraste.",
+    )
+    parser.add_argument(
         "--calibrar", action="store_true",
         help="No calcula consejos: mide si el liston de compra ha batido al "
              "indice historicamente. Solo vale para perfiles de solo precio.",
@@ -282,6 +377,8 @@ def main() -> None:
              "lo correcto.",
     )
     args = parser.parse_args()
+    if args.por_que:
+        raise SystemExit(por_que(args.por_que))
     if args.calibrar:
         calibrar(args.preset)
         return

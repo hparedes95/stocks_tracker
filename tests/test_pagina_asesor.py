@@ -270,3 +270,32 @@ def test_la_calibracion_se_niega_con_un_perfil_de_fundamentales(almacen):
 
     assert not resultado.solo_precio
     assert not resultado.concluyente
+
+
+def test_se_puede_preguntar_por_que_sin_abrir_la_base_de_datos(almacen, capsys):
+    """POR QUE EXISTE ESTE COMANDO.
+
+    Cuando el usuario reporto que MSFT y NVDA le salian como REDUCIR, la unica
+    forma de diagnosticarlo era teclear SQL con comillas anidadas dentro de
+    `cmd`. No funciono, y se perdio un intercambio entero peleando con el
+    escapado en vez de con el problema.
+
+    Una pantalla que da consejos tiene que poder explicar cualquiera de ellos.
+    """
+    from stocks_tracker.compute.run_advice import por_que
+
+    _sembrar_cartera()
+
+    assert por_que("aaa") == 0, "no encuentra la posicion (¿distingue mayusculas?)"
+
+    salida = capsys.readouterr().out
+    assert "profit_margin" in salida, "no ensena los numeros crudos"
+    assert "8" in salida and "24" in salida, "no ensena el antes y el despues"
+    assert "margen" in salida.lower(), "no ensena el motivo"
+
+
+def test_preguntar_por_algo_que_no_tienes_lo_dice(almacen, capsys):
+    from stocks_tracker.compute.run_advice import por_que
+
+    assert por_que("ZZZZ") == 1
+    assert "no esta en tu cartera" in capsys.readouterr().out

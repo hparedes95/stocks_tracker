@@ -34,6 +34,9 @@
       auditar   Cruza precios con un segundo proveedor y da su veredicto
       consejo   Calcula que hacer hoy con tu cartera y con el mercado, y lo
                 deja escrito. Acepta -Caja para decir cuanto efectivo tienes
+      porque    Explica por que una posicion tuya recibe su veredicto, con
+                los numeros de hoy y los del dia que la compraste.
+                Uso: stocks.ps1 porque -Valor MSFT
       calibrar  Mide si el liston de compra ha batido al indice en el pasado.
                 Solo vale para la mitad del ranking que sale de precios
       huella    Dice contra que universo se calculo el ranking. Compara la
@@ -55,7 +58,7 @@ param(
                  'tiene-universo',
                  'compute', 'presets', 'validate',
                  'validate-freeze', 'validate-confirm',
-                 'auditar', 'oro', 'huella', 'consejo', 'calibrar',
+                 'auditar', 'oro', 'huella', 'consejo', 'calibrar', 'porque',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
@@ -66,7 +69,10 @@ param(
     # posiciones. Con cero, las compras salen vetadas por falta de tamano,
     # que es lo correcto: recomendar comprar con dinero que no existe es
     # peor que no recomendar nada.
-    [double]$Caja = 0
+    [double]$Caja = 0,
+
+    # El valor sobre el que preguntar en la tarea 'porque'.
+    [string]$Valor = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -674,6 +680,15 @@ switch ($Task) {
             Write-Host "  Usa -Caja 1500 para decir cuanto tienes disponible."
         }
         & $Py -m stocks_tracker.compute.run_advice --caja $Caja
+    }
+
+    'porque' {
+        Assert-Venv
+        if (-not $Valor) {
+            Write-Host "  Falta el valor. Ejemplo: stocks.ps1 porque -Valor MSFT"
+            exit 1
+        }
+        & $Py -m stocks_tracker.compute.run_advice --por-que $Valor
     }
 
     'calibrar' {
