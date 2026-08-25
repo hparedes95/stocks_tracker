@@ -146,3 +146,25 @@ def test_la_prueba_veria_una_pagina_rota(tmp_path, almacen):
 
     assert prueba.exception, "una pagina que lanza una excepcion pasa como buena"
     assert "esto tiene que verse" in prueba.exception[0].message
+
+
+def test_todas_las_paginas_estan_en_el_menu():
+    """FALLO REAL: la pagina del asesor existia y no la llamaba nadie.
+
+    El resto de este fichero pinta las paginas descubriendolas por glob del
+    directorio, asi que las doce pasaban en verde... y una de ellas no estaba
+    registrada en `st.navigation`. No habia forma de llegar a ella desde el
+    dashboard.
+
+    Es el mismo agujero que el detector de codigo muerto persigue en el nucleo,
+    pero en la interfaz: algo que funciona, se prueba y no se puede usar. Y es
+    peor aqui, porque desde fuera parece que la funcionalidad no existe.
+    """
+    fuente = (project_root() / "src/stocks_tracker/app/main.py").read_text("utf-8")
+
+    fuera = [p.name for p in PAGINAS if f'pages/{p.name}"' not in fuente]
+
+    assert not fuera, (
+        f"estas paginas no estan en el menu y no se puede llegar a ellas: "
+        f"{fuera}. Registralas en `main.py` o borralas."
+    )

@@ -82,6 +82,14 @@ estado_page = st.Page("pages/8_estado.py", title="Estado de los datos",
                       icon=":material/database:", url_path="estado")
 
 pages = {
+    # El asesor va PRIMERO y en su propio grupo. Es la pantalla que responde a
+    # la pregunta con la que se abre el programa —qué hago hoy— y el resto
+    # existe para sostenerla: los datos, la calidad, los factores y el deterioro
+    # acaban aquí, en una decisión por valor.
+    "Qué hacer": [
+        st.Page("pages/12_asesor.py", title="Qué haría hoy",
+                icon=":material/lightbulb:", url_path="asesor"),
+    ],
     "Mercado": [
         st.Page("pages/1_que_se_mueve_hoy.py", title="Qué se mueve hoy",
                 icon=":material/trending_up:", url_path="hoy", default=True),
