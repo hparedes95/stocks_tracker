@@ -229,3 +229,81 @@ def test_the_description_keeps_the_commas_of_its_own_sentence():
     assert "1.234.567 filas" in texto
     assert ", configuracion " in texto, "se ha comido la coma de la frase"
     assert ", datos " in texto
+
+
+# ---------------------------------------------------------------------------
+# La version cuando no hay git, que es SIEMPRE en una instalacion real
+# ---------------------------------------------------------------------------
+def test_sin_git_se_lee_el_fichero_del_instalador(tmp_path):
+    """EL FALLO QUE ESTO ARREGLA, VISTO EN EL USO REAL.
+
+    El usuario ejecuto `stocks.ps1 huella` en su ordenador para comparar las
+    dos maquinas y la salida decia:
+
+        version codigo  : sin-git
+
+    Y en la otra iba a decir exactamente lo mismo. Ninguna instalacion tiene
+    git —el instalador descarga un ZIP—, asi que la linea que el propio comando
+    pide comparar no podia diferir NUNCA. Justo mientras se investigaba por que
+    dos equipos daban oportunidades distintas, la pregunta "¿son el mismo
+    programa?" quedaba sin respuesta en los dos.
+
+    El SHA estaba escrito desde el principio en `.version`, que el instalador
+    usa para decidir si toca actualizar. Solo faltaba leerlo.
+    """
+    (tmp_path / ".version").write_text("49d67fda1b2c3d4e5f6071829304a5b6c7d8e9f0")
+
+    assert ln._version_instalada(tmp_path) == "49d67fda1b2c"
+
+
+def test_la_version_instalada_tiene_la_misma_forma_que_la_de_git(tmp_path):
+    """Doce caracteres en las dos vias.
+
+    Si una instalacion dijera el SHA completo y un clon de desarrollo doce
+    caracteres, comparar las dos lineas a ojo diria "distintas" siendo el mismo
+    commit. Un falso desacuerdo en la herramienta que existe para detectar
+    desacuerdos es peor que no tener la herramienta.
+    """
+    (tmp_path / ".version").write_text("49d67fda1b2c3d4e5f6071829304a5b6c7d8e9f0\n")
+
+    assert len(ln._version_instalada(tmp_path)) == 12
+
+
+@pytest.mark.parametrize("contenido", ["", "   ", "no-es-un-sha", "abc"])
+def test_un_fichero_de_version_con_basura_no_finge_una_version(tmp_path, contenido):
+    """Ensenar media linea de ruido como si fuera un commit es peor que callar.
+
+    Un `.version` truncado por una descarga a medias produciria una "version"
+    que no identifica nada, y la compararias con la del otro ordenador creyendo
+    que significa algo.
+    """
+    (tmp_path / ".version").write_text(contenido)
+
+    assert ln._version_instalada(tmp_path) == ln.SIN_GIT
+
+
+def test_sin_fichero_ni_git_se_dice_sin_git(tmp_path):
+    """Y si no hay nada, se dice. El programa no puede caerse por no saber su
+    version, pero tampoco puede inventarsela."""
+    assert ln._version_instalada(tmp_path) == ln.SIN_GIT
+
+
+def test_git_commit_cae_al_fichero_cuando_no_hay_git(tmp_path, monkeypatch):
+    """De punta a punta, que es lo unico que demuestra que el usuario lo vera.
+
+    Los tests de `_version_instalada` prueban el lector; este prueba que
+    `git_commit` lo USA. Sin el, la funcion podria seguir devolviendo "sin-git"
+    con el lector perfecto al lado y todos los demas tests en verde.
+    """
+    (tmp_path / ".version").write_text("49d67fda1b2c3d4e5f6071829304a5b6c7d8e9f0")
+    monkeypatch.setattr(ln, "_raiz", lambda: tmp_path)
+
+    def sin_git(*a, **k):
+        raise OSError("git no esta instalado")
+
+    monkeypatch.setattr(ln.subprocess, "run", sin_git)
+    ln.git_commit.cache_clear()
+    try:
+        assert ln.git_commit() == "49d67fda1b2c"
+    finally:
+        ln.git_commit.cache_clear()

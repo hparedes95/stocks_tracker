@@ -42,25 +42,67 @@ def git_commit() -> str:
     util que dar un commit que no corresponde. Es el caso normal mientras se
     desarrolla, asi que conviene que se distinga a simple vista.
 
-    Si no hay git —una instalacion desde un zip— devuelve "sin-git" en vez de
-    fallar. Un programa que no arranca porque no puede saber su version es peor
-    que uno que no sabe su version.
+    Si no hay git se lee el fichero `.version` que deja el instalador, y solo
+    si tampoco lo hay se devuelve "sin-git". Nunca falla: un programa que no
+    arranca porque no puede saber su version es peor que uno que no la sabe.
+
+    POR QUE HIZO FALTA LO DEL FICHERO
+
+    Ninguna instalacion real tiene git: el instalador descarga un ZIP. O sea
+    que en TODAS las maquinas de un usuario esto devolvia "sin-git", siempre,
+    y `stocks.ps1 huella` —que existe para comparar dos ordenadores— pedia
+    comparar una linea que no podia diferir nunca. Justo cuando el usuario
+    intentaba averiguar por que dos equipos daban oportunidades distintas, la
+    respuesta a "¿son el mismo programa?" era ilegible en los dos.
+
+    El dato estaba ahi desde el principio: el instalador escribe el SHA en
+    `.version` para decidir si hay que actualizar. Solo faltaba leerlo.
     """
-    raiz = Path(__file__).resolve().parents[3]
+    raiz = _raiz()
     try:
         commit = subprocess.run(
             ["git", "-C", str(raiz), "rev-parse", "--short=12", "HEAD"],
             capture_output=True, text=True, timeout=5, check=True,
         ).stdout.strip()
         if not commit:
-            return SIN_GIT
+            return _version_instalada(raiz)
         sucio = subprocess.run(
             ["git", "-C", str(raiz), "status", "--porcelain"],
             capture_output=True, text=True, timeout=5, check=True,
         ).stdout.strip()
         return f"{commit}-sucio" if sucio else commit
     except (subprocess.SubprocessError, OSError):
+        return _version_instalada(raiz)
+
+
+def _raiz() -> Path:
+    """La carpeta del programa: la que tiene el `.git` o el `.version`.
+
+    Es una funcion y no una constante para que se pueda apuntar a otra carpeta
+    en un test. Sin eso, comprobar el caso "no hay git" obligaria a escribir un
+    `.version` en el repositorio de verdad.
+    """
+    return Path(__file__).resolve().parents[3]
+
+
+def _version_instalada(raiz: Path) -> str:
+    """El SHA que dejo el instalador en `.version`, recortado como el de git.
+
+    Se recorta a 12 caracteres para que las dos vias produzcan la MISMA forma:
+    si una instalacion dijera el SHA completo y un clon de desarrollo doce
+    caracteres, comparar las dos lineas a ojo diria "distintas" siendo el mismo
+    commit, que es peor que no decir nada.
+    """
+    try:
+        crudo = (raiz / ".version").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
         return SIN_GIT
+    sha = crudo.strip().split()[0] if crudo.strip() else ""
+    # Un `.version` truncado o con basura no es una version: decir "sin-git" es
+    # correcto, y ensenar media linea de ruido como si fuera un commit no.
+    if len(sha) < 7 or not all(c in "0123456789abcdefABCDEF" for c in sha):
+        return SIN_GIT
+    return sha[:12].lower()
 
 
 def config_hash(payload: dict) -> str:

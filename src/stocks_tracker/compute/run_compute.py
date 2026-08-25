@@ -1083,6 +1083,7 @@ def _informe_del_universo(preset: str | None) -> int:
     duda en un segundo, y el numero de valores dice cual de las dos instalaciones
     esta viendo el mercado entero.
     """
+    from ..core import lineage
     from ..core.scoring import preset_hash
 
     whash = preset_hash(preset or get_settings().compute.get(
@@ -1094,6 +1095,9 @@ def _informe_del_universo(preset: str | None) -> int:
             "ORDER BY date DESC LIMIT 1",
             [whash],
         ).fetchone()
+        guardados = conn.execute(
+            "SELECT COUNT(*) FROM instruments "
+            "WHERE asset_class IN ('equity', 'etf')").fetchone()[0]
 
     if not fila:
         console.print(
@@ -1105,7 +1109,21 @@ def _informe_del_universo(preset: str | None) -> int:
     fecha, n, huella, sectores, cuando, commit = fila
     console.print("[bold]Universo del ranking[/]")
     console.print(f"  sesion puntuada : {pd.Timestamp(fecha):%d/%m/%Y}")
-    console.print(f"  valores         : {n}")
+    # LOS DOS NUMEROS JUNTOS, Y NO SOLO EL PUNTUADO
+    #
+    # El usuario pregunto si el ordenador con "632 de 633 instrumentos" era el
+    # bueno. No lo era ni dejaba de serlo: ese contador es de otra cosa, y el
+    # que decide el ranking —cuantos valores se PUNTUARON— salia solo, sin nada
+    # con lo que contrastarlo. Un "582" a secas parece completo.
+    #
+    # Con los dos delante, el hueco se ve: 582 puntuados de 633 guardados son
+    # 51 valores que estan descargados y no entraron en el ranking, y eso es un
+    # sintoma —cobertura insuficiente, precios sin sesion, un scrapeo de
+    # constituyentes que fallo— no una curiosidad.
+    console.print(f"  valores         : {n} puntuados de {guardados} guardados")
+    if guardados and n < guardados:
+        console.print(f"[dim]                    ({guardados - n} descargados "
+                      "que no entraron en el ranking)[/]")
     console.print(f"  sectores        : {sectores}")
     console.print(f"  [bold]huella universo : {huella}[/]")
     console.print(f"  [bold]perfil de pesos : {whash}[/]")
@@ -1131,6 +1149,18 @@ def _informe_del_universo(preset: str | None) -> int:
         "[dim]  - version distinta: no son el mismo programa. Actualiza el que "
         "vaya atrasado antes de comparar nada mas.[/]"
     )
+    if not commit or commit == lineage.SIN_GIT:
+        # La version se guarda EN EL MOMENTO DE CALCULAR, asi que un almacen
+        # calculado con la version anterior conserva su "sin-git" por mucho que
+        # se actualice el programa. Decirlo evita que se lea como un fallo
+        # nuevo, y dice exactamente que hacer.
+        console.print()
+        console.print(
+            "[yellow]La version de este calculo no quedo registrada.[/] Se "
+            "guarda en el momento de calcular, y las versiones anteriores no "
+            "sabian leerla en una instalacion sin git. Vuelve a calcular "
+            "—`stocks.ps1 daily`— y esta linea ya servira para comparar."
+        )
     return 0
 
 

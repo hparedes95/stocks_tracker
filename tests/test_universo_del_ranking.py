@@ -364,3 +364,90 @@ def test_sin_registro_el_comando_lo_dice_en_vez_de_callarse(almacen, capsys):
 
     assert rc._informe_del_universo(None) == 1
     assert "no tiene registrado" in capsys.readouterr().out
+
+
+def test_el_hueco_entre_lo_guardado_y_lo_puntuado_se_ve(almacen, capsys):
+    """LA PREGUNTA QUE LLEGO DEL USO REAL: "¿es este el ordenador bueno?"
+
+    Venia de mirar un "632 de 633 instrumentos" en pantalla, que es la
+    cobertura de simbolos de TradingView y no dice nada del ranking. El numero
+    que si importa —cuantos valores se PUNTUARON— salia solo:
+
+        valores         : 582
+
+    Sin nada al lado, 582 parece completo. Con los dos delante se ve que hay 51
+    valores descargados que no entraron en el ranking, y eso es un sintoma que
+    hay que mirar: cada valor se puntua comparandolo con los demas, asi que el
+    universo decide el orden tanto como los precios.
+    """
+    from datetime import date
+
+    from stocks_tracker.compute import run_compute as rc
+    from stocks_tracker.core import db
+    from stocks_tracker.core.scoring import preset_hash
+
+    with db.connect() as conn:
+        for t in ("AAA", "BBB", "CCC", "DDD"):
+            conn.execute("INSERT INTO instruments (ticker, name, asset_class) "
+                         "VALUES (?, ?, 'equity')", [t, t])
+        # Una cripto NO cuenta como "guardado" a estos efectos: el ranking es
+        # de acciones y ETF, y meterla en el denominador inventaria un hueco
+        # que no existe. Es el mismo filtro que usa `current_session`.
+        conn.execute("INSERT INTO instruments (ticker, name, asset_class) "
+                     "VALUES ('BTC-EUR', 'Bitcoin', 'crypto')")
+        rc._registrar_universo(conn, date(2026, 8, 20), preset_hash("balanced"),
+                               ["AAA", "BBB"], pd.Series(["Tech", "Banca"]))
+
+    assert rc._informe_del_universo(None) == 0
+    salida = capsys.readouterr().out
+
+    assert "2 puntuados de 4 guardados" in salida
+    assert "2 descargados" in salida, (
+        "el hueco tiene que decirse, no dejarse a que el usuario reste"
+    )
+
+
+def test_sin_hueco_no_se_avisa_de_nada(almacen, capsys):
+    """El contrapeso. Un aviso que sale siempre deja de leerse, y si los
+    puntuados son todos los guardados no hay nada que mirar."""
+    from datetime import date
+
+    from stocks_tracker.compute import run_compute as rc
+    from stocks_tracker.core import db
+    from stocks_tracker.core.scoring import preset_hash
+
+    with db.connect() as conn:
+        for t in ("AAA", "BBB"):
+            conn.execute("INSERT INTO instruments (ticker, name, asset_class) "
+                         "VALUES (?, ?, 'equity')", [t, t])
+        rc._registrar_universo(conn, date(2026, 8, 20), preset_hash("balanced"),
+                               ["AAA", "BBB"], pd.Series(["Tech", "Banca"]))
+
+    assert rc._informe_del_universo(None) == 0
+    assert "no entraron en el ranking" not in capsys.readouterr().out
+
+
+def test_una_version_sin_registrar_dice_como_arreglarse(almacen, capsys):
+    """`version codigo: sin-git` en los DOS ordenadores.
+
+    La version se guarda al calcular, asi que un almacen calculado con el
+    codigo anterior —que no sabia leer `.version` en una instalacion sin git—
+    conserva su "sin-git" por mucho que se actualice el programa. Sin este
+    aviso, el usuario compara dos lineas identicas y concluye que las dos
+    maquinas corren lo mismo, que es justo lo que no sabe.
+    """
+    from datetime import date
+
+    from stocks_tracker.compute import run_compute as rc
+    from stocks_tracker.core import db, lineage
+    from stocks_tracker.core.scoring import preset_hash
+
+    with db.connect() as conn:
+        rc._registrar_universo(conn, date(2026, 8, 20), preset_hash("balanced"),
+                               ["AAA", "BBB"], pd.Series(["Tech", "Banca"]))
+        conn.execute("UPDATE scoring_runs SET git_commit = ?", [lineage.SIN_GIT])
+
+    assert rc._informe_del_universo(None) == 0
+    salida = capsys.readouterr().out
+    assert "no quedo registrada" in salida
+    assert "daily" in salida, "tiene que decir QUE hacer, no solo que falta"
