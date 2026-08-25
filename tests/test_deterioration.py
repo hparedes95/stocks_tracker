@@ -167,8 +167,14 @@ def test_nothing_wrong_is_green():
 
 def test_one_single_reason_is_amber_and_not_red():
     """Un motivo suelto merece mirarlo, no es una alarma. Si un solo motivo
-    pintara rojo, el rojo dejaria de significar nada."""
-    d = diagnosticar("AAA", ind_hoy={"rs_vs_bench_3m": -0.18})
+    pintara rojo, el rojo dejaria de significar nada.
+
+    Lleva `ind_entonces` porque lo que se mide aqui es la PUNTUACION, y solo
+    puntua lo que se ha podido comparar. Sin el dato de entonces esto seria
+    GRIS, que es otra cosa y tiene su propio test.
+    """
+    d = diagnosticar("AAA", ind_hoy={"rs_vs_bench_3m": -0.18},
+                     ind_entonces={"rs_vs_bench_3m": 0.05})
     assert d.nivel is Nivel.AMBAR
 
 
@@ -206,9 +212,15 @@ def test_un_motivo_grave_confirmado_por_el_precio_no_son_tres_motivos():
     Sigue siendo AMBAR —hay algo que mirar, y el payout se ensena— y el asesor
     sigue diciendo REDUCIR, porque la senal grave es de FUNDAMENTALES. Lo que
     cambia es que el color ya no exagera.
+
+    Lleva `ind_entonces` porque lo que se cuenta aqui son PUNTOS, y solo puntua
+    lo que se ha podido comparar con el dia de la compra. Sin ese dato las dos
+    senales de precio son observaciones del presente y valen cero, que es otra
+    regla y tiene su propio fichero (`test_fecha_de_compra.py`).
     """
     d = diagnosticar("AAA", fund_hoy={"payout_ratio": 1.5},
-                     ind_hoy={"rs_vs_bench_3m": -0.18, "drawdown": -0.35})
+                     ind_hoy={"rs_vs_bench_3m": -0.18, "drawdown": -0.35},
+                     ind_entonces={"rs_vs_bench_3m": 0.05, "drawdown": -0.02})
 
     assert d.nivel is Nivel.AMBAR
     assert d.puntos == 3, "el bloque de precio vuelve a contar dos veces"

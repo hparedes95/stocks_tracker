@@ -43,6 +43,22 @@ def diagnosticos(salud: pd.DataFrame) -> list:
     return sorted(fuera, key=lambda d: (ORDEN[d.nivel], -d.puntos, d.ticker))
 
 
+def _observaciones(d) -> None:
+    """Lo que se ve hoy pero no se ha podido comparar con nada.
+
+    Va aparte y en gris a proposito. Es informacion util —una caida del 45 %
+    hay que verla— pero NO ha movido el veredicto, y meterla en la misma lista
+    que lo que si lo mueve haria creer que la posicion se ha juzgado peor de lo
+    que se ha podido juzgar.
+    """
+    if not d.observaciones:
+        return
+    st.caption("Lo que se ve hoy, sin poder decir si ha empeorado desde tu "
+               "compra (no cuenta para el semáforo):")
+    for senal in d.observaciones:
+        st.caption(f"· {senal.texto}")
+
+
 def render_health_panel(salud: pd.DataFrame, nombres: dict | None = None) -> None:
     if salud.empty:
         return
@@ -65,7 +81,7 @@ def render_health_panel(salud: pd.DataFrame, nombres: dict | None = None) -> Non
                           strict=False):
         col.metric(ETIQUETA[nivel], cuenta[nivel])
 
-    pendientes = [d for d in diags if d.senales]
+    pendientes = [d for d in diags if d.comparadas]
     if not pendientes:
         st.success(
             "Ninguna posición ha empeorado de forma medible desde que la "
@@ -78,13 +94,26 @@ def render_health_panel(salud: pd.DataFrame, nombres: dict | None = None) -> Non
         nombre = nombres.get(d.ticker, "")
         titulo = f"{d.ticker}" + (f" · {nombre}" if nombre else "")
         cabecera = f"{titulo} — {ETIQUETA[d.nivel]}"
-        if d.senales:
-            cabecera += f" ({len(d.senales)})"
+        if d.comparadas:
+            cabecera += f" ({len(d.comparadas)})"
 
         with st.expander(cabecera, expanded=d.nivel is Nivel.ROJO,
                          icon=ICONO[d.nivel]):
             if d.nivel is Nivel.GRIS:
-                if d.hay_datos and not d.comparado:
+                if d.espejo:
+                    # Este caso NO se arregla solo con el tiempo, al reves que
+                    # el de abajo: se arregla poniendo la fecha real de compra.
+                    # Por eso lleva aviso propio y no se mezcla con aquel.
+                    st.warning(
+                        "La fecha de compra que hay guardada de esta posición "
+                        "es **la de hoy** —casi seguro la del día en que "
+                        "importaste la cartera, no la de la compra real—. "
+                        "Compararía hoy contra hoy, y de ahí solo puede salir "
+                        "un verde automático. Corrige la fecha de compra más "
+                        "abajo y esta posición pasa a juzgarse como las demás.",
+                        icon=":material/event_busy:",
+                    )
+                elif d.hay_datos and not d.comparado:
                     st.info(
                         "Hay datos de hoy pero ninguno del día en que "
                         "compraste, así que **no se ha podido comparar**. No "
@@ -103,13 +132,15 @@ def render_health_panel(salud: pd.DataFrame, nombres: dict | None = None) -> Non
                         "rellena con `stocks.ps1 update`.",
                         icon=":material/help:",
                     )
+                _observaciones(d)
                 continue
 
-            if not d.senales:
+            if not d.comparadas:
                 st.caption("Sin cambios a peor en lo que se puede comprobar.")
+                _observaciones(d)
                 continue
 
-            for senal in d.senales:
+            for senal in d.comparadas:
                 escribir = st.error if senal.grave else st.warning
                 escribir(senal.texto, icon=":material/priority_high:"
                          if senal.grave else ":material/visibility:")

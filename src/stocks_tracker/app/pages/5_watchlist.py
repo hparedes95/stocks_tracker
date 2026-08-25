@@ -16,6 +16,7 @@ from stocks_tracker.app.components import charts, tv_widgets
 from stocks_tracker.app.components.attribution_panel import render_attribution_panel
 from stocks_tracker.app.components.broker_import import (
     render_broker_import,
+    render_fechas_de_compra,
     render_manual_table,
 )
 from stocks_tracker.app.components.common import render_disclaimer
@@ -61,6 +62,8 @@ with tab_portfolio:
             render_broker_import()
         with manual_tab:
             render_manual_table()
+
+    render_fechas_de_compra(positions)
 
     if positions.empty:
         st.info("Sin posiciones registradas. Añade la primera arriba.")

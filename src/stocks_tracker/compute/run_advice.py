@@ -38,6 +38,7 @@ import pandas as pd
 from rich.console import Console
 
 from ..core import advice, advice_build, fx
+from ..core import deterioration as det
 from ..core.advice_store import guardar_recomendaciones
 from ..core.config import get_settings
 from ..core.db import connect, migrate
@@ -94,8 +95,15 @@ def _salud(conn) -> pd.DataFrame:
     Se replica la consulta de `data_access.get_position_health` en vez de
     importarla porque aquella arrastra Streamlit entero —cache incluida— y este
     comando se ejecuta desde una tarea programada sin navegador.
+
+    Los NOMBRES de campo salen de `deterioration` y no de `data_access` por lo
+    mismo: importar de alli metia Streamlit por la puerta de atras y llenaba la
+    salida del comando con cincuenta y siete lineas de "No runtime found" antes
+    de la primera cifra. Y son los campos que el diagnostico sabe mirar, que es
+    donde tienen que vivir.
     """
-    from ..app.data_access import _CAMPOS_FUND, _CAMPOS_IND
+    _CAMPOS_FUND = det.CAMPOS_FUNDAMENTALES
+    _CAMPOS_IND = det.CAMPOS_PRECIO
 
     fund = ", ".join(f"f.{c} AS {c}_entonces" for c in _CAMPOS_FUND)
     ind = ", ".join(f"i.{c} AS {c}_entonces" for c in _CAMPOS_IND)
@@ -109,18 +117,18 @@ def _salud(conn) -> pd.DataFrame:
             GROUP BY ticker
         ),
         con_fund AS (
-            SELECT a.ticker, a.opened_at, {fund}
+            SELECT a.ticker, a.opened_at, f.as_of AS as_of_entonces, {fund}
             FROM abiertas a
             ASOF LEFT JOIN fundamentals_snapshot f
                  ON f.ticker = a.ticker AND f.as_of <= a.opened_at
         ),
         entonces AS (
-            SELECT c.*, {ind}
+            SELECT c.*, i.date AS fecha_entonces, {ind}
             FROM con_fund c
             ASOF LEFT JOIN indicators_daily i
                  ON i.ticker = c.ticker AND i.date <= c.opened_at
         )
-        SELECT e.*, {hoy_fund}, {hoy_ind}
+        SELECT e.*, fh.as_of AS as_of, ih.date AS fecha, {hoy_fund}, {hoy_ind}
         FROM entonces e
         LEFT JOIN fundamentals_snapshot fh ON fh.ticker = e.ticker
              AND fh.as_of = (SELECT MAX(as_of) FROM fundamentals_snapshot
@@ -244,8 +252,6 @@ def por_que(ticker: str) -> int:
     Una pantalla que da consejos tiene que poder explicar cualquiera de ellos
     sin que haga falta abrir la base de datos.
     """
-    from ..core import deterioration as det
-
     ticker = ticker.strip().upper()
     with connect(read_only=True) as conn:
         fila = conn.execute(
@@ -270,12 +276,43 @@ def por_que(ticker: str) -> int:
 
     console.print(f"[bold]Por que {ticker} recibe su veredicto[/]")
     console.print()
+    # Las FECHAS de las dos fotos, antes que los numeros. Sin ellas, once
+    # numeros identicos en las dos columnas se leen como "no ha cambiado nada"
+    # cuando lo que dicen es "son la misma fila".
+    console.print("[bold]Las dos fotos que se comparan[/]")
+    console.print(f"  hoy               precio {_fecha(hoy.get('fecha'))}"
+                  f"   fundamentales {_fecha(hoy.get('as_of'))}")
+    console.print(f"  cuando compraste  precio {_fecha(entonces.get('fecha'))}"
+                  f"   fundamentales {_fecha(entonces.get('as_of'))}")
+    console.print(f"  fecha de compra guardada: {_fecha(hoy.get('opened_at'))}")
+    if diagnostico.espejo:
+        console.print()
+        console.print(
+            "[bold yellow]Las dos fotos son LA MISMA.[/] La fecha de compra "
+            "que tengo es la de hoy, casi seguro la del dia en que importaste "
+            "la cartera. Comparar hoy contra hoy no puede encontrar nada, asi "
+            "que no se emite diagnostico: se emite SIN OPINION. Corrige la "
+            "fecha de compra en 'Cartera y watchlist' y este valor pasa a "
+            "juzgarse como los demas.")
+    console.print()
     console.print("[bold]Los numeros[/] (hoy / cuando compraste)")
     for campo in det.CAMPOS_FUNDAMENTALES + det.CAMPOS_PRECIO:
         a, b = hoy.get(campo), entonces.get(campo)
         if a is None and b is None:
             continue
         console.print(f"  {campo:<22} {_cifra(a):>12}  /  {_cifra(b):>12}")
+
+    # Un bloque entero de fundamentales vacio no es un detalle: es la mitad del
+    # diagnostico —la que dice si el NEGOCIO ha empeorado— sin funcionar. Y en
+    # una tabla de "nan" pasa desapercibido.
+    if not diagnostico.con_fundamentales:
+        console.print()
+        console.print(
+            f"[bold yellow]No hay fundamentales guardados de {ticker}.[/] "
+            "Margen, ROE, crecimiento, deuda y payout estan vacios, asi que la "
+            "mitad del diagnostico —la que mira el negocio— no puede correr. "
+            "Solo queda el precio. Descarga fundamentales antes de fiarte de "
+            "un veredicto sobre este valor.")
 
     mia = posiciones[posiciones["ticker"] == ticker]
     if not mia.empty and mia["peso_pct"].notna().any():
@@ -288,12 +325,24 @@ def por_que(ticker: str) -> int:
     console.print()
     console.print(f"[bold]Diagnostico:[/] {diagnostico.nivel.value} "
                   f"({diagnostico.puntos} puntos)")
-    if not diagnostico.senales:
-        console.print("  Nada ha empeorado desde que la compraste.")
-    for s in diagnostico.senales:
+    if not diagnostico.comparadas:
+        if diagnostico.comparado:
+            console.print("  Nada ha empeorado desde que la compraste.")
+        else:
+            console.print("  Nada COMPARADO: no hay foto del dia de la compra.")
+    for s in diagnostico.comparadas:
         marca = "GRAVE" if s.grave else "leve "
         grupo = f" [grupo: {s.grupo}]" if s.grupo else ""
         console.print(f"  [{marca}]{grupo} {s.texto}")
+
+    # Aparte, y con otro encabezado: esto NO ha movido el veredicto y decirlo
+    # en la misma lista que lo que si lo mueve seria mezclar dos cosas.
+    if diagnostico.observaciones:
+        console.print()
+        console.print("[bold]Lo que se ve hoy pero no se ha podido comparar[/] "
+                      "(no puntua, no cambia el veredicto)")
+        for s in diagnostico.observaciones:
+            console.print(f"  [dato de hoy] {s.texto}")
 
     if diagnostico.solo_es_precio and diagnostico.con_fundamentales:
         console.print()
@@ -313,6 +362,25 @@ def _cifra(v) -> str:
         return f"{float(v):.4g}"
     except (TypeError, ValueError):
         return str(v)[:12]
+
+
+def _fecha(v) -> str:
+    """Una fecha legible, o un hueco que se ve.
+
+    Se imprime junto a los numeros para que dos columnas identicas se puedan
+    leer como lo que son: la misma fila repetida, no una posicion sin cambios.
+    """
+    if v is None:
+        return "(sin dato)"
+    try:
+        if bool(pd.isna(v)):
+            return "(sin dato)"
+    except (TypeError, ValueError):
+        pass
+    try:
+        return f"{pd.Timestamp(v):%d/%m/%Y}"
+    except (TypeError, ValueError):
+        return str(v)[:10]
 
 
 def _limites_del_asesor() -> dict:

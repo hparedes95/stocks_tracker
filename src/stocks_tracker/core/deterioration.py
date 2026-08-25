@@ -113,6 +113,12 @@ ETIQUETA = {
 
 GRUPO_PRECIO = "precio"
 
+# Las FECHAS de las dos fotos que se comparan. No son campos que se diagnostican:
+# existen para poder comprobar que la foto "de entonces" es de verdad anterior a
+# la de hoy. Ver `_es_espejo`.
+CLAVE_FECHA_PRECIO = "fecha"
+CLAVE_FECHA_FUND = "as_of"
+
 
 @dataclass(frozen=True)
 class Senal:
@@ -126,6 +132,11 @@ class Senal:
     grave: bool
     texto: str
     grupo: str = ""
+    # Si hubo un dato del dia de la compra contra el que compararla. Cuando no
+    # lo hay la senal se SIGUE MOSTRANDO —callar seria peor— pero no puntua ni
+    # cuenta como grave: describe el presente, no un cambio a peor, y este
+    # modulo solo puntua cambios a peor. Ver `Diagnostico.puntos`.
+    comparada: bool = True
 
     @property
     def puntos(self) -> int:
@@ -147,6 +158,11 @@ class Diagnostico:
     # Lo usa el asesor para decidir si una senal de precio puede por si sola
     # cambiar un veredicto. Ver `advice.sobre_una_posicion`.
     con_fundamentales: bool = False
+    # Si la foto "de entonces" resulto ser la MISMA que la de hoy. Pasa cuando
+    # `opened_at` es la fecha en que importaste la cartera y no la de la compra
+    # real. Ver `_es_espejo`: en ese caso no se ha comparado nada y el nivel
+    # tiene que salir GRIS, no verde.
+    espejo: bool = False
 
     @property
     def puntos(self) -> int:
@@ -173,9 +189,10 @@ class Diagnostico:
         fundamentales siguen sumando entre sí porque el margen, la deuda y el
         crecimiento SÍ son hechos distintos sobre el negocio.
         """
-        sueltas = sum(s.puntos for s in self.senales if not s.grupo)
+        puntuables = [s for s in self.senales if s.comparada]
+        sueltas = sum(s.puntos for s in puntuables if not s.grupo)
         grupos: dict[str, int] = {}
-        for s in self.senales:
+        for s in puntuables:
             if s.grupo:
                 grupos[s.grupo] = max(grupos.get(s.grupo, 0), s.puntos)
         return sueltas + sum(grupos.values())
@@ -188,8 +205,17 @@ class Diagnostico:
         si la tesis se rompe, que el precio haya caído no es que la tesis se
         haya roto. Para eso está el stop.
         """
-        return bool(self.senales) and all(
-            s.grupo == GRUPO_PRECIO for s in self.senales)
+        return bool(self.comparadas) and all(
+            s.grupo == GRUPO_PRECIO for s in self.comparadas)
+
+    @property
+    def comparadas(self) -> list[Senal]:
+        """Las senales que SI tienen un antes contra el que medirse.
+
+        Son las unicas que sostienen un "ha cambiado a peor". El resto se
+        muestra como observacion del presente. Ver `observaciones`.
+        """
+        return [s for s in self.senales if s.comparada]
 
     @property
     def nivel(self) -> Nivel:
@@ -211,7 +237,23 @@ class Diagnostico:
 
     @property
     def graves(self) -> list[Senal]:
-        return [s for s in self.senales if s.grave]
+        """Las decisivas, y solo las que se han podido comparar.
+
+        Una caida del 45 % sin dato del dia de la compra no demuestra que la
+        posicion haya empeorado: puede que ya cayera un 50 % cuando la
+        compraste. Contarla como grave la convertia en un REDUCIR —regla 3 del
+        asesor— por algo que nadie habia comprobado.
+        """
+        return [s for s in self.senales if s.grave and s.comparada]
+
+    @property
+    def observaciones(self) -> list[Senal]:
+        """Lo que se ha visto pero no se ha podido comparar con nada.
+
+        Se muestra aparte: es informacion util sobre el presente, no un motivo
+        para tocar la posicion.
+        """
+        return [s for s in self.senales if not s.comparada]
 
 
 # ---------------------------------------------------------------------------
@@ -377,12 +419,16 @@ def _precio(hoy: Any, entonces: Any) -> list[Senal]:
         ))
 
     # El cruce de la muerte solo es noticia si NO estaba ya cruzado al comprar.
-    if _bool(hoy, "death_cross") is True and _bool(entonces, "death_cross") is not True:
+    # Sin dato de entonces no se sabe cual de los dos casos es: se dice, pero
+    # sin puntuar. `is not True` cubre tanto el False como el ausente, y por eso
+    # hace falta mirar aparte si el dato existia.
+    cruzaba_antes = _bool(entonces, "death_cross")
+    if _bool(hoy, "death_cross") is True and cruzaba_antes is not True:
         fuera.append(Senal(
             "cruce", False,
             "La media de 50 sesiones ha cortado a la baja la de 200 (cruce de "
             "la muerte). Llega tarde por construcción, pero mucha gente lo mira.",
-            GRUPO_PRECIO,
+            GRUPO_PRECIO, comparada=cruzaba_antes is not None,
         ))
 
     caida = _num(hoy, "drawdown")
@@ -402,7 +448,7 @@ def _precio(hoy: Any, entonces: Any) -> list[Senal]:
                 f"máximo tiene que subir un "
                 f"{abs(caida) / (1 + caida) * 100:.0f} %: una caída grande "
                 f"necesita una subida mayor solo para empatar.{desde}",
-                GRUPO_PRECIO,
+                GRUPO_PRECIO, comparada=caida_antes is not None,
             ))
 
     relativa = _num(hoy, "rs_vs_bench_3m")
@@ -416,7 +462,7 @@ def _precio(hoy: Any, entonces: Any) -> list[Senal]:
                 f"Se queda {_pct(abs(relativa))} por detrás de su índice a tres "
                 "meses. Si el mercado sube y este no, el problema es de este "
                 "valor.",
-                GRUPO_PRECIO,
+                GRUPO_PRECIO, comparada=relativa_antes is not None,
             ))
 
     vol_corta, vol_larga = _num(hoy, "realized_vol_20"), _num(hoy, "realized_vol_252")
@@ -435,6 +481,7 @@ def _precio(hoy: Any, entonces: Any) -> list[Senal]:
                 "en el último mes. Que la volatilidad se dispare suele "
                 "significar que hay algo que el mercado todavía esta digiriendo.",
                 GRUPO_PRECIO,
+                comparada=antes_corta is not None and antes_larga is not None,
             ))
 
     return fuera
@@ -465,6 +512,45 @@ def partir(datos: Any) -> tuple[dict, dict]:
     return hoy, entonces
 
 
+def _es_espejo(hoy: Any, entonces: Any, clave: str) -> bool:
+    """Si las dos fotos que se van a comparar son en realidad LA MISMA.
+
+    EL FALLO QUE ESTO ARREGLA, TRAIDO DESDE EL USO REAL
+
+    El usuario pidio explicar por que MSFT recibia su veredicto y el comando
+    devolvio esto:
+
+        drawdown         -0.09533  /  -0.09533
+        rs_vs_bench_3m     0.1402  /    0.1402
+        realized_vol_20    0.5538  /    0.5538
+        Diagnostico: verde (0 puntos)
+        Nada ha empeorado desde que la compraste.
+
+    Los once numeros identicos en las dos columnas. La union punto-en-el-tiempo
+    estaba bien: lo que pasaba es que `opened_at` era la fecha en la que el
+    usuario IMPORTO su cartera, no la de la compra. `date <= opened_at` con
+    `opened_at` = hoy devuelve, correctamente, la fila de hoy.
+
+    Y comparar una fila consigo misma no da cero senales porque no haya
+    deterioro: las da porque no hay nada que comparar. El diagnostico era
+    estructuralmente incapaz de encontrar nada, y salia en VERDE diciendo "nada
+    ha empeorado desde que la compraste". Es exactamente el verde por falta de
+    datos contra el que avisa la cabecera de este modulo, colado por una puerta
+    que no estaba vigilada: aqui `comparado` era True porque las columnas
+    _entonces venian llenas.
+
+    Se compara `>=` y no `==` a proposito: una fecha de compra POSTERIOR a los
+    datos de hoy tampoco es una referencia del pasado.
+    """
+    a, b = _crudo(hoy, clave), _crudo(entonces, clave)
+    if a is None or b is None:
+        return False
+    try:
+        return pd.Timestamp(b) >= pd.Timestamp(a)
+    except (TypeError, ValueError):
+        return False
+
+
 def diagnosticar(ticker: str, *, fund_hoy: Any = None, fund_entonces: Any = None,
                  ind_hoy: Any = None, ind_entonces: Any = None,
                  comparado_con: Any = None) -> Diagnostico:
@@ -481,6 +567,17 @@ def diagnosticar(ticker: str, *, fund_hoy: Any = None, fund_entonces: Any = None
     comprobaciones que comparan no han llegado a correr, así que "sin cambios a
     peor" sería afirmar algo que nadie ha comprobado.
     """
+    # Una foto que resulta ser la de hoy no es una referencia: se descarta ANTES
+    # de comparar nada. Si se dejara pasar, cada comprobacion daria "no ha
+    # cambiado" —porque el valor es literalmente el mismo— y el resultado seria
+    # un verde que nadie ha ganado.
+    fund_espejo = _es_espejo(fund_hoy, fund_entonces, CLAVE_FECHA_FUND)
+    precio_espejo = _es_espejo(ind_hoy, ind_entonces, CLAVE_FECHA_PRECIO)
+    if fund_espejo:
+        fund_entonces = None
+    if precio_espejo:
+        ind_entonces = None
+
     senales = _fundamentales(fund_hoy, fund_entonces) + _precio(ind_hoy, ind_entonces)
     # Haber encontrado algo ya demuestra que habia datos. Sin esa salida
     # rapida, una posicion con motivos de sobra salia GRIS si ninguno de ellos
@@ -504,4 +601,5 @@ def diagnosticar(ticker: str, *, fund_hoy: Any = None, fund_entonces: Any = None
     return Diagnostico(ticker=ticker, senales=senales,
                        comparado_con=comparado_con, hay_datos=hay_datos,
                        comparado=comparado,
-                       con_fundamentales=con_fundamentales)
+                       con_fundamentales=con_fundamentales,
+                       espejo=fund_espejo or precio_espejo)

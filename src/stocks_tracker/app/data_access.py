@@ -13,6 +13,7 @@ import pandas as pd
 import streamlit as st
 
 from ..compute.run_compute import sesiones_sin_calcular
+from ..core import deterioration as det
 from ..core import sesiones
 from ..core.config import (
     get_active_universes,
@@ -1038,6 +1039,41 @@ def add_position(ticker: str, qty: float, avg_cost: float,
     get_positions.clear()
 
 
+def set_opened_at(fechas: dict[str, date]) -> int:
+    """Corrige la fecha de compra de una o varias posiciones.
+
+    POR QUE HACIA FALTA ESTO
+
+    Hasta ahora `opened_at` solo lo escribia el programa: `add_position` y
+    `replace_positions` ponen la fecha de HOY, porque un extracto no dice
+    cuando compraste. El usuario no tenia forma de corregirlo, y esa fecha no
+    es un adorno: es la referencia contra la que `deterioration.py` compara
+    para saber si algo ha empeorado.
+
+    Con `opened_at` = el dia en que importaste la cartera, la union
+    punto-en-el-tiempo devuelve la fila de HOY como "el dia de la compra", y el
+    diagnostico compara hoy contra hoy. Salia verde siempre, y ese verde era el
+    unico color que invita a no volver a mirar. Ahora sale gris y se dice, pero
+    lo que de verdad lo arregla es poder poner la fecha buena.
+
+    Devuelve cuantas filas se han cambiado.
+    """
+    from ..core.timeutils import utcnow
+
+    if not fechas:
+        return 0
+    with connect() as conn:
+        for id_posicion, cuando in fechas.items():
+            conn.execute(
+                "UPDATE positions SET opened_at = ?, updated_at = ? "
+                "WHERE id = ? AND closed_at IS NULL",
+                [cuando, utcnow(), id_posicion],
+            )
+    get_positions.clear()
+    get_position_health.clear()
+    return len(fechas)
+
+
 def replace_positions(frame: pd.DataFrame, note: str = "") -> int:
     """Pone la cartera al dia con el extracto importado.
 
@@ -1290,10 +1326,14 @@ def get_closed_sales(ticker: str, days: int = 400) -> pd.DataFrame:
 
 # Los campos que necesita `core.deterioration`. En una lista y no incrustados
 # en el SQL para que anadir una comprobacion alli sea una linea aqui.
-_CAMPOS_FUND = ("profit_margin", "roe", "revenue_growth_yoy",
-                "net_debt_to_ebitda", "payout_ratio")
-_CAMPOS_IND = ("above_sma200", "death_cross", "drawdown", "rs_vs_bench_3m",
-               "realized_vol_20", "realized_vol_252")
+# Las columnas que trae `get_position_health` son EXACTAMENTE las que
+# `deterioration.py` sabe diagnosticar, asi que se leen de alli en vez de
+# repetirse. Eran dos listas identicas mantenidas a mano en dos ficheros: el
+# dia que alguien anadiera un campo al diagnostico y no aqui, la consulta
+# dejaria de traerlo y la comprobacion nueva no se ejecutaria nunca, en
+# silencio y sin fallar ningun test.
+_CAMPOS_FUND = det.CAMPOS_FUNDAMENTALES
+_CAMPOS_IND = det.CAMPOS_PRECIO
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
@@ -1319,12 +1359,12 @@ def get_position_health() -> pd.DataFrame:
             GROUP BY ticker
         ),
         con_fund AS (
-            SELECT a.ticker, a.opened_at, {fund}
+            SELECT a.ticker, a.opened_at, f.as_of AS as_of_entonces, {fund}
             FROM abiertas a
             ASOF LEFT JOIN fundamentals_snapshot f
                  ON f.ticker = a.ticker AND f.as_of <= a.opened_at
         )
-        SELECT c.*, {ind}
+        SELECT c.*, i.date AS fecha_entonces, {ind}
         FROM con_fund c
         ASOF LEFT JOIN indicators_daily i
              ON i.ticker = c.ticker AND i.date <= c.opened_at
@@ -1333,7 +1373,7 @@ def get_position_health() -> pd.DataFrame:
 
     hoy = _fetch(
         f"""
-        SELECT a.ticker,
+        SELECT a.ticker, f.as_of AS as_of, i.date AS fecha,
                {", ".join(f"f.{c}" for c in _CAMPOS_FUND)},
                {", ".join(f"i.{c}" for c in _CAMPOS_IND)}
         FROM (SELECT DISTINCT ticker FROM positions

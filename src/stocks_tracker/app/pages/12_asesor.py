@@ -23,6 +23,7 @@ import pandas as pd
 import streamlit as st
 
 from stocks_tracker.app import data_access as da
+from stocks_tracker.app.components import health_panel
 from stocks_tracker.app.components.common import render_disclaimer
 from stocks_tracker.app.components.theme import format_money
 from stocks_tracker.core.advice import ETIQUETA, Conviccion, Veredicto
@@ -188,10 +189,41 @@ st.caption(f"Consejos de la sesión del {fecha:%d/%m/%Y}.")
 
 st.divider()
 st.subheader("Tu cartera")
+
+# EL SILENCIO HAY QUE CONTARLO, Y AQUI MAS QUE EN NINGUN SITIO
+#
+# Solo se guarda lo accionable, asi que una cartera entera sobre la que el
+# programa NO HA PODIDO OPINAR se veia exactamente igual que una cartera sana:
+# "nada que hacer hoy". Es el mismo verde tranquilizador por falta de datos que
+# `deterioration.py` existe para evitar, un piso mas arriba.
+#
+# El caso llega del uso real: con las fechas de compra puestas al importar el
+# extracto, el diagnostico compara hoy contra hoy y no puede encontrar nada.
+_mudas = []
+try:
+    _salud = da.get_position_health()
+    if not _salud.empty:
+        _mudas = [d for d in health_panel.diagnosticos(_salud) if d.espejo]
+except Exception:  # noqa: BLE001 - una pantalla no se cae por un aviso
+    _mudas = []
+
+if _mudas:
+    st.warning(
+        f"**No he podido opinar sobre {len(_mudas)} de tus posiciones** "
+        f"({', '.join(d.ticker for d in _mudas)}). La fecha de compra que "
+        "tengo de ellas es la de hoy —la que se pone al importar el extracto, "
+        "porque el extracto no la trae—, así que compararía los datos de hoy "
+        "con los datos de hoy y no encontraría nada nunca. Ponles la fecha "
+        "real en **Cartera y watchlist** y vuelven a juzgarse.",
+        icon=":material/event_busy:",
+    )
+
 if mias.empty:
     st.success(
         "Nada que hacer hoy con lo que tienes. Los `mantener` no se guardan: "
-        "solo aparecen aquí las posiciones que piden una acción.",
+        "solo aparecen aquí las posiciones que piden una acción."
+        + (" Ojo: esto NO incluye las posiciones de arriba, sobre las que no "
+           "he podido opinar." if _mudas else ""),
         icon=":material/check_circle:",
     )
 else:

@@ -9,6 +9,8 @@ encima está mal sin que nada avise.
 
 from __future__ import annotations
 
+from datetime import date
+
 import pandas as pd
 import streamlit as st
 
@@ -206,3 +208,92 @@ def render_manual_table() -> None:
         n = da.replace_positions(frame, note="Introducido a mano")
         st.success(f"{n} posiciones guardadas.")
         st.rerun()
+
+
+def _fechas_a_corregir(positions: pd.DataFrame, hoy: date) -> pd.DataFrame:
+    """Las posiciones cuya fecha de compra no sirve como referencia.
+
+    Es una funcion aparte y no una condicion dentro de la pantalla para que se
+    pueda probar sin Streamlit: la regla —"la fecha de compra es de hoy o
+    posterior, luego no hay pasado con el que comparar"— es justo la que
+    decide si el asesor puede opinar sobre esa posicion.
+    """
+    if positions.empty or "opened_at" not in positions:
+        return positions.iloc[0:0]
+    cuando = pd.to_datetime(positions["opened_at"], errors="coerce")
+    return positions[cuando.isna() | (cuando.dt.date >= hoy)]
+
+
+def render_fechas_de_compra(positions: pd.DataFrame) -> None:
+    """Corregir la fecha de compra de las posiciones que la tienen de hoy.
+
+    POR QUE ESTA PANTALLA EXISTE
+
+    `add_position` y `replace_positions` escriben `opened_at = hoy`, porque un
+    extracto de broker no dice cuando compraste. Es lo unico que pueden hacer,
+    pero deja una fecha que no es cierta y que NO era corregible desde ningun
+    sitio.
+
+    Y esa fecha decide si el asesor puede opinar. El diagnostico de deterioro
+    compara los datos de hoy con los del dia de la compra; con la fecha de hoy
+    en los dos lados compara una fila consigo misma, no encuentra nada nunca y
+    —antes del arreglo— lo presentaba como "nada ha empeorado desde que la
+    compraste". Ahora sale gris y se dice en voz alta, que es honesto pero
+    sigue sin servir de nada.
+
+    Esto es lo que lo arregla de verdad: dos minutos poniendo las fechas reales
+    convierten media cartera de "sin opinion" en posiciones que se pueden
+    juzgar.
+    """
+    pendientes = _fechas_a_corregir(positions, date.today())
+    if pendientes.empty:
+        return
+
+    with st.expander(f"Poner la fecha real de compra ({len(pendientes)})",
+                     expanded=False, icon=":material/event_busy:"):
+        st.warning(
+            f"{len(pendientes)} posiciones tienen como fecha de compra **la de "
+            "hoy**, que es la que se pone al importar un extracto porque el "
+            "extracto no la trae. Mientras siga asi, el semáforo de deterioro "
+            "**no puede opinar sobre ellas**: compararía los datos de hoy con "
+            "los datos de hoy.",
+            icon=":material/event_busy:",
+        )
+        st.caption(
+            "No hace falta clavarla. El mes aproximado ya sirve: lo que se "
+            "compara son fundamentales trimestrales y medias de 200 sesiones."
+        )
+
+        editable = pendientes[["ticker", "qty", "avg_cost", "opened_at"]].copy()
+        editable = editable.rename(columns={
+            "ticker": "Valor", "qty": "Titulos",
+            "avg_cost": "Precio medio", "opened_at": "Fecha de compra"})
+        editado = st.data_editor(
+            editable, hide_index=True, key="fechas_compra",
+            disabled=["Valor", "Titulos", "Precio medio"],
+            column_config={
+                "Fecha de compra": st.column_config.DateColumn(
+                    max_value=date.today(), format="DD/MM/YYYY"),
+            },
+        )
+
+        if st.button("Guardar fechas", type="primary", key="save_fechas"):
+            nuevas = {}
+            for id_posicion, valor in zip(pendientes["id"],
+                                          editado["Fecha de compra"],
+                                          strict=False):
+                if pd.isna(valor):
+                    continue
+                cuando = pd.Timestamp(valor).date()
+                # Una fecha de hoy o del futuro no arregla nada: dejaria la
+                # posicion exactamente igual de muda que estaba.
+                if cuando < date.today():
+                    nuevas[id_posicion] = cuando
+            if not nuevas:
+                st.warning("Ninguna fecha nueva anterior a hoy: nada que "
+                           "guardar.")
+                return
+            n = da.set_opened_at(nuevas)
+            st.success(f"{n} fechas corregidas. El diagnóstico de esas "
+                       "posiciones ya se puede calcular.")
+            st.rerun()

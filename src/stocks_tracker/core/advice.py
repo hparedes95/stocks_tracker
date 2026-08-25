@@ -301,12 +301,12 @@ def sobre_una_posicion(
     # esas posiciones sin diagnostico ninguno.
     if (diagnostico is not None and diagnostico.solo_es_precio
             and diagnostico.con_fundamentales):
-        peor = max(diagnostico.senales, key=lambda s: s.puntos)
+        peor = max(diagnostico.comparadas, key=lambda s: s.puntos)
         return Recomendacion(
             ticker, Veredicto.MANTENER, Conviccion.BAJA,
             motivos=(
                 ["El precio ha ido a peor, pero el negocio no:"]
-                + [f"  {s.texto}" for s in diagnostico.senales]
+                + [f"  {s.texto}" for s in diagnostico.comparadas]
                 + ["Ninguno de los fundamentales que mirabas al comprar ha "
                    "empeorado. Una caida de precio con el negocio intacto no "
                    "es una tesis rota: para el precio esta tu stop, y no se ha "
@@ -364,7 +364,7 @@ def sobre_una_posicion(
             ticker, Veredicto.REDUCIR, Conviccion.MEDIA,
             motivos=(
                 ["Varias cosas han ido a peor, ninguna decisiva por si sola:"]
-                + [f"  {s.texto}" for s in diagnostico.senales]
+                + [f"  {s.texto}" for s in diagnostico.comparadas]
             ),
             desmentiria=[
                 "Si estas senales son consecuencia de una caida general del "
@@ -425,7 +425,7 @@ def sobre_una_posicion(
             ticker, Veredicto.MANTENER, Conviccion.BAJA,
             motivos=(
                 ["Algo ha cambiado a peor, todavia sin llegar a romper la tesis:"]
-                + [f"  {s.texto}" for s in diagnostico.senales]
+                + [f"  {s.texto}" for s in diagnostico.comparadas]
             ),
             desmentiria=[
                 "Si en el proximo dato estas senales siguen empeorando, esto "
@@ -434,17 +434,39 @@ def sobre_una_posicion(
         )
 
     if nivel is det.Nivel.GRIS:
-        return Recomendacion(
-            ticker, Veredicto.SIN_OPINION, Conviccion.BAJA,
-            motivos=[
+        # Dos motivos distintos para el mismo silencio, y conviene separarlos
+        # porque lo que tiene que hacer el usuario NO es lo mismo: uno se
+        # arregla solo con el tiempo, el otro lo arregla el en dos minutos
+        # poniendo la fecha real de compra.
+        if diagnostico is not None and diagnostico.espejo:
+            motivos = [
+                "La fecha de compra que tengo de este valor es la de HOY —casi "
+                "seguro la del dia en que importaste la cartera, no la de la "
+                "compra real—, asi que compararia hoy contra hoy.",
+                "De ahi no sale un diagnostico: sale un verde automatico. "
+                "Prefiero no opinar antes que tranquilizarte sin haber mirado "
+                "nada.",
+            ]
+            desmentiria = [
+                "Corrige la fecha de compra en Cartera y watchlist y esta "
+                "posicion pasa a juzgarse como las demas.",
+            ]
+        else:
+            motivos = [
                 "No hay datos del dia en que la compraste con los que comparar, "
                 "asi que no se puede saber si ha cambiado a peor.",
                 "Decir 'mantener' aqui sonaria a que se ha mirado y esta bien.",
-            ],
-            desmentiria=[
+            ]
+            desmentiria = [
                 "En cuanto haya una foto de fundamentales anterior a tu compra, "
                 "esta posicion si se puede juzgar.",
-            ],
+            ]
+        if diagnostico is not None and diagnostico.observaciones:
+            motivos += ["Lo que si se ve hoy, sin poder decir si ha empeorado:"]
+            motivos += [f"  {s.texto}" for s in diagnostico.observaciones]
+        return Recomendacion(
+            ticker, Veredicto.SIN_OPINION, Conviccion.BAJA,
+            motivos=motivos, desmentiria=desmentiria,
         )
 
     motivos = ["Nada ha cambiado a peor desde que la compraste."]
