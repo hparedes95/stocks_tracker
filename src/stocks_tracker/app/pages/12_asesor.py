@@ -17,13 +17,15 @@ cuando todavía no dice nada bueno.
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import streamlit as st
 
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components.common import render_disclaimer
-from stocks_tracker.core import advice, advice_build, fx
-from stocks_tracker.core.advice import Conviccion, Veredicto
+from stocks_tracker.app.components.theme import format_money
+from stocks_tracker.core.advice import ETIQUETA, Conviccion, Veredicto
 from stocks_tracker.core.advice_store import resumen_honesto
 
 st.title("Qué haría hoy")
@@ -93,142 +95,115 @@ with st.expander("Qué mide y qué NO mide este marcador"):
 st.divider()
 
 # ===========================================================================
-# 2. Lo que el programa NO sabe y hay que decirle
+# 2. Los consejos GUARDADOS de la ultima sesion
 # ===========================================================================
-posiciones = da.get_positions()
-tipos = da.get_fx_rates()
+# La pantalla LEE lo que escribio `run_advice`; no vuelve a calcular.
+#
+# Si recalculara al vuelo y el marcador puntuara lo guardado, los dos podrian
+# separarse —basta con que cambie un precio entre una cosa y otra— y el marcador
+# estaria puntuando consejos que nadie llego a ver. Que lo que se ve y lo que se
+# puntua sean lo mismo no es un detalle: es la condicion para que el marcador
+# signifique algo.
+guardadas = da.get_advice()
 
-valor_cartera = 0.0
-if not posiciones.empty:
-    en_euros = fx.a_base(posiciones["qty"] * posiciones["close"],
-                         posiciones["currency"], tipos)
-    valor_cartera = fx.total(en_euros)
-
-# El efectivo NO se puede saber: no hay conexion con el banco ni con el broker,
-# y el extracto que se importa solo trae posiciones. Inventarlo —suponer que
-# siempre hay caja— produciria recomendaciones de compra que no se pueden
-# ejecutar, que es la forma mas rapida de que una pantalla deje de usarse.
-caja = st.number_input(
-    "Efectivo disponible para invertir (EUR)",
-    min_value=0.0, value=0.0, step=100.0,
-    help="El programa no puede saberlo: no habla con tu banco ni con tu "
-         "broker, y el extracto solo trae posiciones. Sin este dato no se "
-         "puede calcular cuánto comprar, así que las compras saldrán vetadas.",
-)
-
-if valor_cartera and valor_cartera == valor_cartera:
-    st.caption(
-        f"Cartera valorada en **{valor_cartera:,.2f} EUR** + "
-        f"{caja:,.2f} EUR de efectivo declarado."
-        .replace(",", " ")
-    )
-
-equity = (valor_cartera if valor_cartera == valor_cartera else 0.0) + caja
-
-st.divider()
-
-# ===========================================================================
-# 3. Tu cartera
-# ===========================================================================
-st.subheader("Tu cartera")
-
-if posiciones.empty:
+if guardadas.empty:
     st.info(
-        "No tienes posiciones registradas. Impórtalas o añádelas en la página "
-        "de Cartera y aquí aparecerá qué hacer con cada una.",
-        icon=":material/inbox:",
+        "Todavía no hay consejos calculados. Ejecuta `stocks.ps1 consejo` "
+        "—o `python -m stocks_tracker.compute.run_advice`— después del cálculo "
+        "diario y aparecerán aquí.\n\n"
+        "Se calculan en un paso aparte y no al abrir esta página, para que "
+        "quede constancia de cada uno: sin esa constancia el marcador de arriba "
+        "no podría llenarse nunca.",
+        icon=":material/hourglass_empty:",
     )
-    recomendaciones_cartera: list = []
-else:
-    pos = posiciones.copy()
-    pos["valor_eur"] = fx.a_base(pos["qty"] * pos["close"], pos["currency"], tipos)
-    total = fx.total(pos["valor_eur"])
-    pos["peso_pct"] = (pos["valor_eur"] / total * 100.0) if total else None
-    pesos_sector = (
-        pos.groupby(pos["gics_sector"].fillna(""))["peso_pct"].sum().to_dict()
-    )
-
-    recomendaciones_cartera = advice.ordenar(advice_build.de_la_cartera(
-        da.get_position_health(), pos, pesos_sector=pesos_sector,
-    ))
+    st.stop()
 
 
-def _tarjeta(r: advice.Recomendacion) -> None:
+def _lista(campo: str, fila) -> list[str]:
+    try:
+        return json.loads(fila[campo] or "[]")
+    except (TypeError, ValueError):
+        return []
+
+
+def _tarjeta(fila) -> None:
     """Una recomendación entera: veredicto, porqué, y qué la desmentiría.
 
     Las tres cosas juntas y siempre. Un consejo sin motivos no se puede
     discutir, y uno sin condición de error no se puede revisar dentro de seis
     meses: es lo que separa una afirmación comprobable de un horóscopo.
     """
-    cabecera = f"{COLOR[r.veredicto]} **{r.ticker}** — {r.etiqueta}"
+    veredicto = Veredicto(fila["veredicto"])
+    conviccion = Conviccion(fila["conviccion"])
     with st.container(border=True):
-        st.markdown(f"{cabecera}  \n:gray[{FUERZA[r.conviccion]}]")
-
-        for motivo in r.motivos:
+        st.markdown(
+            f"{COLOR[veredicto]} **{fila['ticker']}** — {ETIQUETA[veredicto]}"
+            f"  \n:gray[{FUERZA[conviccion]}]"
+        )
+        for motivo in _lista("motivos", fila):
             st.markdown(f"- {motivo}")
 
-        if r.importe_eur:
+        if fila["importe_eur"] and fila["importe_eur"] > 0:
             cols = st.columns(3)
-            cols[0].metric("Comprar", f"{r.importe_eur:,.0f} EUR".replace(",", " "))
-            cols[1].metric("Stop", f"{r.stop:.2f}")
-            cols[2].metric("Arriesgas", f"{r.riesgo_eur:,.2f} EUR".replace(",", " "))
-        if r.titulos_a_soltar:
-            st.metric("Soltar", f"{r.titulos_a_soltar:.4f} títulos")
+            cols[0].metric("Importe", format_money(fila["importe_eur"], "EUR"))
+            cols[1].metric("Stop", f"{fila['stop']:.2f}" if fila["stop"] else "—")
+            cols[2].metric("Arriesgas",
+                           format_money(fila["riesgo_eur"], "EUR")
+                           if fila["riesgo_eur"] else "—")
+        elif fila["titulos"]:
+            st.metric("Títulos a soltar", f"{fila['titulos']:.4f}")
 
-        if r.aviso_fiscal:
-            st.warning(r.aviso_fiscal, icon=":material/gavel:")
+        if fila["aviso_fiscal"]:
+            st.warning(fila["aviso_fiscal"], icon=":material/gavel:")
 
-        if r.desmentiria:
+        desmiente = _lista("desmentiria", fila)
+        if desmiente:
             with st.expander("Qué haría que esto fuera un error"):
-                for d in r.desmentiria:
+                for d in desmiente:
                     st.markdown(f"- {d}")
 
 
-for r in recomendaciones_cartera:
-    _tarjeta(r)
+cartera = set(da.get_positions()["ticker"]) if not da.get_positions().empty else set()
+mias = guardadas[guardadas["ticker"].isin(cartera)]
+nuevas = guardadas[~guardadas["ticker"].isin(cartera)]
+
+fecha = pd.Timestamp(guardadas["fecha"].iloc[0])
+st.caption(f"Consejos de la sesión del {fecha:%d/%m/%Y}.")
 
 st.divider()
-
-# ===========================================================================
-# 4. Compras nuevas
-# ===========================================================================
-st.subheader("Compras nuevas")
-
-ranking = da.get_candidates(limit=60)
-if ranking.empty:
-    st.info(
-        "No hay ranking calculado todavía. Ejecuta el cálculo y vuelve.",
-        icon=":material/hourglass_empty:",
+st.subheader("Tu cartera")
+if mias.empty:
+    st.success(
+        "Nada que hacer hoy con lo que tienes. Los `mantener` no se guardan: "
+        "solo aparecen aquí las posiciones que piden una acción.",
+        icon=":material/check_circle:",
     )
 else:
-    pesos_actuales = {}
-    pesos_sector_cartera: dict = {}
-    if not posiciones.empty:
-        pesos_actuales = dict(zip(pos["ticker"], pos["peso_pct"], strict=False))
-        pesos_sector_cartera = pesos_sector
+    for _, fila in mias.iterrows():
+        _tarjeta(fila)
 
-    nuevas = advice.ordenar(advice_build.de_los_candidatos(
-        ranking, equity=equity, caja=caja,
-        n_posiciones=len(posiciones),
-        pesos_actuales=pesos_actuales,
-        pesos_sector=pesos_sector_cartera,
-    ))
-    # Se ensenan tambien las VETADAS y las SIN_OPINION, y no solo las compras.
-    # Una lista que solo muestra lo que el motor sabe hacer parece mas lista de
-    # lo que es, y esconde justo la informacion util: por que NO se compra algo
-    # que estaba arriba del ranking.
-    for r in nuevas[:15]:
-        _tarjeta(r)
+st.divider()
+st.subheader("Compras nuevas")
+if nuevas.empty:
+    st.info(
+        "Ningún candidato pasa hoy tus filtros. Es lo normal la mayoría de los "
+        "días: con siete plazas y el percentil 90 como listón, no hay una "
+        "compra cada mañana.",
+        icon=":material/inbox:",
+    )
+else:
+    for _, fila in nuevas.iterrows():
+        _tarjeta(fila)
 
 # ---------------------------------------------------------------------------
 # El encuadre, al final y sin suavizar
 # ---------------------------------------------------------------------------
 st.divider()
-universo = da.scoring_universe(None)
-if universo:
+huella = guardadas["universe_hash"].iloc[0]
+if huella:
     st.caption(
-        f"Calculado contra **{universo['n_tickers']} valores** · huella "
-        f"`{universo['huella']}`. El ranking es relativo: con otro universo, "
-        "estos consejos cambian sin que las empresas hayan hecho nada."
+        f"Calculado contra el universo con huella `{huella}`. El ranking es "
+        "relativo: con otro universo, estos consejos cambian sin que las "
+        "empresas hayan hecho nada."
     )
 render_disclaimer()

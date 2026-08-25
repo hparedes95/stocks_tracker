@@ -57,7 +57,7 @@ def _precio(conn, ticker: str, cuando: date, close: float) -> None:
 
 def _emitir(conn, ticker: str, veredicto: Veredicto, precio: float,
             cuando: date = HACE_UN_ANO) -> None:
-    store.guardar(
+    store.guardar_recomendaciones(
         conn, [Recomendacion(ticker, veredicto, Conviccion.ALTA)],
         dia=cuando, weights_hash=PERFIL, precios={ticker: precio})
 
@@ -80,7 +80,7 @@ def test_solo_se_guarda_lo_accionable(almacen):
     """Guardar los MANTENER llenaria la tabla de filas que nadie va a puntuar,
     y tentaria a contarlas como aciertos cuando el valor sube."""
     with db.connect() as conn:
-        n = store.guardar(conn, [
+        n = store.guardar_recomendaciones(conn, [
             Recomendacion("AAA", Veredicto.COMPRAR, Conviccion.ALTA),
             Recomendacion("BBB", Veredicto.MANTENER, Conviccion.ALTA),
             Recomendacion("CCC", Veredicto.SIN_OPINION, Conviccion.BAJA),
@@ -122,7 +122,7 @@ def test_los_motivos_sobreviven_al_viaje(almacen):
     import json
 
     with db.connect() as conn:
-        store.guardar(conn, [Recomendacion(
+        store.guardar_recomendaciones(conn, [Recomendacion(
             "AAA", Veredicto.COMPRAR, Conviccion.ALTA,
             motivos=["Percentil 96 %"], desmentiria=["Si pierde 80,00"])],
             dia=HOY, weights_hash=PERFIL, precios={"AAA": 100.0})

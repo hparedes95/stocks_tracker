@@ -833,6 +833,26 @@ def all_tickers() -> list[str]:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
+def get_advice(preset: str | None = None) -> pd.DataFrame:
+    """Las recomendaciones GUARDADAS de la ultima sesion calculada.
+
+    La pantalla LEE lo que se escribio; no vuelve a calcular. Si recalculara al
+    vuelo y el marcador puntuara lo guardado, los dos podrian separarse —basta
+    con que cambie un precio entre una cosa y otra— y el marcador estaria
+    puntuando consejos que nadie llego a ver.
+    """
+    return _fetch(
+        """
+        SELECT * FROM recommendations
+        WHERE weights_hash = ?
+          AND fecha = (SELECT MAX(fecha) FROM recommendations
+                       WHERE weights_hash = ?)
+        """,
+        [_preset_hash(preset), _preset_hash(preset)],
+    )
+
+
+@st.cache_data(ttl=60, show_spinner=False)
 def get_advice_scoreboard() -> tuple:
     """El marcador del asesor: aciertos, fallos y exceso sobre el indice.
 

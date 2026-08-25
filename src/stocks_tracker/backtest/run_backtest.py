@@ -423,9 +423,20 @@ def _avisar_del_sesgo(prices: pd.DataFrame, pit: bool) -> None:
     anos_datos = (prices["date"].max() - prices["date"].min()).days / 365.25
     with connect(read_only=True) as conn:
         anos_composicion = membership.anos_de_composicion(conn)
+        # El desglose POR UNIVERSO, que existia en `membership.cobertura` sin
+        # que lo llamara nadie. El aviso general dice "hay 3 dias de
+        # composicion real"; esto dice de cuales. No es lo mismo tener el
+        # IBEX35 cubierto y el SP500 no, y el promedio los mezcla.
+        detalle = membership.cobertura(conn)
     console.print(
         f"[dim]{membership.aviso_de_supervivencia(anos_composicion, anos_datos)}[/]"
     )
+    if not detalle.empty:
+        for fila in detalle.itertuples():
+            console.print(
+                f"[dim]  {fila.universo}: {fila.tickers} valores desde "
+                f"{fila.desde}[/]"
+            )
     if pit and anos_composicion < anos_datos:
         console.print(
             "[yellow]--universo-historico solo tiene efecto en el tramo con "

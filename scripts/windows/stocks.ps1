@@ -32,6 +32,8 @@
       reconciliar Contrasta tu cartera con la del broker
       oro       Reescribe la referencia de regresion financiera
       auditar   Cruza precios con un segundo proveedor y da su veredicto
+      consejo   Calcula que hacer hoy con tu cartera y con el mercado, y lo
+                deja escrito. Acepta -Caja para decir cuanto efectivo tienes
       huella    Dice contra que universo se calculo el ranking. Compara la
                 huella entre dos ordenadores: si difiere, es normal que las
                 oportunidades no coincidan
@@ -51,11 +53,18 @@ param(
                  'tiene-universo',
                  'compute', 'presets', 'validate',
                  'validate-freeze', 'validate-confirm',
-                 'auditar', 'oro', 'huella',
+                 'auditar', 'oro', 'huella', 'consejo',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
-    [string]$Task = 'help'
+    [string]$Task = 'help',
+
+    # Efectivo disponible para invertir. El programa NO puede saberlo: no
+    # habla con tu banco ni con tu broker, y el extracto solo trae
+    # posiciones. Con cero, las compras salen vetadas por falta de tamano,
+    # que es lo correcto: recomendar comprar con dinero que no existe es
+    # peor que no recomendar nada.
+    [double]$Caja = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -655,6 +664,16 @@ switch ($Task) {
         & $Py scripts/regenerar_oro.py
     }
 
+    'consejo' {
+        Assert-Venv
+        Write-Step "Calculando que haria hoy"
+        if ($Caja -le 0) {
+            Write-Host "  Sin efectivo declarado: las compras saldran vetadas."
+            Write-Host "  Usa -Caja 1500 para decir cuanto tienes disponible."
+        }
+        & $Py -m stocks_tracker.compute.run_advice --caja $Caja
+    }
+
     'huella' {
         Assert-Venv
         # Existe porque el sintoma "en mi otro ordenador salen otras
@@ -703,6 +722,7 @@ switch ($Task) {
             @{ Name = 'Ingesta'; Args = @('-m', 'stocks_tracker.ingest.run_ingest', '--what', 'all') },
             @{ Name = 'Ingesta de cripto'; Args = @('-m', 'stocks_tracker.ingest.ingest_crypto') },
             @{ Name = 'Calculo'; Args = @('-m', 'stocks_tracker.compute.run_compute') },
+            @{ Name = 'Consejos'; Args = @('-m', 'stocks_tracker.compute.run_advice') },
             @{ Name = 'Alertas'; Args = @('-m', 'stocks_tracker.alerts.run_alerts') }
         )) {
             Write-Step $step.Name

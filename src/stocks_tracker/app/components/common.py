@@ -176,6 +176,11 @@ def render_integrity_badge(target) -> None:
               f"{etiqueta} que revisar",
         icon=":material/shield:",
     )
+    # El desglose por semaforo, que existia en `integrity.resumen` sin que lo
+    # llamara nadie. "3 puntos que revisar" no distingue tres avisos de tres
+    # fallos, y son cosas muy distintas: lo primero se mira cuando se pueda, lo
+    # segundo antes de fiarse de ningun numero de la pantalla.
+    st.caption(integrity.resumen(puntos))
 
 
 def render_pending_alerts_badge(target) -> None:

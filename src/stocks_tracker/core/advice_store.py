@@ -66,7 +66,7 @@ MIN_PARA_OPINAR = 30
 ALCISTAS = frozenset({Veredicto.COMPRAR, Veredicto.AMPLIAR})
 
 
-def guardar(conn, recomendaciones: list[Recomendacion], *, dia: date,
+def guardar_recomendaciones(conn, recomendaciones: list[Recomendacion], *, dia: date,
             weights_hash: str, precios: dict[str, float],
             universe_hash: str = "") -> int:
     """Deja constancia de lo que se recomendo hoy.

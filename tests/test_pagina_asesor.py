@@ -101,8 +101,17 @@ def test_el_marcador_vacio_se_explica_en_vez_de_parecer_roto(almacen):
 
 def test_una_posicion_deteriorada_recibe_un_veredicto(almacen):
     """Si esto sale como MANTENER, el asesor esta callando con el margen
-    cayendo del 24 % al 8 % y la deuda pasando de 0,9x a 5x."""
+    cayendo del 24 % al 8 % y la deuda pasando de 0,9x a 5x.
+
+    Se ejecuta el paso REAL que calcula y guarda, no un doble: es la unica
+    forma de comprobar que la cadena entera —almacen, motor, escritura,
+    pantalla— esta conectada.
+    """
+    from stocks_tracker.compute.run_advice import calcular_y_guardar
+
     _sembrar_cartera()
+    calcular_y_guardar()
+    st.cache_data.clear()
 
     prueba = _pintar()
     texto = " ".join(str(m.value) for m in prueba.markdown)
@@ -113,19 +122,70 @@ def test_una_posicion_deteriorada_recibe_un_veredicto(almacen):
     )
 
 
-def test_la_pagina_pide_el_efectivo_en_vez_de_inventarlo(almacen):
-    """El programa no habla con el banco. Suponer que hay caja produciria
-    compras que no se pueden ejecutar."""
+def test_lo_que_se_ensena_es_lo_que_quedo_guardado(almacen):
+    """LA PROPIEDAD QUE HACE QUE EL MARCADOR SIGNIFIQUE ALGO.
+
+    La pantalla lee lo escrito; no recalcula. Si recalculara al vuelo y el
+    marcador puntuara lo guardado, bastaria un cambio de precio entre una cosa
+    y otra para que el marcador estuviera puntuando consejos que nadie vio.
+    """
+    from stocks_tracker.compute.run_advice import calcular_y_guardar
+
+    _sembrar_cartera()
+    calcular_y_guardar()
+    st.cache_data.clear()
+
+    with db.connect(read_only=True) as conn:
+        guardados = {f[0] for f in conn.execute(
+            "SELECT ticker FROM recommendations").fetchall()}
+
+    prueba = _pintar()
+    texto = " ".join(str(m.value) for m in prueba.markdown)
+
+    assert guardados, "el paso de calculo no ha guardado nada"
+    for ticker in guardados:
+        assert ticker in texto, (
+            f"{ticker} esta guardado pero la pantalla no lo ensena"
+        )
+
+
+def test_sin_calcular_la_pagina_dice_que_hacer(almacen):
+    """El estado del primer dia. Una pagina vacia sin explicacion parece rota,
+    y la explicacion tiene que decir el comando exacto."""
     prueba = _pintar()
 
-    etiquetas = [str(n.label) for n in prueba.number_input]
-    assert any("Efectivo" in e for e in etiquetas)
+    texto = " ".join(str(e.value) for e in prueba.info)
+    assert "run_advice" in texto or "consejo" in texto
+
+
+def test_el_efectivo_se_pide_al_calcular_y_no_se_inventa():
+    """El programa no habla con el banco ni con el broker, y el extracto solo
+    trae posiciones. Suponer que hay caja produciria compras que no se pueden
+    ejecutar, que es la forma mas rapida de que una pantalla deje de usarse.
+
+    El dato entra por el comando (`--caja`) y no por la pantalla: la pantalla
+    solo lee lo ya calculado, asi que un efectivo tecleado alli no cambiaria
+    nada de lo guardado.
+    """
+    import inspect
+
+    from stocks_tracker.compute import run_advice
+
+    firma = inspect.signature(run_advice.calcular_y_guardar)
+
+    assert "caja" in firma.parameters
+    assert firma.parameters["caja"].default == 0.0, (
+        "el efectivo por defecto no puede ser mayor que cero: seria inventarlo"
+    )
+    assert "--caja" in inspect.getsource(run_advice.main)
 
 
 def test_sin_efectivo_declarado_no_se_recomienda_comprar_nada(almacen):
-    """El caso por defecto al abrir la pagina. Con caja a cero, `size_by_atr`
-    no puede dimensionar y las compras salen vetadas: es lo correcto, y lo
-    contrario seria recomendar comprar con dinero que no existe."""
+    """El caso por defecto. Con caja a cero, `size_by_atr` no puede dimensionar
+    y las compras salen vetadas: es lo correcto, y lo contrario seria
+    recomendar comprar con dinero que no existe."""
+    from stocks_tracker.compute.run_advice import calcular_y_guardar
+
     with db.connect() as conn:
         db.upsert_df(conn, "instruments", pd.DataFrame([
             {"ticker": "BBB", "name": "Beta", "asset_class": "equity",
@@ -134,23 +194,50 @@ def test_sin_efectivo_declarado_no_se_recomienda_comprar_nada(almacen):
         db.upsert_df(conn, "indicators_daily", pd.DataFrame([
             {"ticker": "BBB", "date": HOY, "close": 50.0, "atr_pct": 2.0},
         ]), keys=["ticker", "date"])
-        # El hash REAL del perfil: `get_candidates` filtra por el, y con uno
-        # inventado la consulta devuelve vacio y el test pasaria sin probar nada.
         from stocks_tracker.core.scoring import preset_hash
         db.upsert_df(conn, "factor_scores", pd.DataFrame([
             {"ticker": "BBB", "date": HOY, "weights_hash": preset_hash("balanced"),
              "composite": 2.0, "composite_pctile": 0.98, "coverage": 0.9},
         ]), keys=["ticker", "date", "weights_hash"])
-    st.cache_data.clear()
 
-    prueba = _pintar()
-    # Sobre las CABECERAS de las tarjetas, no sobre el texto de la pagina: la
-    # palabra "Comprar" tambien sale en la explicacion del marcador, y buscarla
-    # suelta hacia que este test pasara siempre.
-    cabeceras = [str(m.value) for m in prueba.markdown
-                 if "**BBB**" in str(m.value)]
+    calcular_y_guardar()
 
-    assert cabeceras, "el candidato no llega a la pagina"
-    assert not any("— Comprar" in c for c in cabeceras), (
+    with db.connect(read_only=True) as conn:
+        veredictos = [f[0] for f in conn.execute(
+            "SELECT veredicto FROM recommendations WHERE ticker = 'BBB'"
+        ).fetchall()]
+
+    assert "comprar" not in veredictos, (
         "se esta recomendando comprar sin efectivo declarado"
     )
+
+
+def test_con_efectivo_declarado_si_se_puede_comprar(almacen):
+    """Contraprueba: el veto tiene que ser por falta de caja y no porque el
+    camino de compra este roto."""
+    from stocks_tracker.compute.run_advice import calcular_y_guardar
+
+    with db.connect() as conn:
+        db.upsert_df(conn, "instruments", pd.DataFrame([
+            {"ticker": "BBB", "name": "Beta", "asset_class": "equity",
+             "currency": "EUR", "gics_sector": "Banca", "is_active": True},
+        ]), keys=["ticker"])
+        db.upsert_df(conn, "indicators_daily", pd.DataFrame([
+            {"ticker": "BBB", "date": HOY, "close": 50.0, "atr_pct": 2.0},
+        ]), keys=["ticker", "date"])
+        from stocks_tracker.core.scoring import preset_hash
+        db.upsert_df(conn, "factor_scores", pd.DataFrame([
+            {"ticker": "BBB", "date": HOY, "weights_hash": preset_hash("balanced"),
+             "composite": 2.0, "composite_pctile": 0.98, "coverage": 0.9},
+        ]), keys=["ticker", "date", "weights_hash"])
+
+    calcular_y_guardar(caja=10_000.0)
+
+    with db.connect(read_only=True) as conn:
+        fila = conn.execute(
+            "SELECT veredicto, importe_eur, stop FROM recommendations "
+            "WHERE ticker = 'BBB'").fetchone()
+
+    assert fila and fila[0] == "comprar"
+    assert fila[1] > 0, "una compra sin importe no es accionable"
+    assert fila[2] == pytest.approx(50.0 - 2.5 * 1.0), "el stop no cuadra"
