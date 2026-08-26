@@ -451,3 +451,59 @@ def test_una_version_sin_registrar_dice_como_arreglarse(almacen, capsys):
     salida = capsys.readouterr().out
     assert "no quedo registrada" in salida
     assert "daily" in salida, "tiene que decir QUE hacer, no solo que falta"
+
+
+def test_la_lista_dice_QUE_valores_se_puntuaron(almacen, tmp_path, capsys):
+    """El paso siguiente a la huella, y el unico que se puede accionar.
+
+    `--universo` dice SI dos ordenadores puntuaron lo mismo. Con eso ya se sabe
+    de quien es la culpa de que las oportunidades no coincidan, pero no que
+    hacer: "b175e2e9 contra c3fea71c" no se lee, y no hay nada que corregir en
+    dos hashes.
+
+    Con la lista de los dos, un `fc` da los valores exactos que le faltan a
+    uno, y ahi si se ve el patron —un indice entero, un mercado, un scrapeo de
+    constituyentes que fallo— que es lo que se arregla.
+    """
+    from datetime import date
+
+    from stocks_tracker.compute import run_compute as rc
+    from stocks_tracker.core import db
+    from stocks_tracker.core.scoring import preset_hash
+
+    whash = preset_hash("balanced")
+    with db.connect() as conn:
+        for t in ("CCC", "AAA", "BBB"):
+            conn.execute(
+                "INSERT INTO factor_scores (ticker, date, weights_hash, "
+                "composite) VALUES (?, DATE '2026-08-20', ?, 1.0)", [t, whash])
+        # Un ranking VIEJO con un valor que ya no esta en el universo. Si la
+        # consulta no se cine a la ultima sesion, se cuela aqui y los dos
+        # ficheros dejan de ser comparables: uno tendria la historia del otro.
+        conn.execute(
+            "INSERT INTO factor_scores (ticker, date, weights_hash, composite) "
+            "VALUES ('ZZZ', DATE '2026-01-05', ?, 1.0)", [whash])
+        rc._registrar_universo(conn, date(2026, 8, 20), whash,
+                               ["AAA", "BBB", "CCC"],
+                               pd.Series(["Tech", "Banca", "Tech"]))
+
+    destino = tmp_path / "universo.txt"
+    assert rc._lista_del_universo(None, str(destino)) == 0
+
+    # Ordenados: dos ficheros de la misma cartera tienen que salir identicos
+    # byte a byte, o `fc` marcaria diferencias que no existen.
+    assert destino.read_text().split() == ["AAA", "BBB", "CCC"]
+    assert "3 valores" in capsys.readouterr().out
+
+
+def test_sin_ranking_la_lista_lo_dice_en_vez_de_escribir_un_fichero_vacio(
+        almacen, tmp_path, capsys):
+    """Un fichero vacio se compararia con el del otro ordenador y diria que
+    faltan los seiscientos, cuando lo que pasa es que aqui no se ha calculado
+    nada todavia."""
+    from stocks_tracker.compute import run_compute as rc
+
+    destino = tmp_path / "universo.txt"
+    assert rc._lista_del_universo(None, str(destino)) == 1
+    assert not destino.exists()
+    assert "ningun ranking" in capsys.readouterr().out

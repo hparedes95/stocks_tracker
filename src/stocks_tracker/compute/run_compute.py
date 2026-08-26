@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -1074,6 +1075,48 @@ def sesiones_sin_calcular() -> tuple[int, str]:
     )
 
 
+def _lista_del_universo(preset: str | None, destino: str) -> int:
+    """Escribe los tickers que se puntuaron, uno por linea y ordenados.
+
+    POR QUE UNA HUELLA NO BASTA
+
+    `--universo` dice si dos ordenadores puntuaron lo mismo, y con eso ya se
+    sabe que la culpa de que las oportunidades no coincidan es del universo.
+    Pero no dice EN QUE se diferencian, y sin eso no hay nada que arreglar:
+    "b175e2e9 contra c3fea71c" no se lee.
+
+    Con la lista de los dos, un `fc` o un `diff` da los valores exactos que le
+    faltan a uno. Y ahi ya se ve el patron —un indice entero, un mercado, las
+    posiciones sin fundamentales— que es lo que se puede corregir.
+
+    Se escribe a fichero y no a pantalla a proposito: son seiscientas lineas.
+    """
+    from ..core.scoring import preset_hash
+
+    whash = preset_hash(preset or get_settings().compute.get(
+        "weights_preset", "balanced"))
+    with connect(read_only=True) as conn:
+        fila = conn.execute(
+            "SELECT date FROM scoring_runs WHERE weights_hash = ? "
+            "ORDER BY date DESC LIMIT 1", [whash]).fetchone()
+        if not fila:
+            console.print("[yellow]Este almacen no tiene ningun ranking "
+                          "calculado todavia.[/]")
+            return 1
+        tickers = [t for (t,) in conn.execute(
+            "SELECT ticker FROM factor_scores WHERE weights_hash = ? "
+            "AND date = ? ORDER BY ticker", [whash, fila[0]]).fetchall()]
+
+    ruta = Path(destino)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_text("\n".join(tickers) + "\n", encoding="utf-8")
+    console.print(f"[green]{len(tickers)} valores escritos en[/] {ruta}")
+    console.print("Haz lo mismo en el otro ordenador y compara los dos "
+                  "ficheros. En Windows:")
+    console.print(f"  fc /b {ruta.name} universo-del-otro.txt")
+    return 0
+
+
 def _informe_del_universo(preset: str | None) -> int:
     """Contra que universo se calculo el ranking, para comparar dos maquinas.
 
@@ -1195,6 +1238,13 @@ def main() -> None:
              "no seran fiables; existe para poder diagnosticar.",
     )
     parser.add_argument(
+        "--universo-lista", default=None, metavar="FICHERO",
+        dest="universo_lista",
+        help="Escribe en un fichero los tickers que se puntuaron, uno por "
+             "linea. Hazlo en los dos ordenadores y compara los ficheros: la "
+             "huella dice que difieren, esto dice en que.",
+    )
+    parser.add_argument(
         "--universo", action="store_true",
         help="Solo dice contra que universo se calculo el ranking. Para "
              "comparar dos ordenadores: si la huella no coincide, las "
@@ -1204,6 +1254,9 @@ def main() -> None:
 
     # Solo consulta, como `--check-stale`: va antes de `migrate()` para no
     # chocar con el dashboard abierto.
+    if args.universo_lista:
+        raise SystemExit(_lista_del_universo(args.preset, args.universo_lista))
+
     if args.universo:
         raise SystemExit(_informe_del_universo(args.preset))
 

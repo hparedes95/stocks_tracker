@@ -42,6 +42,10 @@
       huella    Dice contra que universo se calculo el ranking. Compara la
                 huella entre dos ordenadores: si difiere, es normal que las
                 oportunidades no coincidan
+      lista-universo  Escribe los valores puntuados en un fichero, uno por
+                linea. Hazlo en los dos ordenadores y compara los ficheros:
+                la huella dice que difieren, esto dice en que.
+                Uso: stocks.ps1 lista-universo -Valor portatil.txt
       alerts    Evalua las reglas de aviso
       watch     Vigila el mercado en vivo
       watchtest Simula un desplome del 8% para probar los avisos
@@ -58,7 +62,8 @@ param(
                  'tiene-universo',
                  'compute', 'presets', 'validate',
                  'validate-freeze', 'validate-confirm',
-                 'auditar', 'oro', 'huella', 'consejo', 'calibrar', 'porque',
+                 'auditar', 'oro', 'huella', 'lista-universo',
+                 'consejo', 'calibrar', 'porque',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
                  'lint', 'help')]
@@ -705,6 +710,15 @@ switch ($Task) {
         # dos ensenan una lista igual de convincente. Comparar dos huellas
         # de ocho caracteres lo resuelve en un segundo.
         & $Py -m stocks_tracker.compute.run_compute --universo
+    }
+
+    'lista-universo' {
+        Assert-Venv
+        # El paso siguiente a la huella. Aquella dice SI dos ordenadores
+        # puntuaron lo mismo; esta dice EN QUE se diferencian, que es lo unico
+        # que se puede arreglar: "b175e2e9 contra c3fea71c" no se lee.
+        $destino = if ($Valor) { $Valor } else { 'universo.txt' }
+        & $Py -m stocks_tracker.compute.run_compute --universo-lista $destino
     }
 
     'auditar' {
