@@ -1023,7 +1023,7 @@ def get_positions() -> pd.DataFrame:
         SELECT p.id, p.ticker, p.qty, p.avg_cost,
                COALESCE(inst.currency, p.currency) AS currency,
                p.currency AS currency_declarada,
-               p.opened_at, p.note,
+               p.opened_at, p.updated_at, p.note,
                inst.name, inst.gics_sector, inst.investment_type,
                i.close, i.ret_1d, i.above_sma200, i.drawdown, i.realized_vol_252,
                f.composite_pctile, f.value_z, f.growth_z, f.quality_z,
@@ -1469,8 +1469,15 @@ def get_attribution_inputs() -> pd.DataFrame:
         -- fecha de entrada comun y a comparar la segunda compra contra un
         -- mercado que ya habia pasado.
         abiertas AS (
+            -- `inst.currency` y no `p.currency`: la declarada por el usuario
+            -- puede no ser la de cotizacion, y aqui se convierte a euros un
+            -- coste que esta en la divisa en la que COTIZA. Ver
+            -- `get_positions`. El `qty` sin ajustar por splits no afecta a
+            -- esta consulta: solo se usa `qty * avg_cost`, que es invariante
+            -- al split porque uno multiplica lo que el otro divide.
             SELECT p.id, p.ticker, p.opened_at, p.qty, p.qty * p.avg_cost AS coste,
-                   p.currency, inst.gics_sector AS sector
+                   COALESCE(inst.currency, p.currency) AS currency,
+                   inst.gics_sector AS sector
             FROM positions p
             LEFT JOIN instruments inst ON inst.ticker = p.ticker
             WHERE p.closed_at IS NULL AND p.qty > 0 AND p.avg_cost > 0

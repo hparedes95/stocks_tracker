@@ -233,7 +233,13 @@ def puntuar(conn, *, hasta: date | None = None,
     # Se pasan los dos a euros con el tipo de CADA fecha. Si falta algun tipo,
     # esa fila sale NaN y `dropna` la descarta: no puntuar es correcto, y
     # puntuar con el cambio a medias no.
-    divisas = _divisas(conn, filas["ticker"])
+    # EL BENCHMARK VA EN LA CONSULTA. Sin el, `divisas.get(benchmark)` no
+    # acertaba NUNCA —`_divisas` solo recibia los tickers recomendados— y el
+    # indice se daba por euros mientras el valor si se convertia. Eso no
+    # arreglaba el fallo original: lo INVERTIA, y ademas en el caso mas comun,
+    # un valor estadounidense contra el S&P 500. Un valor que igualara al
+    # indice salia con -11,28 pp de exceso puestos enteros por el cambio.
+    divisas = _divisas(conn, list(filas["ticker"]) + [benchmark])
     tabla = fx.tipos_en(conn, list(filas["fecha"]) + [limite])
     filas["divisa"] = filas["ticker"].map(divisas).fillna(fx.BASE)
     divisa_indice = divisas.get(benchmark, fx.BASE)

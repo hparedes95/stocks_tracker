@@ -327,13 +327,39 @@ def factores_de_split(conn, tickers=None) -> pd.DataFrame:
     return filas.rename(columns={"value": "factor"})
 
 
+def desde_cuando_valen(posiciones: pd.DataFrame) -> pd.Series:
+    """Desde cuando son ciertos `qty` y `avg_cost` de cada fila.
+
+    NO es `opened_at`, y confundirlos multiplica la cartera por diez.
+
+    `positions` no es un libro de operaciones: es una FOTO. `replace_positions`
+    la reescribe entera con las cifras del extracto de hoy —ya ajustadas por
+    cualquier split que haya habido— pero CONSERVA el `opened_at` original,
+    que es lo correcto para "cuanto llevas dentro". Y `set_opened_at` retrasa
+    esa fecha sin tocar las cifras.
+
+    Con `opened_at` como referencia, cualquiera de las dos cosas hace que un
+    split posterior se cuente DOS VECES: una la aplico el broker al escribir el
+    extracto y otra la aplicariamos nosotros. En NVDA eso son 10x.
+
+    La fecha buena es `updated_at`: el momento en que las cifras se supieron
+    ciertas. Si falta —filas de antes de que existiera la columna— se cae a
+    `opened_at`, que es lo unico que hay.
+    """
+    abiertas = pd.to_datetime(posiciones.get("opened_at"), errors="coerce")
+    if "updated_at" not in posiciones:
+        return abiertas
+    return pd.to_datetime(posiciones["updated_at"], errors="coerce").fillna(abiertas)
+
+
 def ajustar_por_splits(posiciones: pd.DataFrame,
                        splits: pd.DataFrame) -> pd.DataFrame:
     """Pone `qty` y `avg_cost` en la escala de HOY, la de los precios servidos.
 
-    Solo cuentan los splits ESTRICTAMENTE POSTERIORES a `opened_at`: uno del
-    mismo dia o anterior ya esta recogido en el precio que pago el usuario, y
-    aplicarlo otra vez lo contaria dos veces.
+    Solo cuentan los splits ESTRICTAMENTE POSTERIORES a la fecha en que las
+    cifras se supieron ciertas —ver `desde_cuando_valen`—: uno del mismo dia o
+    anterior ya esta recogido en ellas, y aplicarlo otra vez lo cuenta dos
+    veces.
 
     El valor economico no cambia: `qty * avg_cost` es el mismo antes y despues,
     porque uno se multiplica y el otro se divide por el mismo factor. Lo que
@@ -343,7 +369,7 @@ def ajustar_por_splits(posiciones: pd.DataFrame,
         return posiciones
 
     fuera = posiciones.copy()
-    abiertas = pd.to_datetime(fuera["opened_at"], errors="coerce")
+    abiertas = desde_cuando_valen(fuera)
     factores = []
     for ticker, desde in zip(fuera["ticker"], abiertas, strict=False):
         suyos = splits[splits["ticker"] == ticker]

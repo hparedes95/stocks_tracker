@@ -120,7 +120,32 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
         # de cotizacion. Sin este tipo se dimensionaba dividiendo euros entre
         # dolares. Ver `advice.sobre_un_candidato`.
         divisa = str(fila.get("currency") or fx.BASE).upper()
-        cambio = 1.0 if divisa == fx.BASE else tipos_cambio.get(divisa, 1.0)
+        # SIN TIPO NO SE DIMENSIONA, Y NO SE CAE A 1,0.
+        #
+        # El respaldo a 1,0 restauraba el fallo original —dividir euros entre
+        # dolares— justo cuando `fx.tipos` descarta un par por llevar mas de
+        # una semana sin actualizarse, o sea cuando el programa lleva dias sin
+        # descargar. En silencio y con toda la pinta de estar bien.
+        #
+        # Y contradecia la regla que el propio `fx.py` documenta: lo que no se
+        # puede convertir sale vacio, nunca relleno con uno.
+        cambio = 1.0 if divisa == fx.BASE else tipos_cambio.get(divisa)
+        if cambio is None:
+            fuera.append(advice.Recomendacion(
+                ticker, advice.Veredicto.SIN_OPINION, advice.Conviccion.BAJA,
+                motivos=[
+                    f"Este valor cotiza en {divisa} y no hay tipo de cambio "
+                    "reciente, asi que no se puede calcular cuanto comprar en "
+                    "euros.",
+                    "Dar un importe sin convertir seria decir 'invierte 2.400 "
+                    "EUR' sobre una cifra que no son euros.",
+                ],
+                desmentiria=[
+                    f"Se arregla descargando: el par EUR{divisa} tiene que "
+                    "estar en `config/universe.yaml` (bloque MACRO).",
+                ],
+            ))
+            continue
 
         fuera.append(advice.sobre_un_candidato(
             ticker,

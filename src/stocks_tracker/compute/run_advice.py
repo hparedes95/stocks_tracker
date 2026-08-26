@@ -37,7 +37,7 @@ from datetime import date
 import pandas as pd
 from rich.console import Console
 
-from ..core import advice, advice_build, fx
+from ..core import advice, advice_build, corporate, fx
 from ..core import deterioration as det
 from ..core.advice_store import guardar_recomendaciones
 from ..core.config import get_settings
@@ -52,10 +52,26 @@ EXIT_SIN_NADA = 0
 
 
 def _cartera(conn) -> tuple[pd.DataFrame, dict, dict]:
-    """Las posiciones abiertas con su peso en euros, y los pesos por sector."""
+    """Las posiciones abiertas con su peso en euros, y los pesos por sector.
+
+    LAS MISMAS CORRECCIONES QUE `data_access.get_positions`, Y NO POR SIMETRIA
+
+    La primera version de los arreglos de divisa y splits solo entro por la
+    ruta de Streamlit. Pero los CONSEJOS se calculan aqui, en el comando: esta
+    consulta es la que decide `peso_pct`, y `peso_pct` es la que dispara el
+    REDUCIR por concentracion. Arreglarlo solo en la pantalla dejaba la cifra
+    buena a la vista y la mala decidiendo.
+
+    Se replica en vez de importarse porque `data_access` arrastra Streamlit
+    entero; es la misma razon que documenta `_salud`. Lo que NO se replica es
+    la logica: `corporate.ajustar_por_splits` es la misma funcion en los dos
+    sitios, para que no puedan divergir.
+    """
     posiciones = conn.execute(
         """
-        SELECT p.id, p.ticker, p.qty, p.avg_cost, p.currency, p.opened_at,
+        SELECT p.id, p.ticker, p.qty, p.avg_cost,
+               COALESCE(inst.currency, p.currency) AS currency,
+               p.opened_at, p.updated_at,
                inst.gics_sector, i.close
         FROM positions p
         LEFT JOIN instruments inst ON inst.ticker = p.ticker
@@ -67,6 +83,8 @@ def _cartera(conn) -> tuple[pd.DataFrame, dict, dict]:
     if posiciones.empty:
         return posiciones, {}, {}
 
+    posiciones = corporate.ajustar_por_splits(
+        posiciones, corporate.factores_de_split(conn, posiciones["ticker"]))
     tipos = fx.tipos(conn)
     posiciones["valor_eur"] = fx.a_base(
         posiciones["qty"] * posiciones["close"], posiciones["currency"], tipos)

@@ -97,8 +97,14 @@ with tab_portfolio:
         #
         # `get_positions` ya lo calcula con el historico de tipos. Si para
         # alguna fila no hubo tipo aquel dia, sale NaN y contagia al total: es
-        # lo correcto, y lo dice el aviso de abajo.
+        # lo correcto, pero hay que DECIRLO, y `fx.sin_tipo` no puede porque
+        # solo mira los tipos de HOY. Son dos huecos distintos —el de hoy deja
+        # sin valorar, el del pasado deja sin coste— y con un solo aviso el
+        # segundo dejaba el "Resultado" en blanco sin una linea que lo
+        # explicara.
         positions["coste_eur"] = positions["coste_eur_compra"]
+        sin_coste = list(
+            positions.loc[positions["coste_eur"].isna(), "ticker"].astype(str))
         faltan = fx.sin_tipo(positions["currency"], tipos)
 
         total_value = fx.total(positions["valor_eur"])
@@ -155,6 +161,17 @@ with tab_portfolio:
                 "cambio disponible y el coste al cambio del dia en que "
                 "compraste, asi que el resultado **incluye lo que ha hecho la "
                 "divisa**, que es como lo cuenta Hacienda."
+            )
+
+        if sin_coste:
+            st.warning(
+                "No hay tipo de cambio del dia en que compraste "
+                f"{', '.join(sin_coste)}, asi que su coste en euros no se "
+                "puede calcular y **el resultado total sale vacio**. El valor "
+                "actual si esta bien. Se arregla descargando mas historico de "
+                "divisas; mientras tanto, el resultado de cada posicion en su "
+                "propia moneda —la columna de abajo— si es correcto.",
+                icon=":material/history:",
             )
 
         # LO QUE ESTE NUMERO NO LLEVA, DICHO DONDE SE LEE EL NUMERO.

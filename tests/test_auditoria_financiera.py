@@ -399,3 +399,181 @@ def test_el_coste_en_euros_de_la_cartera_usa_el_cambio_de_la_compra(almacen):
     # Al de hoy (1,17) serian 854,70, y ahi se perderia el efecto divisa.
     coste = da.get_positions().iloc[0]["coste_eur_compra"]
     assert coste == pytest.approx(952.38, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# Lo que encontro la revision de codigo SOBRE los arreglos de arriba
+# ---------------------------------------------------------------------------
+def test_el_indice_se_convierte_a_euros_igual_que_el_valor(almacen):
+    """UN FALLO QUE YO MISMO INTRODUJE AL ARREGLAR EL ANTERIOR.
+
+    `_divisas` solo recibia los tickers recomendados, asi que
+    `divisas.get(benchmark)` no acertaba NUNCA y el indice se daba por euros
+    mientras el valor si se convertia. Eso no arreglaba el sesgo de divisa: lo
+    INVERTIA, y en el caso mas comun —un valor estadounidense contra el
+    S&P 500—.
+
+    Aqui el valor y el indice hacen EXACTAMENTE lo mismo (+10 % los dos, en
+    dolares), asi que el exceso tiene que ser cero se mueva como se mueva el
+    euro. Con el fallo puesto salian -11,28 pp.
+    """
+    from stocks_tracker.core import advice_store, db
+
+    with db.connect() as conn:
+        for t, div in (("AAPL", "USD"), ("^GSPC", "USD")):
+            conn.execute("INSERT INTO instruments (ticker, name, asset_class, "
+                         "currency) VALUES (?, ?, 'equity', ?)", [t, t, div])
+        conn.execute(
+            "INSERT INTO recommendations (fecha, ticker, weights_hash, "
+            "veredicto, conviccion, precio, horizonte_meses) VALUES "
+            "(DATE '2025-01-10', 'AAPL', 'w1', 'comprar', 'alta', 100.0, 6)")
+        conn.execute("INSERT INTO prices_daily (ticker, date, close) VALUES "
+                     "('AAPL', DATE '2025-01-10', 100.0), "
+                     "('AAPL', DATE '2026-08-24', 110.0), "
+                     "('^GSPC', DATE '2025-01-10', 5000.0), "
+                     "('^GSPC', DATE '2026-08-24', 5500.0), "
+                     "('EURUSD=X', DATE '2025-01-10', 1.05), "
+                     "('EURUSD=X', DATE '2026-08-24', 1.17)")
+        salida = advice_store.puntuar(conn, hasta=dt.date(2026, 8, 24))
+
+    assert len(salida) == 1
+    assert float(salida["exceso"].iloc[0]) == pytest.approx(0.0, abs=1e-9), (
+        "valor e indice en la misma divisa y con el mismo movimiento: el "
+        "exceso es cero, y cualquier otra cosa la ha puesto el tipo de cambio"
+    )
+
+
+def test_un_extracto_reimportado_no_cuenta_el_split_dos_veces():
+    """EL SEGUNDO FALLO DE MI ARREGLO, Y EL PEOR.
+
+    `positions` no es un libro de operaciones: es una FOTO.
+    `replace_positions` la reescribe con las cifras del extracto de hoy —ya
+    ajustadas por el broker— pero CONSERVA `opened_at`. Y la pantalla nueva de
+    "poner la fecha real de compra" retrasa esa fecha sin tocar las cifras.
+
+    Con `opened_at` como referencia, las dos cosas hacen que el split se cuente
+    dos veces: 100 NVDA reimportadas se convertian en 1.000.
+
+    La referencia buena es `updated_at`: cuando las cifras se supieron ciertas.
+    """
+    reimportada = pd.DataFrame([{
+        "ticker": "NVDA", "qty": 100.0, "avg_cost": 90.0,
+        "opened_at": pd.Timestamp("2024-01-15"),      # compra real, pre-split
+        "updated_at": pd.Timestamp("2026-08-01"),     # extracto de hoy
+    }])
+    splits = pd.DataFrame([{
+        "ticker": "NVDA", "date": pd.Timestamp("2024-06-10"), "factor": 10.0,
+    }])
+
+    ajustada = corporate.ajustar_por_splits(reimportada, splits).iloc[0]
+    assert ajustada["qty"] == pytest.approx(100.0), "el broker ya lo aplico"
+    assert ajustada["avg_cost"] == pytest.approx(90.0)
+
+
+def test_sin_updated_at_se_cae_a_opened_at():
+    """Filas de antes de que existiera la columna. Quedarse sin referencia
+    dejaria de ajustar nada, que es el fallo original."""
+    vieja = pd.DataFrame([{
+        "ticker": "NVDA", "qty": 10.0, "avg_cost": 900.0,
+        "opened_at": pd.Timestamp("2024-01-15"), "updated_at": None,
+    }])
+    splits = pd.DataFrame([{
+        "ticker": "NVDA", "date": pd.Timestamp("2024-06-10"), "factor": 10.0,
+    }])
+    assert corporate.ajustar_por_splits(vieja, splits).iloc[0]["qty"] == 100.0
+
+
+def test_el_comando_de_consejos_pesa_la_cartera_como_la_pantalla(almacen):
+    """LOS ARREGLOS SOLO HABIAN ENTRADO POR STREAMLIT.
+
+    Pero los consejos se calculan en el COMANDO, y es `_cartera` la que decide
+    `peso_pct`, que es lo que dispara el REDUCIR por concentracion. Arreglarlo
+    solo en la pantalla dejaba la cifra buena a la vista y la mala decidiendo.
+
+    SAN.MC declarada como USD: 1.000 x 5 = 5.000 EUR reales. Con la divisa
+    declarada se dividian entre 1,17 y salian 4.274.
+    """
+    from stocks_tracker.compute.run_advice import _cartera
+    from stocks_tracker.core import db
+
+    with db.connect() as conn:
+        conn.execute("INSERT INTO instruments (ticker, name, asset_class, "
+                     "currency) VALUES ('SAN.MC', 'Santander', 'equity', 'EUR')")
+        conn.execute(
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, "
+            "opened_at, updated_at) VALUES "
+            "('p1', 'SAN.MC', 1000, 5.0, 'USD', DATE '2024-01-10', "
+            " TIMESTAMP '2024-01-10 00:00:00')")
+        conn.execute("INSERT INTO indicators_daily (ticker, date, close) "
+                     "VALUES ('SAN.MC', DATE '2026-08-24', 5.0)")
+        conn.execute("INSERT INTO prices_daily (ticker, date, close) "
+                     "VALUES ('EURUSD=X', DATE '2026-08-24', 1.17)")
+        posiciones, _, _ = _cartera(conn)
+
+    assert float(posiciones["valor_eur"].iloc[0]) == pytest.approx(5000.0)
+
+
+def test_el_comando_de_consejos_ajusta_los_splits(almacen):
+    """Lo mismo con el otro arreglo: el peso de una posicion con split salia
+    dividido entre diez, y con el una posicion concentrada parecia pequena."""
+    from stocks_tracker.compute.run_advice import _cartera
+    from stocks_tracker.core import db
+
+    with db.connect() as conn:
+        conn.execute("INSERT INTO instruments (ticker, name, asset_class, "
+                     "currency) VALUES ('NVDA', 'Nvidia', 'equity', 'EUR')")
+        conn.execute(
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, "
+            "opened_at, updated_at) VALUES "
+            "('p1', 'NVDA', 10, 900.0, 'EUR', DATE '2024-01-15', "
+            " TIMESTAMP '2024-01-15 00:00:00')")
+        conn.execute("INSERT INTO corporate_actions (ticker, date, "
+                     "action_type, value) VALUES "
+                     "('NVDA', DATE '2024-06-10', 'split', 10.0)")
+        conn.execute("INSERT INTO indicators_daily (ticker, date, close) "
+                     "VALUES ('NVDA', DATE '2026-08-24', 95.0)")
+        posiciones, _, _ = _cartera(conn)
+
+    assert float(posiciones["valor_eur"].iloc[0]) == pytest.approx(9500.0)
+
+
+def test_sin_tipo_de_cambio_no_se_inventa_un_tamano():
+    """`tipos_cambio.get(divisa, 1.0)` restauraba el fallo original en silencio
+    cuando `fx.tipos` descarta un par por llevar mas de una semana sin
+    actualizarse —o sea, cuando el programa lleva dias sin descargar—.
+
+    Y contradecia la regla que el propio `fx.py` documenta: lo que no se puede
+    convertir sale vacio, nunca relleno con uno.
+    """
+    from stocks_tracker.core import advice_build
+
+    ranking = pd.DataFrame([{
+        "ticker": "AAPL", "composite_pctile": 0.97, "coverage": 0.9,
+        "currency": "USD", "close": 230.0, "atr_pct": 2.0,
+        "gics_sector": "Tech",
+    }])
+
+    r = advice_build.de_los_candidatos(
+        ranking, equity=20000.0, caja=20000.0, tipos_cambio={})[0]
+
+    assert r.veredicto is advice.Veredicto.SIN_OPINION
+    assert r.importe_eur is None
+    assert "tipo de cambio" in " ".join(r.motivos).lower()
+
+
+def test_con_tipo_si_se_dimensiona():
+    """Contrapeso: el guardia no puede dejar sin consejo a quien tiene el
+    tipo."""
+    from stocks_tracker.core import advice_build
+
+    ranking = pd.DataFrame([{
+        "ticker": "AAPL", "composite_pctile": 0.97, "coverage": 0.9,
+        "currency": "USD", "close": 230.0, "atr_pct": 2.0,
+        "gics_sector": "Tech",
+    }])
+    r = advice_build.de_los_candidatos(
+        ranking, equity=20000.0, caja=20000.0,
+        tipos_cambio={"USD": EURUSD})[0]
+
+    assert r.veredicto is advice.Veredicto.COMPRAR
+    assert r.titulos == pytest.approx(12.2087, abs=1e-4)
