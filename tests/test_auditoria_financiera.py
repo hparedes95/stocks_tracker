@@ -577,3 +577,150 @@ def test_con_tipo_si_se_dimensiona():
 
     assert r.veredicto is advice.Veredicto.COMPRAR
     assert r.titulos == pytest.approx(12.2087, abs=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# Corregir a mano lo que trajo el extracto
+# ---------------------------------------------------------------------------
+def test_se_puede_corregir_la_fecha_los_titulos_y_el_precio(almacen):
+    """Un extracto de eToro no trae la fecha de compra, y el precio medio puede
+    venir en otra divisa o ya neto de comisiones. Sin forma de corregirlo, el
+    dato malo se quedaba para siempre y con el todo lo que se calcula encima."""
+    from stocks_tracker.app import data_access as da
+    from stocks_tracker.core import db
+
+    with db.connect() as conn:
+        conn.execute("INSERT INTO instruments (ticker, name, asset_class, "
+                     "currency) VALUES ('AAPL', 'Apple', 'equity', 'USD')")
+        conn.execute(
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, "
+            "opened_at, updated_at) VALUES ('p1', 'AAPL', 10, 100.0, 'USD', "
+            "DATE '2026-08-26', TIMESTAMP '2026-08-26 09:00:00')")
+
+    assert da.editar_posiciones({"p1": {
+        "qty": 12.0, "avg_cost": 187.5,
+        "opened_at": dt.date(2024, 3, 1),
+    }}) == 1
+
+    fila = da.get_positions().iloc[0]
+    assert fila["qty"] == pytest.approx(12.0)
+    assert fila["avg_cost"] == pytest.approx(187.5)
+    assert pd.Timestamp(fila["opened_at"]).date() == dt.date(2024, 3, 1)
+
+
+def test_cambiar_solo_la_fecha_no_marca_las_cifras_como_verificadas(almacen):
+    """EL DETALLE QUE INTERACTUA CON LOS SPLITS, Y NO ES COSMETICO.
+
+    `updated_at` significa "cuando se supieron ciertos `qty` y `avg_cost`", y
+    es la referencia con la que se decide que splits aplicar.
+
+    Poniendola a hoy al corregir SOLO la fecha haria creer que las cifras se
+    acaban de verificar, y suprimiria el ajuste por splits de una posicion
+    anadida a mano hace anos: justo la que lo necesita.
+    """
+    from stocks_tracker.app import data_access as da
+    from stocks_tracker.core import db
+
+    with db.connect() as conn:
+        conn.execute("INSERT INTO instruments (ticker, name, asset_class, "
+                     "currency) VALUES ('NVDA', 'Nvidia', 'equity', 'USD')")
+        conn.execute(
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, "
+            "opened_at, updated_at) VALUES ('p1', 'NVDA', 10, 900.0, 'USD', "
+            "DATE '2024-01-15', TIMESTAMP '2024-01-15 09:00:00')")
+        conn.execute("INSERT INTO corporate_actions (ticker, date, "
+                     "action_type, value) VALUES "
+                     "('NVDA', DATE '2024-06-10', 'split', 10.0)")
+
+    da.editar_posiciones({"p1": {"opened_at": dt.date(2024, 1, 10)}})
+
+    with db.connect(read_only=True) as conn:
+        cuando = conn.execute(
+            "SELECT updated_at FROM positions WHERE id = 'p1'").fetchone()[0]
+    assert pd.Timestamp(cuando).year == 2024, (
+        "corregir la fecha no puede marcar las cifras como verificadas hoy"
+    )
+    # Y por tanto el split se sigue aplicando.
+    assert da.get_positions().iloc[0]["qty"] == pytest.approx(100.0)
+
+
+def test_cambiar_los_titulos_SI_marca_las_cifras_como_verificadas(almacen):
+    """El contrapeso. Quien teclea los titulos esta diciendo cuantos tiene
+    AHORA, asi que un split anterior ya esta dentro de esa cifra y volver a
+    aplicarlo la multiplicaria por diez."""
+    from stocks_tracker.app import data_access as da
+    from stocks_tracker.core import db
+
+    with db.connect() as conn:
+        conn.execute("INSERT INTO instruments (ticker, name, asset_class, "
+                     "currency) VALUES ('NVDA', 'Nvidia', 'equity', 'USD')")
+        conn.execute(
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, "
+            "opened_at, updated_at) VALUES ('p1', 'NVDA', 10, 900.0, 'USD', "
+            "DATE '2024-01-15', TIMESTAMP '2024-01-15 09:00:00')")
+        conn.execute("INSERT INTO corporate_actions (ticker, date, "
+                     "action_type, value) VALUES "
+                     "('NVDA', DATE '2024-06-10', 'split', 10.0)")
+
+    da.editar_posiciones({"p1": {"qty": 100.0, "avg_cost": 90.0}})
+
+    assert da.get_positions().iloc[0]["qty"] == pytest.approx(100.0), (
+        "las cifras tecleadas son las de hoy: el split no se aplica otra vez"
+    )
+
+
+def test_solo_se_guarda_lo_que_cambia():
+    """Mandar la tabla entera pondria `updated_at` a hoy en TODAS las
+    posiciones -y con eso suprimiria el ajuste por splits de las que nadie ha
+    tocado- y ademas diria "quince corregidas" cuando se corrigio una."""
+    from stocks_tracker.app.components.broker_import import _cambios
+
+    antes = pd.DataFrame([
+        {"id": "p1", "Valor": "AAA", "Titulos": 10.0, "Precio medio": 100.0,
+         "Fecha de compra": pd.Timestamp("2024-01-10"), "Divisa": "USD"},
+        {"id": "p2", "Valor": "BBB", "Titulos": 5.0, "Precio medio": 50.0,
+         "Fecha de compra": pd.Timestamp("2024-02-10"), "Divisa": "EUR"},
+    ])
+    despues = antes.copy()
+    despues.loc[0, "Titulos"] = 12.0
+
+    assert _cambios(antes, despues) == {"p1": {"qty": 12.0}}
+
+
+def test_una_celda_vaciada_no_borra_el_dato():
+    """Un NaN en la tabla es un accidente del editor, no una orden de borrar.
+    Guardarlo dejaria la posicion sin titulos o sin fecha."""
+    from stocks_tracker.app.components.broker_import import _cambios
+
+    antes = pd.DataFrame([{
+        "id": "p1", "Valor": "AAA", "Titulos": 10.0, "Precio medio": 100.0,
+        "Fecha de compra": pd.Timestamp("2024-01-10"), "Divisa": "USD"}])
+    despues = antes.copy()
+    despues.loc[0, "Titulos"] = float("nan")
+    despues.loc[0, "Fecha de compra"] = pd.NaT
+
+    assert _cambios(antes, despues) == {}
+
+
+def test_no_se_puede_editar_un_campo_que_no_esta_permitido(almacen):
+    """`editar_posiciones` construye el UPDATE con los nombres de campo que
+    recibe. Aceptar cualquiera dejaria escribir en `id` o en `closed_at`
+    -cerrar una posicion sin registrar la venta- desde la tabla de la
+    pantalla."""
+    from stocks_tracker.app import data_access as da
+    from stocks_tracker.core import db
+
+    with db.connect() as conn:
+        conn.execute("INSERT INTO instruments (ticker, name, asset_class, "
+                     "currency) VALUES ('AAA', 'Ejemplo', 'equity', 'EUR')")
+        conn.execute(
+            "INSERT INTO positions (id, ticker, qty, avg_cost, currency, "
+            "opened_at) VALUES ('p1', 'AAA', 10, 100.0, 'EUR', "
+            "DATE '2024-01-10')")
+
+    assert da.editar_posiciones({"p1": {"closed_at": dt.date(2026, 1, 1)}}) == 0
+
+    with db.connect(read_only=True) as conn:
+        cerrada = conn.execute(
+            "SELECT closed_at FROM positions WHERE id = 'p1'").fetchone()[0]
+    assert cerrada is None

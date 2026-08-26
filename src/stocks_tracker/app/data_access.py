@@ -1078,39 +1078,55 @@ def add_position(ticker: str, qty: float, avg_cost: float,
     get_positions.clear()
 
 
-def set_opened_at(fechas: dict[str, date]) -> int:
-    """Corrige la fecha de compra de una o varias posiciones.
+def editar_posiciones(cambios: dict[str, dict]) -> int:
+    """Corrige a mano lo que trajo el extracto: titulos, precio medio, fecha.
 
-    POR QUE HACIA FALTA ESTO
+    POR QUE HACE FALTA
 
-    Hasta ahora `opened_at` solo lo escribia el programa: `add_position` y
-    `replace_positions` ponen la fecha de HOY, porque un extracto no dice
-    cuando compraste. El usuario no tenia forma de corregirlo, y esa fecha no
-    es un adorno: es la referencia contra la que `deterioration.py` compara
-    para saber si algo ha empeorado.
+    Hasta ahora una posicion importada solo se podia cambiar reimportando el
+    extracto entero o reescribiendo la cartera a mano —que la REEMPLAZA—. Un
+    extracto de eToro no trae la fecha de compra y puede traer el precio medio
+    en otra divisa o ya neto de comisiones; sin forma de corregirlo, el dato
+    malo se quedaba para siempre y con el todo lo que se calcula encima.
 
-    Con `opened_at` = el dia en que importaste la cartera, la union
-    punto-en-el-tiempo devuelve la fila de HOY como "el dia de la compra", y el
-    diagnostico compara hoy contra hoy. Salia verde siempre, y ese verde era el
-    unico color que invita a no volver a mirar. Ahora sale gris y se dice, pero
-    lo que de verdad lo arregla es poder poner la fecha buena.
+    `cambios` es {id: {campo: valor}} con los campos que de verdad cambian.
+    Los admitidos son `qty`, `avg_cost`, `opened_at`, `currency` y `note`.
 
-    Devuelve cuantas filas se han cambiado.
+    `updated_at` se pone a HOY solo si cambian las CIFRAS, nunca si solo cambia
+    la fecha.
+
+    `updated_at` significa "cuando se supieron ciertos `qty` y `avg_cost`", y
+    es la referencia con la que `corporate.ajustar_por_splits` decide que
+    splits aplicar. Ponerla a hoy al corregir SOLO la fecha haria creer que las
+    cifras se acaban de verificar, y suprimiria el ajuste por splits de una
+    posicion anadida a mano hace anos: justo la que lo necesita.
+
+    Devuelve cuantas filas se han modificado.
     """
     from ..core.timeutils import utcnow
 
-    if not fechas:
-        return 0
+    admitidos = ("qty", "avg_cost", "opened_at", "currency", "note")
+    cifras = {"qty", "avg_cost"}
+
+    tocadas = 0
     with connect() as conn:
-        for id_posicion, cuando in fechas.items():
+        for id_posicion, campos in (cambios or {}).items():
+            sets = {c: v for c, v in campos.items() if c in admitidos}
+            if not sets:
+                continue
+            if sets.keys() & cifras:
+                sets["updated_at"] = utcnow()
+            asignaciones = ", ".join(f"{c} = ?" for c in sets)
             conn.execute(
-                "UPDATE positions SET opened_at = ?, updated_at = ? "
+                f"UPDATE positions SET {asignaciones} "
                 "WHERE id = ? AND closed_at IS NULL",
-                [cuando, utcnow(), id_posicion],
+                [*sets.values(), id_posicion],
             )
+            tocadas += 1
+
     get_positions.clear()
     get_position_health.clear()
-    return len(fechas)
+    return tocadas
 
 
 def replace_positions(frame: pd.DataFrame, note: str = "") -> int:

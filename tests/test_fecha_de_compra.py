@@ -336,7 +336,7 @@ def test_solo_se_ofrece_corregir_lo_que_hace_falta():
 def test_corregir_la_fecha_devuelve_el_diagnostico(tmp_path, monkeypatch):
     """De punta a punta: la posicion muda vuelve a hablar.
 
-    Es la comprobacion que cierra el caso. Sin ella, `set_opened_at` podria
+    Es la comprobacion que cierra el caso. Sin ella, `editar_posiciones` podria
     escribir en la columna equivocada —o no escribir— y todo lo demas seguiria
     pasando: el gris se veria igual de honesto y la cartera igual de muda.
     """
@@ -359,7 +359,8 @@ def test_corregir_la_fecha_devuelve_el_diagnostico(tmp_path, monkeypatch):
 
     assert diagnostico().nivel is det.Nivel.GRIS
 
-    assert data_access.set_opened_at({"p1": HOY - dt.timedelta(days=400)}) == 1
+    assert data_access.editar_posiciones(
+        {"p1": {"opened_at": HOY - dt.timedelta(days=400)}}) == 1
 
     despues = diagnostico()
     assert despues.espejo is False

@@ -224,76 +224,136 @@ def _fechas_a_corregir(positions: pd.DataFrame, hoy: date) -> pd.DataFrame:
     return positions[cuando.isna() | (cuando.dt.date >= hoy)]
 
 
-def render_fechas_de_compra(positions: pd.DataFrame) -> None:
-    """Corregir la fecha de compra de las posiciones que la tienen de hoy.
+# Lo que se puede corregir a mano, con el nombre que ve el usuario y el nombre
+# de la columna. Un solo sitio: la cabecera de la tabla, lo que se lee de vuelta
+# y lo que se guarda salen todos de aqui, asi que no pueden desalinearse.
+_EDITABLES = {
+    "Titulos": "qty",
+    "Precio medio": "avg_cost",
+    "Fecha de compra": "opened_at",
+    "Divisa": "currency",
+}
+
+
+def _cambios(antes: pd.DataFrame, despues: pd.DataFrame) -> dict[str, dict]:
+    """Solo lo que de verdad ha cambiado, fila por fila y campo por campo.
+
+    Mandar la tabla entera en cada guardado tendria dos efectos malos y ninguno
+    visible: `updated_at` se pondria a hoy en TODAS las posiciones —y con el se
+    suprimiria el ajuste por splits de las que no se han tocado— y el registro
+    diria que se editaron quince posiciones cuando se corrigio una.
+
+    Los NaN se ignoran: una celda vaciada por accidente no puede borrar el dato
+    que habia.
+    """
+    fuera: dict[str, dict] = {}
+    for pos, (_, fila) in enumerate(despues.iterrows()):
+        original = antes.iloc[pos]
+        campos = {}
+        for etiqueta, columna in _EDITABLES.items():
+            nuevo_valor = fila.get(etiqueta)
+            if nuevo_valor is None or (
+                    not isinstance(nuevo_valor, str) and pd.isna(nuevo_valor)):
+                continue
+            viejo = original.get(etiqueta)
+            if columna == "opened_at":
+                iguales = (not pd.isna(viejo)
+                           and pd.Timestamp(viejo).date()
+                           == pd.Timestamp(nuevo_valor).date())
+                nuevo_valor = pd.Timestamp(nuevo_valor).date()
+            elif columna in ("qty", "avg_cost"):
+                iguales = (not pd.isna(viejo)
+                           and float(viejo) == float(nuevo_valor))
+                nuevo_valor = float(nuevo_valor)
+            else:
+                iguales = str(viejo) == str(nuevo_valor)
+                nuevo_valor = str(nuevo_valor)
+            if not iguales:
+                campos[columna] = nuevo_valor
+        if campos:
+            fuera[str(original["id"])] = campos
+    return fuera
+
+
+def render_editor_de_posiciones(positions: pd.DataFrame) -> None:
+    """Corregir a mano lo que trajo el extracto.
 
     POR QUE ESTA PANTALLA EXISTE
 
-    `add_position` y `replace_positions` escriben `opened_at = hoy`, porque un
-    extracto de broker no dice cuando compraste. Es lo unico que pueden hacer,
-    pero deja una fecha que no es cierta y que NO era corregible desde ningun
-    sitio.
+    Un extracto de broker no lo trae todo. eToro no da la fecha de compra, y el
+    precio medio puede venir en otra divisa o ya neto de comisiones. Hasta
+    ahora la unica forma de corregir cualquiera de esas cosas era reimportar el
+    extracto -que trae el mismo dato malo- o reescribir la cartera entera a
+    mano, que la REEMPLAZA. O sea: no habia forma.
 
-    Y esa fecha decide si el asesor puede opinar. El diagnostico de deterioro
-    compara los datos de hoy con los del dia de la compra; con la fecha de hoy
-    en los dos lados compara una fila consigo misma, no encuentra nada nunca y
-    —antes del arreglo— lo presentaba como "nada ha empeorado desde que la
-    compraste". Ahora sale gris y se dice en voz alta, que es honesto pero
-    sigue sin servir de nada.
+    Y no es un detalle de comodidad. `opened_at` decide si el semaforo de
+    deterioro puede opinar sobre esa posicion; `avg_cost` y `qty` deciden el
+    resultado, el peso, y con el peso si el asesor avisa por concentracion.
 
-    Esto es lo que lo arregla de verdad: dos minutos poniendo las fechas reales
-    convierten media cartera de "sin opinion" en posiciones que se pueden
-    juzgar.
+    Se guarda SOLO lo que cambia. Ver `_cambios`.
     """
-    pendientes = _fechas_a_corregir(positions, date.today())
-    if pendientes.empty:
+    if positions.empty:
         return
 
-    with st.expander(f"Poner la fecha real de compra ({len(pendientes)})",
-                     expanded=False, icon=":material/event_busy:"):
-        st.warning(
-            f"{len(pendientes)} posiciones tienen como fecha de compra **la de "
-            "hoy**, que es la que se pone al importar un extracto porque el "
-            "extracto no la trae. Mientras siga asi, el semáforo de deterioro "
-            "**no puede opinar sobre ellas**: compararía los datos de hoy con "
-            "los datos de hoy.",
-            icon=":material/event_busy:",
-        )
-        st.caption(
-            "No hace falta clavarla. El mes aproximado ya sirve: lo que se "
-            "compara son fundamentales trimestrales y medias de 200 sesiones."
-        )
+    pendientes = _fechas_a_corregir(positions, date.today())
+    etiqueta = "Corregir posiciones"
+    if not pendientes.empty:
+        etiqueta += f" ({len(pendientes)} sin fecha real)"
 
-        editable = pendientes[["ticker", "qty", "avg_cost", "opened_at"]].copy()
-        editable = editable.rename(columns={
-            "ticker": "Valor", "qty": "Titulos",
-            "avg_cost": "Precio medio", "opened_at": "Fecha de compra"})
+    with st.expander(etiqueta, expanded=False, icon=":material/edit:"):
+        if not pendientes.empty:
+            st.warning(
+                f"{len(pendientes)} posiciones tienen como fecha de compra "
+                "**la de hoy**, que es la que se pone al importar un extracto "
+                "porque el extracto no la trae. Mientras siga asi, el semaforo "
+                "de deterioro **no puede opinar sobre ellas**: compararia los "
+                "datos de hoy con los datos de hoy.",
+                icon=":material/event_busy:",
+            )
+            st.caption(
+                "No hace falta clavar la fecha. El mes aproximado ya sirve: lo "
+                "que se compara son fundamentales trimestrales y medias de 200 "
+                "sesiones."
+            )
+
+        columnas = ["id", "ticker", "qty", "avg_cost", "opened_at", "currency"]
+        tabla = positions[[c for c in columnas if c in positions]].copy()
+        tabla["opened_at"] = pd.to_datetime(tabla["opened_at"], errors="coerce")
+        tabla = tabla.rename(columns={
+            "ticker": "Valor", "qty": "Titulos", "avg_cost": "Precio medio",
+            "opened_at": "Fecha de compra", "currency": "Divisa"})
+
         editado = st.data_editor(
-            editable, hide_index=True, key="fechas_compra",
-            disabled=["Valor", "Titulos", "Precio medio"],
+            tabla, hide_index=True, key="editor_posiciones",
+            disabled=["id", "Valor"],
             column_config={
+                "id": None,          # se necesita para guardar, no para mirar
+                "Titulos": st.column_config.NumberColumn(
+                    min_value=0.0, format="%.4f"),
+                "Precio medio": st.column_config.NumberColumn(
+                    min_value=0.0, format="%.4f",
+                    help="En la divisa en la que cotiza el valor."),
                 "Fecha de compra": st.column_config.DateColumn(
                     max_value=date.today(), format="DD/MM/YYYY"),
+                "Divisa": st.column_config.SelectboxColumn(
+                    options=["EUR", "USD", "GBP", "CHF", "JPY"],
+                    help="Se usa la divisa en la que COTIZA el valor; esta "
+                         "solo cuenta si el programa no la conoce."),
             },
         )
 
-        if st.button("Guardar fechas", type="primary", key="save_fechas"):
-            nuevas = {}
-            for id_posicion, valor in zip(pendientes["id"],
-                                          editado["Fecha de compra"],
-                                          strict=False):
-                if pd.isna(valor):
-                    continue
-                cuando = pd.Timestamp(valor).date()
-                # Una fecha de hoy o del futuro no arregla nada: dejaria la
-                # posicion exactamente igual de muda que estaba.
-                if cuando < date.today():
-                    nuevas[id_posicion] = cuando
-            if not nuevas:
-                st.warning("Ninguna fecha nueva anterior a hoy: nada que "
-                           "guardar.")
+        st.caption(
+            ":gray[Editar titulos o precio medio marca la posicion como "
+            "verificada hoy, y con eso deja de aplicarsele el ajuste "
+            "automatico por splits: escribe las cifras que tienes AHORA, no "
+            "las del dia de la compra. Cambiar solo la fecha no lo hace.]"
+        )
+
+        if st.button("Guardar cambios", type="primary", key="save_posiciones"):
+            cambios = _cambios(tabla, editado)
+            if not cambios:
+                st.info("No has cambiado nada.")
                 return
-            n = da.set_opened_at(nuevas)
-            st.success(f"{n} fechas corregidas. El diagnóstico de esas "
-                       "posiciones ya se puede calcular.")
+            n = da.editar_posiciones(cambios)
+            st.success(f"{n} posiciones corregidas.")
             st.rerun()
