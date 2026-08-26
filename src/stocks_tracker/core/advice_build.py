@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from . import advice
+from . import advice, fx
 from . import deterioration as det
 from .advice import Recomendacion
 from .flags import red_flags
@@ -90,6 +90,7 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
                       pesos_actuales: dict[str, float] | None = None,
                       pesos_sector: dict[str, float] | None = None,
                       avisos_fiscales: dict[str, str] | None = None,
+                      tipos_cambio: dict[str, float] | None = None,
                       limite: int = 25) -> list[Recomendacion]:
     """Un veredicto por candidato del ranking.
 
@@ -104,6 +105,7 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
     pesos_actuales = pesos_actuales or {}
     pesos_sector = pesos_sector or {}
     avisos_fiscales = avisos_fiscales or {}
+    tipos_cambio = tipos_cambio or {}
 
     fuera: list[Recomendacion] = []
     for _, fila in ranking.head(limite).iterrows():
@@ -114,6 +116,11 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
         # en unidades de precio. Confundirlos daria stops cien veces mas
         # estrechos y tamanos cien veces mayores, y todo con buena pinta.
         atr14 = (precio * atr_pct / 100.0) if (precio and atr_pct) else None
+        # `equity` y `caja` vienen en euros; `precio` y `atr14`, en la divisa
+        # de cotizacion. Sin este tipo se dimensionaba dividiendo euros entre
+        # dolares. Ver `advice.sobre_un_candidato`.
+        divisa = str(fila.get("currency") or fx.BASE).upper()
+        cambio = 1.0 if divisa == fx.BASE else tipos_cambio.get(divisa, 1.0)
 
         fuera.append(advice.sobre_un_candidato(
             ticker,
@@ -127,6 +134,7 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
             peso_sector_pct=pesos_sector.get(str(fila.get("gics_sector") or "")),
             motivos_ranking=_motivos_del_ranking(fila),
             aviso_fiscal=avisos_fiscales.get(ticker, ""),
+            tipo_cambio=cambio,
         ))
     return fuera
 

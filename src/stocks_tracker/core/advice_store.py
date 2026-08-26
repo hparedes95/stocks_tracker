@@ -49,7 +49,7 @@ from datetime import date
 
 import pandas as pd
 
-from . import lineage
+from . import fx, lineage
 from .advice import ACCIONABLES, Recomendacion, Veredicto
 from .timeutils import utcnow
 
@@ -218,10 +218,41 @@ def puntuar(conn, *, hasta: date | None = None,
     if filas.empty:
         return filas
 
-    filas["retorno"] = filas["precio_ahora"] / filas["precio"] - 1.0
-    filas["retorno_indice"] = (
-        filas["bench_ahora"] / filas["bench_entonces"] - 1.0
-    )
+    # LOS DOS RETORNOS, EN LA MISMA MONEDA
+    #
+    # Dentro de cada serie la divisa se cancela —un retorno es un cociente—,
+    # pero el EXCESO resta dos retornos que pueden estar en monedas distintas:
+    # un valor espanol en euros contra el S&P 500 en dolares.
+    #
+    # Con el euro subiendo un 5 % frente al dolar en el periodo, un valor que
+    # iguale al indice en moneda local aparece con un +5 % de exceso que el
+    # inversor no ha ganado. El marcador se apuntaria aciertos por el tipo de
+    # cambio, que es exactamente lo que no puede hacer una pantalla que existe
+    # para decir si el asesor acierta.
+    #
+    # Se pasan los dos a euros con el tipo de CADA fecha. Si falta algun tipo,
+    # esa fila sale NaN y `dropna` la descarta: no puntuar es correcto, y
+    # puntuar con el cambio a medias no.
+    divisas = _divisas(conn, filas["ticker"])
+    tabla = fx.tipos_en(conn, list(filas["fecha"]) + [limite])
+    filas["divisa"] = filas["ticker"].map(divisas).fillna(fx.BASE)
+    divisa_indice = divisas.get(benchmark, fx.BASE)
+    hoy = pd.Series([limite] * len(filas), index=filas.index)
+
+    entonces_eur = fx.a_base_en_fecha(
+        filas["precio"], filas["divisa"], filas["fecha"], tabla)
+    ahora_eur = fx.a_base_en_fecha(
+        filas["precio_ahora"], filas["divisa"], hoy, tabla)
+    bench_entonces_eur = fx.a_base_en_fecha(
+        filas["bench_entonces"], pd.Series([divisa_indice] * len(filas),
+                                           index=filas.index),
+        filas["fecha"], tabla)
+    bench_ahora_eur = fx.a_base_en_fecha(
+        filas["bench_ahora"], pd.Series([divisa_indice] * len(filas),
+                                        index=filas.index), hoy, tabla)
+
+    filas["retorno"] = ahora_eur / entonces_eur - 1.0
+    filas["retorno_indice"] = bench_ahora_eur / bench_entonces_eur - 1.0
     filas["exceso"] = filas["retorno"] - filas["retorno_indice"]
     # Sin precio posterior o sin indice no se puede juzgar. Se descartan en vez
     # de contarlas como fallo: un dato que falta no es un error del asesor, y
@@ -286,3 +317,22 @@ def resumen_honesto(resultados: list[Resultado]) -> str:
         f"indice ({total.tasa:.0%}). Exceso medio sobre el mercado: "
         f"{total.exceso_medio:+.1f} puntos."
     )
+
+
+def _divisas(conn, tickers) -> dict[str, str]:
+    """La divisa de cotizacion de cada ticker, en mayusculas.
+
+    Lo que no tenga divisa declarada se deja fuera y quien lo use cae a EUR.
+    Es el caso de un almacen antiguo, y suponer euros para un valor europeo
+    acierta mucho mas que suponer dolares.
+    """
+    nombres = sorted({str(t) for t in tickers if t})
+    if not nombres:
+        return {}
+    marcadores = ", ".join("?" for _ in nombres)
+    filas = conn.execute(
+        f"SELECT ticker, currency FROM instruments "
+        f"WHERE ticker IN ({marcadores}) AND currency IS NOT NULL",
+        nombres,
+    ).fetchall()
+    return {t: str(c).upper() for t, c in filas if c}

@@ -14,7 +14,7 @@ import streamlit as st
 
 from ..compute.run_compute import sesiones_sin_calcular
 from ..core import deterioration as det
-from ..core import sesiones
+from ..core import fx, sesiones
 from ..core.config import (
     get_active_universes,
     get_breadth_scope,
@@ -932,8 +932,6 @@ def get_fx_rates() -> dict[str, float]:
     y arrastrar el total a vacio, porque un total al que le falta una posicion
     es un numero mal con toda la pinta de estar bien.
     """
-    from ..core import fx
-
     try:
         with connect(read_only=True) as conn:
             return fx.tipos(conn)
@@ -996,10 +994,36 @@ def count_pending_alerts() -> int:
 # --------------------------------------------------------------------------
 @st.cache_data(ttl=60, show_spinner=False)
 def get_positions() -> pd.DataFrame:
-    """Posiciones abiertas con su valoracion actual."""
-    return _fetch(
+    """Posiciones abiertas con su valoracion actual, en la escala de hoy.
+
+    TRES CORRECCIONES QUE SE APLICAN AQUI, Y NO EN LA TABLA
+
+    1. SPLITS. Yahoo reescribe el historico de precios tras un split; lo que
+       declaro el usuario se queda en la escala antigua. Sin ajustar, 10 NVDA
+       compradas a 900 valen "950 contra 9.000" tras un 10:1: -89 % donde hay
+       un +5,6 %. Ver `corporate.ajustar_por_splits`.
+
+    2. LA DIVISA DE VERDAD. `positions.currency` la declara el usuario y los
+       dos puntos de entrada tenian valores por defecto CONTRADICTORIOS —USD
+       al anadir a mano, EUR al importar—. `instruments.currency` trae la de
+       Yahoo, que es la de los precios que se estan usando para valorar, y por
+       eso manda. Se conserva la declarada en `currency_declarada` para poder
+       avisar de la discrepancia en vez de taparla.
+
+    3. EL TIPO DE CAMBIO DEL DIA DE LA COMPRA (`coste_eur`). Ver
+       `fx.a_base_en_fecha`: con el tipo de hoy en los dos lados, el efecto
+       divisa se cancela y desaparece del resultado.
+
+    Nada de esto reescribe `positions`: la tabla sigue guardando lo que el
+    usuario declaro, y la correccion se rehace en cada lectura. Es idempotente
+    y se arregla sola si manana el proveedor corrige un split.
+    """
+    posiciones = _fetch(
         """
-        SELECT p.id, p.ticker, p.qty, p.avg_cost, p.currency, p.opened_at, p.note,
+        SELECT p.id, p.ticker, p.qty, p.avg_cost,
+               COALESCE(inst.currency, p.currency) AS currency,
+               p.currency AS currency_declarada,
+               p.opened_at, p.note,
                inst.name, inst.gics_sector, inst.investment_type,
                i.close, i.ret_1d, i.above_sma200, i.drawdown, i.realized_vol_252,
                f.composite_pctile, f.value_z, f.growth_z, f.quality_z,
@@ -1016,6 +1040,21 @@ def get_positions() -> pd.DataFrame:
         """,
         [_preset_hash(None)],
     )
+    if posiciones.empty:
+        return posiciones
+
+    from ..core import corporate
+
+    with connect(read_only=True) as conn:
+        splits = corporate.factores_de_split(conn, posiciones["ticker"])
+        posiciones = corporate.ajustar_por_splits(posiciones, splits)
+        tabla = fx.tipos_en(conn, posiciones["opened_at"])
+
+    posiciones["coste_eur_compra"] = fx.a_base_en_fecha(
+        pd.to_numeric(posiciones["qty"], errors="coerce")
+        * pd.to_numeric(posiciones["avg_cost"], errors="coerce"),
+        posiciones["currency"], posiciones["opened_at"], tabla)
+    return posiciones
 
 
 def add_position(ticker: str, qty: float, avg_cost: float,
@@ -1491,7 +1530,6 @@ def get_attribution_inputs() -> pd.DataFrame:
     # Se convierte aqui y no en SQL porque el tipo vive en `prices_daily` bajo
     # otro ticker y meterlo en la consulta la duplicaria entera.
     if not datos.empty and "currency" in datos.columns:
-        from ..core import fx
 
         datos = datos.copy()
         # Lo que no se puede convertir se queda con su cifra sin convertir en

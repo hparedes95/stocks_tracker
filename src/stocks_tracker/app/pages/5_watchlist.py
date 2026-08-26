@@ -87,8 +87,18 @@ with tab_portfolio:
         tipos = da.get_fx_rates()
         positions["valor_eur"] = fx.a_base(
             positions["valor"], positions["currency"], tipos)
-        positions["coste_eur"] = fx.a_base(
-            positions["coste"], positions["currency"], tipos)
+        # EL COSTE, AL CAMBIO DEL DIA DE LA COMPRA. NO AL DE HOY.
+        #
+        # Convirtiendo coste y valor con el mismo tipo, el efecto divisa se
+        # cancela y desaparece del resultado. Con el EUR/USD pasando de 1,05 a
+        # 1,17, una posicion de 1.000 USD que hoy vale 1.100 salia como +85 EUR
+        # (+10 %) cuando en euros de verdad es -12 EUR (-1,3 %): una ganancia
+        # declarada donde hay una perdida.
+        #
+        # `get_positions` ya lo calcula con el historico de tipos. Si para
+        # alguna fila no hubo tipo aquel dia, sale NaN y contagia al total: es
+        # lo correcto, y lo dice el aviso de abajo.
+        positions["coste_eur"] = positions["coste_eur_compra"]
         faltan = fx.sin_tipo(positions["currency"], tipos)
 
         total_value = fx.total(positions["valor_eur"])
@@ -134,12 +144,57 @@ with tab_portfolio:
                 "(bloque MACRO) y volviendo a descargar.",
                 icon=":material/currency_exchange:",
             )
-        elif positions["currency"].nunique() > 1:
+        # `!= EUR` y NO `nunique() > 1`.
+        #
+        # La condicion medía VARIEDAD en vez de EXTRANJERIA: una cartera
+        # entera en dolares tiene una sola divisa, asi que no veia ningun
+        # aviso, y es justo el caso donde el efecto divisa pesa mas.
+        elif (positions["currency"].astype("string").str.upper() != "EUR").any():
             st.caption(
-                "Los totales estan convertidos a euros al ultimo cambio "
-                "disponible. El coste en euros es aproximado: se convierte al "
-                "cambio de hoy y no al del dia en que compraste."
+                "Los totales estan convertidos a euros. El valor va al ultimo "
+                "cambio disponible y el coste al cambio del dia en que "
+                "compraste, asi que el resultado **incluye lo que ha hecho la "
+                "divisa**, que es como lo cuenta Hacienda."
             )
+
+        # LO QUE ESTE NUMERO NO LLEVA, DICHO DONDE SE LEE EL NUMERO.
+        #
+        # `attribution.py` ya avisaba de esto en su pantalla; aqui no, y aqui
+        # es donde el usuario mira su resultado. `avg_cost` es lo que declara
+        # el extracto y no incluye la comision de compra; el resultado tampoco
+        # resta la de venta ni suma los dividendos cobrados, que SI estan
+        # guardados en `corporate_actions`.
+        #
+        # Con la tarifa por defecto, diez compras de 1.000 EUR dejan el
+        # resultado unos 20 EUR por encima del real solo en comisiones de ida
+        # y vuelta. En un dividendero al 3 % el error va en el otro sentido y
+        # es mayor. Mientras no haya libro de operaciones no se puede corregir,
+        # pero callarlo es presentar como exacto algo que no lo es.
+        st.caption(
+            ":gray[El resultado no incluye comisiones ni dividendos cobrados: "
+            "sale de comparar el precio medio que trae tu extracto con la "
+            "cotizacion de hoy. Tu resultado real es algo peor en comisiones y "
+            "algo mejor en dividendos.]"
+        )
+
+        # La divisa declarada al importar puede no ser la de cotizacion, y esa
+        # discrepancia mueve el peso de la posicion —y con el, si el asesor
+        # avisa por concentracion—. Se dice; no se corrige a la callada.
+        if "currency_declarada" in positions:
+            declarada = positions["currency_declarada"].astype("string").str.upper()
+            real = positions["currency"].astype("string").str.upper()
+            discrepan = positions[declarada.notna() & (declarada != real)]
+            if not discrepan.empty:
+                st.warning(
+                    "Estas posiciones se valoran en la divisa en la que "
+                    "COTIZAN, que no es la que consta en tu extracto: "
+                    + ", ".join(
+                        f"**{r.ticker}** ({r.currency_declarada} declarada, "
+                        f"{r.currency} real)" for r in discrepan.itertuples())
+                    + ". Se usa la real porque es la de los precios; si la "
+                    "declarada es la buena, el valor de esa posicion esta mal.",
+                    icon=":material/currency_exchange:",
+                )
 
         # -------------------------------------------------------------------
         # Semaforo de deterioro

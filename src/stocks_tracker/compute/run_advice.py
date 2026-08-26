@@ -166,7 +166,7 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
             SELECT f.ticker, f.composite_pctile, f.coverage,
                    f.value_z, f.growth_z, f.quality_z, f.momentum_z,
                    f.lowvol_z, f.dividend_z, f.technical_z,
-                   inst.gics_sector, i.close, i.atr_pct,
+                   inst.gics_sector, inst.currency, i.close, i.atr_pct,
                    fu.payout_ratio, fu.net_debt_to_ebitda, fu.trailing_pe
             FROM factor_scores f
             JOIN instruments inst ON inst.ticker = f.ticker
@@ -179,6 +179,7 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
             """,
             [whash, dia],
         ).fetchdf()
+        cambios = fx.tipos(conn)
         universo = conn.execute(
             "SELECT universe_hash FROM scoring_runs WHERE weights_hash = ? "
             "ORDER BY date DESC LIMIT 1", [whash]).fetchone()
@@ -198,6 +199,7 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
         ranking, equity=equity, caja=caja,
         n_posiciones=max(len(posiciones) - libera, 0),
         pesos_actuales=pesos_actuales, pesos_sector=pesos_sector,
+        tipos_cambio=cambios,
     )
 
     precios = {}

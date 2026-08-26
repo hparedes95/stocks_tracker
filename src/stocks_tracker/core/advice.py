@@ -512,6 +512,7 @@ def sobre_un_candidato(
     peso_sector_pct: float | None = None,
     motivos_ranking: list[str] | None = None,
     aviso_fiscal: str = "",
+    tipo_cambio: float = 1.0,
 ) -> Recomendacion:
     """Que hacer con algo que NO tienes (o que tienes y podrias ampliar).
 
@@ -521,6 +522,29 @@ def sobre_un_candidato(
 
     `peso_actual_pct` distinto de None significa que ya la tienes: entonces el
     veredicto posible es AMPLIAR y no COMPRAR.
+
+    `tipo_cambio` son cuantas unidades de la divisa del VALOR vale un euro
+    (1,17 para un valor en dolares con el EUR/USD a 1,17). `precio` y `atr14`
+    llegan en la divisa de cotizacion; `equity` y `caja`, en euros.
+
+    EL FALLO QUE ESTE PARAMETRO ARREGLA
+
+    Antes no existia y se dimensionaba mezclando las dos cosas:
+    `(risk_amount_EUR / stop_distance_USD) * price_USD`. El resultado se
+    guardaba en `importe_eur` y `riesgo_eur`.
+
+        AAPL a 230 USD, ATR14 4,60 USD, cartera 20.000 EUR, EUR/USD 1,17
+
+            importe   decia 2.400 EUR   ->  eran 2.400 USD = 2.051 EUR
+            riesgo    decia   120 EUR   ->  el real era      102,56 EUR
+
+    Un 17 % de sobreestimacion en el importe, y el riesgo real por operacion un
+    14,5 % por debajo del 1,5 % configurado. Con divisas de otra escala —yenes,
+    coronas— el error es de ordenes de magnitud, no de porcentajes.
+
+    Se dimensiona TODO en euros y el stop se devuelve en la divisa del valor,
+    que es la unica en la que sirve: un stop es un precio que se mira en el
+    grafico y se teclea en el broker.
     """
     from ..trading.sizing import size_by_atr
 
@@ -648,8 +672,14 @@ def sobre_un_candidato(
         )
 
     # --- 7. El tamano, que es la mitad de la decision ---------------------
+    # A euros ANTES de dimensionar. Un tipo que no sea un numero positivo se
+    # trata como "no se sabe" y se deja en 1,0: es lo que ya pasaba, y romper
+    # el consejo por no tener un tipo de cambio seria peor. Para EUR es 1,0 de
+    # verdad y esta rama no cambia nada.
+    cambio = float(tipo_cambio) if tipo_cambio and tipo_cambio > 0 else 1.0
     tam = size_by_atr(
-        equity=equity, price=precio, atr14=atr14, cash_available=caja,
+        equity=equity, price=precio / cambio, atr14=atr14 / cambio,
+        cash_available=caja,
         regime=regimen,
         risk_per_trade_pct=lim["risk_per_trade_pct"],
         atr_stop_mult=lim["atr_stop_mult"],
@@ -670,11 +700,15 @@ def sobre_un_candidato(
             ],
         )
 
+    # El stop vuelve a la divisa del valor: es un precio que se mira en el
+    # grafico y se teclea en el broker, y en euros no serviria para nada.
+    stop_local = tam.stop_price * cambio
+
     motivos = [f"Percentil {percentil:.0%} del universo puntuado."]
     motivos += motivos_ranking or []
     motivos.append(
         f"Arriesgas {tam.risk_amount:.2f} EUR hasta el stop de "
-        f"{tam.stop_price:.2f}."
+        f"{stop_local:.2f}."
     )
     if tam.capped_by:
         motivos.append(f"El tamano lo limita: {tam.capped_by.replace('_', ' ')}.")
@@ -685,7 +719,7 @@ def sobre_un_candidato(
         _conviccion_de_compra(percentil, cobertura),
         motivos=motivos,
         desmentiria=[
-            f"Si el precio cierra por debajo de {tam.stop_price:.2f}, esta "
+            f"Si el precio cierra por debajo de {stop_local:.2f}, esta "
             f"decision fue un error y se sale.",
             "Si el percentil cae por debajo del "
             f"{UMBRAL_YA_NO_DESTACA:.0%}, deja de ser una de las mejores.",
@@ -694,7 +728,7 @@ def sobre_un_candidato(
         ],
         importe_eur=tam.notional,
         titulos=tam.qty,
-        stop=tam.stop_price,
+        stop=stop_local,
         riesgo_eur=tam.risk_amount,
         limitado_por=tam.capped_by,
         aviso_fiscal=aviso_fiscal,

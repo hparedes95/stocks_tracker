@@ -150,3 +150,105 @@ def sin_tipo(divisas: pd.Series, tipos_cambio: dict[str, float]) -> list[str]:
     if codigos.isna().any() or (codigos.fillna("") == "").any():
         fuera.add(SIN_DIVISA)
     return sorted(fuera)
+
+
+def tipos_en(conn, fechas: pd.Series | list) -> pd.DataFrame:
+    """El tipo de cambio VIGENTE en cada fecha dada, por divisa.
+
+    POR QUE HACE FALTA EL TIPO DE ENTONCES Y NO VALE EL DE HOY
+
+    El resultado en euros de una posicion en dolares tiene dos partes: lo que
+    ha hecho la accion y lo que ha hecho el cambio. Convirtiendo el coste y el
+    valor con el MISMO tipo -el de hoy- la segunda parte se cancela y
+    desaparece de la cifra.
+
+    Reproducido: compras 1.000 USD de AAPL con el EUR/USD a 1,05, o sea 952 EUR
+    de verdad. Hoy valen 1.100 USD con el cambio a 1,17, o sea 940 EUR.
+
+        Con el tipo de hoy en los dos lados:  940 - 855 = +85 EUR  (+10 %)
+        Con el tipo de cada fecha:            940 - 952 = -12 EUR  (-1,3 %)
+
+    Se declaraba una ganancia donde hay una perdida. Y la segunda cifra es
+    ademas la que cuenta para Hacienda, que calcula la ganancia patrimonial en
+    euros al tipo de cada fecha —punto a confirmar con un asesor fiscal—.
+
+    Devuelve un DataFrame (fecha, divisa, tipo) con el ultimo tipo conocido en
+    esa fecha o antes. Lo que no tenga tipo NO sale: quien lo use tiene que
+    quedarse sin cifra, no con una inventada.
+    """
+    fechas = pd.to_datetime(pd.Series(list(fechas)), errors="coerce").dropna()
+    if fechas.empty or not PARES:
+        return pd.DataFrame(columns=["fecha", "divisa", "tipo"])
+
+    pedidas = pd.DataFrame({"fecha": sorted(set(fechas.dt.date))})
+    marcadores = ", ".join("?" for _ in PARES)
+    historico = conn.execute(
+        f"SELECT ticker, date, close FROM prices_daily "
+        f"WHERE ticker IN ({marcadores}) AND close IS NOT NULL AND close > 0 "
+        f"ORDER BY ticker, date",
+        list(PARES.values()),
+    ).fetchdf()
+    if historico.empty:
+        return pd.DataFrame(columns=["fecha", "divisa", "tipo"])
+
+    # `astype("datetime64[ns]")` y no solo `to_datetime`: DuckDB devuelve las
+    # fechas con resolucion de SEGUNDOS y las construidas aqui salen en
+    # microsegundos. `merge_asof` no admite claves de distinta resolucion y
+    # aborta con "incompatible merge keys, must be the same type". Se vio al
+    # ejecutar los tests, no al escribirlo.
+    historico["date"] = pd.to_datetime(historico["date"]).astype("datetime64[ns]")
+    pedidas["fecha"] = pd.to_datetime(pedidas["fecha"]).astype("datetime64[ns]")
+    por_ticker = {t: d for t, d in PARES.items()}
+
+    fuera = []
+    for ticker, grupo in historico.groupby("ticker", sort=False):
+        divisa = next((d for d, t in por_ticker.items() if t == ticker), None)
+        if divisa is None:
+            continue
+        # `merge_asof` y no un ASOF de DuckDB: aquel exige comparar dos
+        # COLUMNAS y aqui una de las dos partes se construye en memoria.
+        casado = pd.merge_asof(
+            pedidas.sort_values("fecha"),
+            grupo[["date", "close"]].sort_values("date"),
+            left_on="fecha", right_on="date", direction="backward",
+        ).dropna(subset=["close"])
+        if casado.empty:
+            continue
+        casado = casado.assign(divisa=divisa).rename(columns={"close": "tipo"})
+        fuera.append(casado[["fecha", "divisa", "tipo"]])
+
+    if not fuera:
+        return pd.DataFrame(columns=["fecha", "divisa", "tipo"])
+    return pd.concat(fuera, ignore_index=True)
+
+
+def a_base_en_fecha(importes: pd.Series, divisas: pd.Series,
+                    fechas: pd.Series, tabla: pd.DataFrame) -> pd.Series:
+    """Como `a_base`, pero con el tipo de cambio de la fecha de cada fila.
+
+    `tabla` es lo que devuelve `tipos_en`. Igual que en `a_base`, lo que no se
+    puede convertir sale NaN y ese NaN tiene que llegar al total.
+    """
+    importes = pd.to_numeric(importes, errors="coerce")
+    codigos = divisas.astype("string").str.upper().fillna("")
+    dias = pd.to_datetime(fechas, errors="coerce")
+
+    if tabla is None or tabla.empty:
+        indice = {}
+    else:
+        indice = {
+            (pd.Timestamp(f).normalize(), d): float(t)
+            for f, d, t in zip(tabla["fecha"], tabla["divisa"], tabla["tipo"],
+                               strict=False)
+        }
+
+    def factor(codigo, dia) -> float | None:
+        if codigo == BASE:
+            return 1.0
+        if pd.isna(dia):
+            return None
+        return indice.get((pd.Timestamp(dia).normalize(), codigo))
+
+    factores = [factor(c, d) for c, d in zip(codigos, dias, strict=False)]
+    return importes / pd.to_numeric(pd.Series(factores, index=importes.index),
+                                    errors="coerce")

@@ -284,3 +284,77 @@ def leer(conn, tickers: list[str] | None = None) -> pd.DataFrame:
         "SELECT ticker, date, action_type, value FROM corporate_actions "
         "ORDER BY ticker, date"
     ).fetchdf()
+
+
+def factores_de_split(conn, tickers=None) -> pd.DataFrame:
+    """El factor de split acumulado de cada ticker DESDE cada fecha.
+
+    EL FALLO QUE ESTO ARREGLA, Y POR QUE CAMBIA EL SIGNO DEL RESULTADO
+
+    Yahoo reescribe el historico de `close` cuando hay un split: el dia
+    despues de un 10:1, toda la serie pasada aparece dividida entre diez. Pero
+    `positions.avg_cost` es lo que pago el usuario, en la escala ANTIGUA, y
+    nadie lo tocaba.
+
+        Compras 10 NVDA a 900 USD  ->  coste 9.000
+        Split 10:1. Yahoo pasa a servir 95 USD.
+        La pantalla calculaba  10 x 95 = 950  contra 9.000  ->  -89,4 %
+        Lo correcto es        100 x 95 = 9.500 contra 9.000 ->   +5,6 %
+
+    Error de signo y de dos ordenes de magnitud, en la cifra por la que se
+    decide si una posicion va bien.
+
+    Se corrige AL LEER y no reescribiendo `positions`. Tres motivos: es
+    idempotente —aplicarlo mil veces da lo mismo—, no se pierde lo que el
+    usuario declaro de verdad, y si manana se corrige un split mal servido por
+    el proveedor la cartera se arregla sola sin tocar ninguna fila.
+
+    Devuelve (ticker, desde, factor): el producto de los splits ocurridos
+    DESPUES de `desde`. Una posicion comprada en `desde` tiene que multiplicar
+    su `qty` por `factor` y dividir su `avg_cost` entre `factor`.
+    """
+    filas = conn.execute(
+        "SELECT ticker, date, value FROM corporate_actions "
+        "WHERE action_type = 'split' AND value IS NOT NULL AND value > 0 "
+        "ORDER BY ticker, date"
+    ).fetchdf()
+    if filas.empty:
+        return pd.DataFrame(columns=["ticker", "date", "factor"])
+    if tickers is not None:
+        filas = filas[filas["ticker"].isin(set(tickers))]
+    filas = filas.copy()
+    filas["date"] = pd.to_datetime(filas["date"])
+    return filas.rename(columns={"value": "factor"})
+
+
+def ajustar_por_splits(posiciones: pd.DataFrame,
+                       splits: pd.DataFrame) -> pd.DataFrame:
+    """Pone `qty` y `avg_cost` en la escala de HOY, la de los precios servidos.
+
+    Solo cuentan los splits ESTRICTAMENTE POSTERIORES a `opened_at`: uno del
+    mismo dia o anterior ya esta recogido en el precio que pago el usuario, y
+    aplicarlo otra vez lo contaria dos veces.
+
+    El valor economico no cambia: `qty * avg_cost` es el mismo antes y despues,
+    porque uno se multiplica y el otro se divide por el mismo factor. Lo que
+    cambia es que ahora `qty` casa con el precio que sirve el proveedor.
+    """
+    if posiciones.empty or splits is None or splits.empty:
+        return posiciones
+
+    fuera = posiciones.copy()
+    abiertas = pd.to_datetime(fuera["opened_at"], errors="coerce")
+    factores = []
+    for ticker, desde in zip(fuera["ticker"], abiertas, strict=False):
+        suyos = splits[splits["ticker"] == ticker]
+        if suyos.empty or pd.isna(desde):
+            factores.append(1.0)
+            continue
+        posteriores = suyos[suyos["date"] > desde]["factor"]
+        factores.append(float(posteriores.prod()) if len(posteriores) else 1.0)
+
+    factor = pd.Series(factores, index=fuera.index, dtype="float64")
+    fuera["split_factor"] = factor
+    fuera["qty"] = pd.to_numeric(fuera["qty"], errors="coerce") * factor
+    fuera["avg_cost"] = pd.to_numeric(fuera["avg_cost"], errors="coerce") / factor
+    return fuera
