@@ -99,4 +99,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from ..core.db import arrancar
+
+    arrancar(main)

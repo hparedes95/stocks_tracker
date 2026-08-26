@@ -25,6 +25,98 @@ def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
+class AlmacenOcupado(RuntimeError):
+    """El almacen ya lo tiene abierto otro proceso.
+
+    DuckDB admite UN SOLO escritor. El caso normal no es una carrera rara: es
+    tener el dashboard abierto y lanzar la descarga o el calculo en una
+    consola, que es lo que hace cualquiera.
+
+    Existe como excepcion propia porque el mensaje de DuckDB —"IO Error: ...
+    El proceso no tiene acceso al archivo porque esta siendo utilizado por otro
+    proceso"— llega envuelto en una traza de veinte lineas y no dice ni cual es
+    el otro proceso ni que hacer. El usuario lanzo `stocks.ps1 daily` con el
+    dashboard abierto y recibio CINCO trazas identicas, una por paso, sin una
+    sola frase que dijera "cierra el dashboard".
+    """
+
+
+def _abrir(path: Path, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    """Abre el almacen, o explica por que no se puede en una frase.
+
+    Solo se traduce el bloqueo. Cualquier otro fallo de E/S —disco lleno,
+    permisos, fichero corrupto— se deja pasar tal cual: convertirlos todos en
+    "cierra el dashboard" mandaria a la gente a cerrar ventanas cuando el
+    problema es otro.
+    """
+    try:
+        return duckdb.connect(str(path), read_only=read_only)
+    except duckdb.IOException as exc:
+        texto = str(exc).lower()
+        if not any(marca in texto for marca in _MARCAS_DE_BLOQUEO):
+            raise
+        raise AlmacenOcupado(
+            "El almacen de datos ya esta abierto por otro proceso, y DuckDB "
+            "solo admite uno a la vez.\n"
+            "  Lo habitual: tienes el DASHBOARD abierto. Cierralo y repite "
+            "esto mismo.\n"
+            "  Si no lo tienes abierto, puede haber quedado un proceso "
+            "colgado: cierra las ventanas de Stocks Tracker, o reinicia.\n"
+            f"  Detalle de DuckDB: {exc}"
+        ) from exc
+
+
+EXIT_OCUPADO = 75
+
+# Como dice DuckDB que el fichero esta cogido. Son DOS mensajes distintos
+# segun el sistema:
+#
+#   Windows  IO Error: Cannot open file "...": <mensaje del sistema>
+#            File is already open in python.exe (PID 8)
+#   Linux    IO Error: Could not set lock on file "...":
+#            Conflicting lock is held in /usr/bin/python3 (PID 1670)
+#
+# Y NO se busca por el mensaje del sistema operativo aunque sea el que mas se
+# lee. El del usuario decia "El proceso no tiene acceso al archivo porque esta
+# siendo utilizado por otro proceso": esa parte viene traducida al idioma de
+# Windows, asi que buscar el texto en ingles habria fallado justo en la maquina
+# donde aparecio el problema. Comprobado al reproducirlo. Lo que escribe DuckDB
+# —lo de abajo— esta siempre en ingles.
+_MARCAS_DE_BLOQUEO = (
+    "already open in",
+    "conflicting lock is held",
+    "could not set lock",
+)
+
+
+def arrancar(main) -> None:
+    """Ejecuta un `main()` de consola traduciendo el almacen ocupado.
+
+    POR QUE ESTO NO ES COSMETICA
+
+    El usuario lanzo `stocks.ps1 daily` con el dashboard abierto y recibio
+    CINCO trazas de Python identicas —una por paso— de veinte lineas cada una,
+    sin una sola frase que dijera que hacer. La causa era trivial y el remedio
+    tambien: cerrar una ventana. Una traza obliga a leer codigo para averiguar
+    eso, y quien usa el programa para decidir inversiones no tiene por que.
+
+    Se traduce SOLO el bloqueo. Cualquier otro fallo sigue saliendo con su
+    traza entera: esconder un error que no se entiende es peor que ensenarlo.
+
+    Codigo 75 (EX_TEMPFAIL) para que un script pueda distinguir "no se ha
+    podido ahora" de un fallo de verdad.
+    """
+    import sys
+
+    try:
+        salida = main()
+    except AlmacenOcupado as exc:
+        print(f"\n{exc}\n", file=sys.stderr)
+        raise SystemExit(EXIT_OCUPADO) from None
+    if salida is not None:
+        raise SystemExit(salida)
+
+
 @contextmanager
 def connect(read_only: bool = False):
     """Conexion a DuckDB. Usar siempre como context manager."""
@@ -32,7 +124,7 @@ def connect(read_only: bool = False):
     _ensure_parent(path)
     if read_only and not path.exists():
         migrate()
-    conn = duckdb.connect(str(path), read_only=read_only)
+    conn = _abrir(path, read_only=read_only)
     try:
         yield conn
     finally:
@@ -44,7 +136,7 @@ def migrate() -> None:
     path = get_settings().warehouse_path
     _ensure_parent(path)
     sql = schema_path().read_text(encoding="utf-8")
-    conn = duckdb.connect(str(path))
+    conn = _abrir(path)
     try:
         conn.execute(sql)
     finally:

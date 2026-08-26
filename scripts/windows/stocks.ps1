@@ -741,7 +741,10 @@ switch ($Task) {
         Assert-Venv
         # El equivalente de scripts/daily_update.sh, que es bash y aqui no vale.
         # Un paso que falla NO detiene los siguientes: es preferible tener el
-        # dashboard con datos de ayer que dejarlo a medias sin alertas.
+        # dashboard con datos de ayer que dejarlo a medias sin alertas. Lo que
+        # SI se hace es contarlos y decirlo al final: un ciclo que fallo entero
+        # no puede terminar en silencio.
+        $fallos = @()
         foreach ($step in @(
             @{ Name = 'Ingesta'; Args = @('-m', 'stocks_tracker.ingest.run_ingest', '--what', 'all') },
             @{ Name = 'Ingesta de cripto'; Args = @('-m', 'stocks_tracker.ingest.ingest_crypto') },
@@ -752,6 +755,41 @@ switch ($Task) {
             Write-Step $step.Name
             try { & $Py @($step.Args) }
             catch { Write-Host "  $($step.Name) ha fallado, se continua." -ForegroundColor Yellow }
+
+            # EL `catch` NO BASTA, Y POR ESO ESTO ESTA AQUI.
+            #
+            # PowerShell no lanza excepcion cuando un programa externo termina
+            # con codigo distinto de cero: solo lo deja en $LASTEXITCODE. Asi
+            # que el `catch` de arriba no se ejecutaba nunca y la linea "se
+            # continua" no llego a imprimirse jamas.
+            #
+            # El usuario lanzo esto con el dashboard abierto y recibio CINCO
+            # trazas de Python seguidas, sin una sola frase del programa. Y
+            # despues `huella` le enseno un resultado perfecto -del calculo
+            # anterior- que parecia confirmar que todo habia ido bien.
+            #
+            # Un ciclo que falla entero y acaba en un resumen convincente es
+            # peor que uno que se para.
+            if ($LASTEXITCODE -ne 0) {
+                $fallos += $step.Name
+                if ($LASTEXITCODE -eq 75) {
+                    Write-Host ""
+                    Write-Host "  EL ALMACEN ESTA OCUPADO. Cierra el dashboard" -ForegroundColor Yellow
+                    Write-Host "  y vuelve a ejecutar esto: sin cerrarlo, ningun" -ForegroundColor Yellow
+                    Write-Host "  paso va a poder escribir." -ForegroundColor Yellow
+                    Write-Host ""
+                    break
+                }
+                Write-Host "  $($step.Name) ha fallado (codigo $LASTEXITCODE), se continua." -ForegroundColor Yellow
+            }
+        }
+
+        if ($fallos.Count -gt 0) {
+            Write-Host ""
+            Write-Host "  NO se ha completado el ciclo. Han fallado: $($fallos -join ', ')" -ForegroundColor Red
+            Write-Host "  Los datos que veas en el dashboard son los de antes." -ForegroundColor Red
+            Write-Host ""
+            exit 1
         }
 
         # La validacion de la estrategia se ejecuta SOLA, una vez por semana.

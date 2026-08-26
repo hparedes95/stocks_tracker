@@ -399,4 +399,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from ..core.db import arrancar
+
+    arrancar(main)
