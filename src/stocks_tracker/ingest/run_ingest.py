@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import uuid
 from datetime import date, datetime, timedelta
+from typing import NamedTuple
 
 import pandas as pd
 from rich.console import Console
@@ -626,8 +627,27 @@ def ultima_sesion_cerrada(ahora: datetime | None = None) -> date:
     return dia
 
 
+class Frescura(NamedTuple):
+    """La respuesta de `needs_update`, en TRES estados y no en dos.
+
+    `hace_falta` decide si se descarga; `atrasado` decide como se dice. Son
+    preguntas distintas y juntarlas producia el fallo que llego del uso real:
+    con el almacen dos sesiones por detras y nada que descargar, la pantalla
+    pintaba en verde "Datos al dia (sesion completa hasta el 31/08)" un jueves
+    dia 3.
+
+    No hay nada que bajar Y se va por detras del calendario pueden ser ciertas
+    a la vez -un festivo, o una descarga que no trajo lo que debia-, y la
+    segunda hay que decirla aunque la primera evite la descarga.
+    """
+
+    hace_falta: bool
+    motivo: str
+    atrasado: bool = False
+
+
 def needs_update(max_age_hours: float | None = None,
-                 ahora: datetime | None = None) -> tuple[bool, str]:
+                 ahora: datetime | None = None) -> Frescura:
     """¿Hacen falta datos nuevos? Devuelve (si_hace_falta, motivo).
 
     Se consulta desde el lanzador para ponerse al dia solo al abrir el
@@ -682,7 +702,7 @@ def needs_update(max_age_hours: float | None = None,
     # fichero no existe todavia, la respuesta correcta es "si, hacen falta
     # datos", no un error.
     if not settings.warehouse_path.exists():
-        return True, "el almacen todavia no existe"
+        return Frescura(True, "el almacen todavia no existe")
 
     try:
         with connect(read_only=True) as conn:
@@ -699,20 +719,21 @@ def needs_update(max_age_hours: float | None = None,
             # simplemente se quedo tres dias en la misma sesion.
             last_price = sesiones.ultima_completa(conn, "prices_daily")
             hasta_donde_llego = sesiones.ultima_de_los_indices(conn)
+            hasta_donde_miramos = sesiones.hasta_donde_miramos(conn)
             last_run = conn.execute(
                 "SELECT MAX(finished_at) FROM ingest_log WHERE status IN ('OK','PARTIAL')"
             ).fetchone()[0]
     except Exception as exc:  # noqa: BLE001
         # Si no se puede ni leer, lo prudente es NO lanzar una descarga: puede
         # que otro proceso este escribiendo justo ahora.
-        return False, f"no se ha podido consultar el almacen ({type(exc).__name__})"
+        return Frescura(False, f"no se ha podido consultar el almacen ({type(exc).__name__})")
 
     if synthetic:
-        return True, f"hay {synthetic} precios de prueba"
+        return Frescura(True, f"hay {synthetic} precios de prueba")
     if last_price is None:
-        return True, "no hay ninguna sesion completa en el almacen"
+        return Frescura(True, "no hay ninguna sesion completa en el almacen")
     if last_run is None:
-        return True, "no consta ninguna descarga"
+        return Frescura(True, "no consta ninguna descarga")
 
     momento = ahora or (utcnow() + horas_locales()).to_pydatetime()
     hours = (
@@ -723,7 +744,7 @@ def needs_update(max_age_hours: float | None = None,
     # sesiones dijera que todo va bien, una semana sin bajar nada tiene que
     # disparar una descarga igualmente.
     if hours > limit:
-        return True, f"la ultima descarga fue hace {hours:.0f} h"
+        return Frescura(True, f"la ultima descarga fue hace {hours:.0f} h")
 
     # Hasta donde llego el mercado. Los indices mandan cuando los hay: son la
     # unica fuente que distingue "aun no lo hemos bajado" de "ese dia fue
@@ -734,15 +755,103 @@ def needs_update(max_age_hours: float | None = None,
     # provisional de hoy, y pedir la sesion de hoy antes de que cierre solo
     # gasta peticiones para recibir la de ayer.
     tope = ultima_sesion_cerrada(momento)
-    sesion = min(hasta_donde_llego, tope) if hasta_donde_llego else tope
+
+    # LOS INDICES SOLO SABEN DE LOS DIAS QUE CUBREN, Y ESO ERA CIRCULAR
+    #
+    # `hasta_donde_llego` sale de NUESTRO almacen. Si no se descarga, los
+    # indices se quedan tan viejos como las acciones, `min()` devuelve la fecha
+    # de las acciones, y la comparacion se confirma a si misma: "al dia" para
+    # siempre.
+    #
+    # Reportado desde el uso real. Jueves 03/09 por la manana, ultima sesion
+    # completa el LUNES 31/08 -faltaban el martes y el miercoles, dos dias de
+    # mercado normales- y la pantalla decia en verde:
+    #
+    #     Datos al dia (sesion completa hasta el 31/08)
+    #
+    # La regla correcta: los indices son un oraculo de festivos SOLO para los
+    # dias que cubren. Si no van por delante de las acciones, no dicen nada de
+    # lo que paso despues, y hay que caer al calendario.
+    #
+    # PERO NO A CIEGAS, o vuelve el fallo que los indices vinieron a resolver:
+    # un festivo dispararia una descarga en cada arranque, para siempre, porque
+    # el calendario cree que hubo sesion y nunca la habra. Se distingue con
+    # `last_run`: si ya se descargo DESPUES de que ese cierre estuviera
+    # disponible y aun asi no entro nada, es que el mercado estaba cerrado. Si
+    # no se ha descargado desde entonces, es que no hemos mirado.
+    # HEMOS MIRADO DESPUES DEL CIERRE DE `tope`? Dos pruebas, y hace falta
+    # cualquiera de las dos. Ninguna basta sola:
+    #
+    #   Solo los indices  -> razonamiento circular. Salen de nuestro almacen,
+    #     asi que sin descargar se quedan tan viejos como las acciones y se
+    #     confirman a si mismos. Es el fallo que llego del uso real: "Datos al
+    #     dia (hasta el 31/08)" un jueves dia 3.
+    #
+    #   Solo `last_run`   -> ciego a lo que ya sabemos. En un festivo
+    #     estadounidense los indices europeos SI cotizan, y su barra demuestra
+    #     que se miro aunque `ingest_log` diga otra cosa.
+    #
+    # Con las dos, un festivo cuesta UNA descarga -la que resuelve la duda- y
+    # ninguna mas: despues, `last_run` ya es posterior al cierre.
+    disponible = pd.Timestamp(tope) + pd.Timedelta(hours=HORA_DISPONIBLE)
+    ya_miramos = bool(
+        (hasta_donde_miramos and hasta_donde_miramos > last_price)
+        or pd.Timestamp(last_run) >= (disponible - horas_locales())
+    )
+
+    if ya_miramos:
+        # Se ha mirado, asi que lo que no esta es porque no existe: fue
+        # festivo. La mayoria de los indices dice cual fue la ultima sesion.
+        sesion = min(hasta_donde_llego or last_price, tope)
+    else:
+        # No hemos mirado, y de lo que paso despues no sabemos nada. Manda el
+        # calendario: una descarga lo resuelve.
+        sesion = tope
 
     if last_price < sesion:
-        return True, (
+        return Frescura(True, (
             f"el mercado llego al {sesion:%d/%m} y la ultima sesion completa "
             f"que hay es la del {last_price:%d/%m}"
-        )
+        ))
 
-    return False, f"al dia (sesion completa hasta el {last_price:%d/%m})"
+    # NO se dice "al dia" a secas cuando se va por detras del calendario.
+    #
+    # Aqui no hay nada que descargar -o ya se intento-, pero eso no significa
+    # que los datos esten al dia: puede significar que el mercado estuvo
+    # cerrado, y puede significar que la ultima descarga no trajo lo que debia.
+    # Un "Datos al dia" en verde sobre una sesion de hace tres dias es el mismo
+    # verde tranquilizador por falta de datos que el resto del programa evita.
+    atraso = _sesiones_de_atraso(last_price, tope)
+    if atraso:
+        plural = "sesiones" if atraso > 1 else "sesion"
+        return Frescura(False, (
+            f"nada nuevo que descargar, pero la ultima sesion completa es la "
+            f"del {last_price:%d/%m}: {atraso} {plural} por detras del "
+            f"calendario ({tope:%d/%m}). O fueron festivos, o la ultima "
+            f"descarga no trajo lo que debia"
+        ), atrasado=True)
+
+    return Frescura(False, f"al dia (sesion completa hasta el {last_price:%d/%m})")
+
+
+def _sesiones_de_atraso(desde: date, hasta: date) -> int:
+    """Cuantos dias de mercado hay entre una fecha y otra, sin contar la
+    primera.
+
+    Es una aproximacion de lunes a viernes: no conoce los festivos, y por eso
+    solo se usa para REDACTAR el aviso, nunca para decidir si se descarga. Un
+    festivo hace que diga "una sesion por detras" cuando no lo esta, y eso es
+    una frase de mas, no una descarga de mas.
+    """
+    if hasta <= desde:
+        return 0
+    dias = 0
+    dia = desde + timedelta(days=1)
+    while dia <= hasta:
+        if dia.weekday() < 5:
+            dias += 1
+        dia += timedelta(days=1)
+    return dias
 
 
 def drop_synthetic() -> int:
@@ -898,10 +1007,17 @@ def main() -> None:
 
     # Solo consulta: no escribe, asi que no toma el bloqueo.
     if args.check_stale:
-        stale, reason = needs_update()
-        console.print(("[yellow]Hacen falta datos nuevos: " if stale
-                       else "[green]Datos ") + reason + "[/]")
-        raise SystemExit(1 if stale else 0)
+        frescura = needs_update()
+        if frescura.hace_falta:
+            color, cabecera = "yellow", "Hacen falta datos nuevos: "
+        elif frescura.atrasado:
+            # Ni verde ni "Datos al dia": no hay nada que bajar, pero el
+            # almacen va por detras y eso hay que verlo.
+            color, cabecera = "yellow", "Ojo: "
+        else:
+            color, cabecera = "green", "Datos "
+        console.print(f"[{color}]{cabecera}{frescura.motivo}[/]")
+        raise SystemExit(1 if frescura.hace_falta else 0)
 
     # Todo lo que escribe va dentro del bloqueo, incluido el borrado de los
     # datos de prueba y la reparacion: son las operaciones mas destructivas y

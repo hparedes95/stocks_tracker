@@ -166,6 +166,40 @@ def ultima_de_los_indices(conn) -> date | None:
     return max(votadas) if votadas else None
 
 
+def hasta_donde_miramos(conn) -> date | None:
+    """La fecha mas nueva que tiene CUALQUIER indice, aunque sea uno solo.
+
+    NO es lo mismo que `ultima_de_los_indices` y las dos hacen falta:
+
+        ultima_de_los_indices  ->  hasta donde llego EL MERCADO
+        hasta_donde_miramos    ->  hasta donde hemos MIRADO nosotros
+
+    La segunda existe porque la primera, por si sola, razona en circulo. Los
+    indices salen de nuestro propio almacen: si no se descarga, se quedan tan
+    viejos como las acciones, la comparacion se confirma a si misma y el
+    programa dice "al dia" para siempre.
+
+    Reportado desde el uso real: un jueves dia 3, con la ultima sesion completa
+    el lunes 31 y dos dias de mercado normales sin bajar, la pantalla decia en
+    verde "Datos al dia (sesion completa hasta el 31/08)".
+
+    Con una sola barra de un indice posterior a las acciones ya se sabe que SI
+    se ha descargado despues, y entonces el silencio del resto es informacion:
+    fue festivo. Sin ninguna, el silencio no dice nada.
+
+    Un indice basta a proposito. En un festivo estadounidense los europeos
+    cotizan igual, y son ellos los que demuestran que se miro.
+    """
+    fila = conn.execute(
+        """
+        SELECT MAX(p.date) FROM prices_daily p
+        JOIN instruments i USING (ticker)
+        WHERE i.asset_class = 'index'
+        """
+    ).fetchone()
+    return pd.Timestamp(fila[0]).date() if fila and fila[0] else None
+
+
 def sesiones_de_mercado(desde: date | None, hasta: date) -> int:
     """Dias de mercado entre dos fechas, sin contar `desde`.
 

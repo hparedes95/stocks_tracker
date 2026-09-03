@@ -154,7 +154,7 @@ def _lo_que_decide_el_lanzador() -> None:
     from ..ingest.run_ingest import needs_update, ultima_sesion_cerrada
 
     print(f"  Ultima sesion de mercado ya cerrada: {ultima_sesion_cerrada()}")
-    hace_falta, motivo = needs_update()
+    hace_falta, motivo, _ = needs_update()
     print(f"  Hay que DESCARGAR: {'si' if hace_falta else 'NO'} -> {motivo}")
     pendientes, por_que = sesiones_sin_calcular()
     print(f"  Hay que CALCULAR:  {'si' if pendientes else 'NO'} -> {por_que}")

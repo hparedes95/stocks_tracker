@@ -248,7 +248,23 @@ def auditar(*, muestra: int = MUESTRA, sesiones: int = SESIONES,
     for nombre in contrastes:
         lecturas.append(_lecturas_del_contraste(nombre, tickers, desde, hasta))
 
-    todas = pd.concat([df for df in lecturas if not df.empty], ignore_index=True)
+    con_datos = [df for df in lecturas if not df.empty]
+    if not con_datos:
+        # NI UNA LECTURA, DE NINGUNA FUENTE. Reventaba aqui con "No objects to
+        # concatenate", que no dice nada de lo que pasa.
+        #
+        # Y pasa en el caso mas normal: el almacen lleva unos dias sin
+        # actualizarse, la ventana de auditoria mira las ultimas sesiones, y en
+        # esas fechas no hay ni un precio nuestro ni del contraste. La
+        # respuesta correcta es "no hay nada que cruzar", no una traza.
+        console.print(
+            "[yellow]No hay precios en la ventana auditada, ni propios ni de "
+            "contraste.[/] Lo normal es que el almacen lleve dias sin "
+            "actualizarse: pon los datos al dia y vuelve a auditar."
+        )
+        return pd.DataFrame(columns=["ticker", "date", "veredicto"])
+
+    todas = pd.concat(con_datos, ignore_index=True)
     if todas.empty:
         console.print("[yellow]Ninguna fuente ha servido datos.[/]")
         return pd.DataFrame()

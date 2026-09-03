@@ -124,7 +124,7 @@ def test_una_descarga_reciente_pero_anterior_al_cierre_no_deja_al_dia(almacen):
     sembrar(ultimo_precio=MARTES,
             ultima_descarga=datetime(2026, 8, 19, 15, 0))   # UTC: 17:00 en Madrid
 
-    hace_falta, motivo = run_ingest.needs_update(
+    hace_falta, motivo, _ = run_ingest.needs_update(
         ahora=datetime(2026, 8, 20, 20, 0))                 # local: jueves por la tarde
 
     assert hace_falta, (
@@ -140,7 +140,7 @@ def test_el_cierre_de_ayer_lo_tenemos_y_hoy_aun_no_ha_cerrado(almacen):
     sembrar(ultimo_precio=MIERCOLES,
             ultima_descarga=datetime(2026, 8, 19, 21, 30))
 
-    hace_falta, motivo = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 20, 0))
+    hace_falta, motivo, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 20, 0))
 
     assert not hace_falta, motivo
 
@@ -150,7 +150,7 @@ def test_pasado_el_cierre_de_hoy_ya_hacen_falta_los_datos_de_hoy(almacen):
     sembrar(ultimo_precio=MIERCOLES,
             ultima_descarga=datetime(2026, 8, 19, 21, 30))   # UTC: 23:30 en Madrid
 
-    hace_falta, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
+    hace_falta, _, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
 
     assert hace_falta
 
@@ -160,7 +160,7 @@ def test_el_fin_de_semana_no_pide_datos_que_no_existen(almacen):
     sembrar(ultimo_precio=date(2026, 8, 21),                # viernes
             ultima_descarga=datetime(2026, 8, 21, 21, 30))
 
-    hace_falta, motivo = run_ingest.needs_update(
+    hace_falta, motivo, _ = run_ingest.needs_update(
         ahora=datetime(2026, 8, 22, 12, 0))                 # local: sabado
 
     assert not hace_falta, motivo
@@ -190,19 +190,47 @@ def test_un_festivo_no_dispara_una_descarga_en_cada_arranque(almacen):
 
     Si el miercoles fue festivo, no hay cierre del miercoles y no lo va a haber
     nunca. Mirando solo el calendario de lunes a viernes, el programa
-    descargaria en cada arranque, para siempre, contra un proveedor gratuito que
-    bloquea por abuso.
+    descargaria en cada arranque, para siempre, contra un proveedor gratuito
+    que bloquea por abuso.
 
-    Lo que lo evita ya no es una guarda temporal —esa fue el fallo— sino los
-    INDICES: si ^GSPC tampoco tiene el miercoles, el miercoles no hubo mercado.
+    CAMBIADO. Antes este test exigia CERO descargas, y para eso se apoyaba en
+    "si ^GSPC tampoco tiene el miercoles, el miercoles no hubo mercado". Eso es
+    un razonamiento circular: los indices salen de nuestro propio almacen, asi
+    que sin descargar se quedan tan viejos como las acciones y confirman
+    cualquier cosa. Es el fallo que llego del uso real —"Datos al dia (hasta el
+    31/08)" un jueves dia 3— y la unica forma de arreglarlo era dejar de
+    creerles cuando no van por delante.
+
+    Con la descarga de las 21:30, el cierre del miercoles todavia no existia
+    —no esta disponible hasta las 23:00—, asi que NO sabemos si hubo sesion. La
+    respuesta correcta es descargar UNA vez y salir de dudas.
+
+    Lo que este test protege es lo que dice su nombre: que no descargue en cada
+    arranque. Una vez si; en bucle no.
     """
     sembrar(ultimo_precio=MARTES,
             ultima_descarga=datetime(2026, 8, 19, 21, 30))
     con_indices(hasta=MARTES)              # los indices tampoco tienen el 19
 
-    hace_falta, motivo = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 20, 0))
+    primera, motivo, _ = run_ingest.needs_update(
+        ahora=datetime(2026, 8, 20, 20, 0))
+    assert primera, "sin datos posteriores al cierre, hay que ir a mirar"
 
-    assert not hace_falta, motivo
+    # Se descarga y no viene nada: era festivo. Queda constancia.
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO ingest_log VALUES ('r2', ?, ?, 'prices', 'all', "
+            "'OK', 0, 0, '')",
+            [pd.Timestamp("2026-08-20 20:05"), pd.Timestamp("2026-08-20 20:05")],
+        )
+
+    segunda, motivo, atrasado = run_ingest.needs_update(
+        ahora=datetime(2026, 8, 20, 20, 10))
+    assert not segunda, motivo
+    assert atrasado, (
+        "no hay nada que bajar, pero seguimos con la sesion del martes: eso se "
+        "dice, no se pinta en verde"
+    )
 
 
 def test_los_indices_por_delante_de_las_acciones_piden_descarga(almacen):
@@ -221,7 +249,7 @@ def test_los_indices_por_delante_de_las_acciones_piden_descarga(almacen):
             ultima_descarga=datetime(2026, 8, 20, 17, 55))
     con_indices(hasta=JUEVES)              # el mercado llego al jueves
 
-    hace_falta, motivo = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 18, 0))
+    hace_falta, motivo, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 18, 0))
 
     assert hace_falta, (
         f"una descarga de quince indices tapa que faltan 600 acciones: {motivo}"
@@ -239,7 +267,7 @@ def test_no_se_pide_la_sesion_de_hoy_antes_de_que_cierre(almacen):
             ultima_descarga=datetime(2026, 8, 20, 10, 0))
     con_indices(hasta=JUEVES)              # provisional del propio jueves
 
-    hace_falta, motivo = run_ingest.needs_update(
+    hace_falta, motivo, _ = run_ingest.needs_update(
         ahora=datetime(2026, 8, 20, 18, 0))          # jueves por la tarde
 
     assert not hace_falta, motivo
@@ -251,7 +279,7 @@ def test_no_se_pide_la_sesion_de_hoy_antes_de_que_cierre(almacen):
 def test_sin_almacen_hacen_falta_datos(almacen, monkeypatch):
     almacen.warehouse_path.unlink()
 
-    hace_falta, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 20, 0))
+    hace_falta, _, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 20, 0))
 
     assert hace_falta
 
@@ -262,7 +290,7 @@ def test_los_datos_de_prueba_siempre_piden_descarga(almacen):
     with db.connect() as conn:
         conn.execute("UPDATE prices_daily SET source = 'synthetic'")
 
-    hace_falta, motivo = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
+    hace_falta, motivo, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
 
     assert hace_falta
     assert "prueba" in motivo
@@ -275,14 +303,14 @@ def test_una_semana_sin_descargar_pide_datos_pase_lo_que_pase(almacen):
     sembrar(ultimo_precio=JUEVES,
             ultima_descarga=datetime(2026, 8, 13, 21, 30))
 
-    hace_falta, motivo = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 20, 0))
+    hace_falta, motivo, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 20, 0))
 
     assert hace_falta
     assert "h" in motivo
 
 
 def test_un_almacen_vacio_pide_datos(almacen):
-    hace_falta, motivo = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 20, 0))
+    hace_falta, motivo, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 20, 0))
 
     assert hace_falta
     assert "sesion completa" in motivo or "descarga" in motivo
@@ -724,7 +752,7 @@ def test_una_sesion_a_medias_no_deja_al_dia_a_la_ingesta(almacen):
              pd.Timestamp(datetime(2026, 8, 19, 15, 0))],
         )
 
-    hace_falta, motivo = run_ingest.needs_update(
+    hace_falta, motivo, _ = run_ingest.needs_update(
         ahora=datetime(2026, 8, 20, 20, 0))
 
     assert hace_falta, (
@@ -813,7 +841,7 @@ def test_un_festivo_estadounidense_no_dispara_un_bucle_de_descargas(almacen):
     sembrar(ultimo_precio=MIERCOLES, ultima_descarga=datetime(2026, 8, 19, 21, 30))
     con_los_siete_indices(hasta_us=MIERCOLES, hasta_eu=JUEVES)
 
-    hace_falta, motivo = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
+    hace_falta, motivo, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
 
     assert not hace_falta, (
         f"tres indices europeos hacen que se baje el universo entero: {motivo}"
@@ -826,7 +854,7 @@ def test_un_festivo_europeo_si_pide_descarga(almacen):
     sembrar(ultimo_precio=MIERCOLES, ultima_descarga=datetime(2026, 8, 19, 21, 30))
     con_los_siete_indices(hasta_us=JUEVES, hasta_eu=MIERCOLES)
 
-    hace_falta, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
+    hace_falta, _, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
 
     assert hace_falta
 
@@ -843,7 +871,7 @@ def test_la_pantalla_y_el_lanzador_dicen_lo_mismo_en_un_festivo(almacen):
     sembrar(ultimo_precio=MIERCOLES, ultima_descarga=datetime(2026, 8, 19, 21, 30))
     con_los_siete_indices(hasta_us=MIERCOLES, hasta_eu=JUEVES)
 
-    hace_falta, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
+    hace_falta, _, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
 
     assert not hace_falta
     assert da.sesiones_sin_descargar() == 0, (
@@ -889,3 +917,113 @@ def test_el_desfase_horario_sale_del_sistema_y_no_de_una_constante(almacen):
     real = dt.now().astimezone().utcoffset()
 
     assert run_ingest.horas_locales() == pd.Timedelta(real)
+
+
+# ---------------------------------------------------------------------------
+# El "Datos al dia" sobre una sesion de hace tres dias
+# ---------------------------------------------------------------------------
+def test_los_indices_parados_donde_las_acciones_no_certifican_nada(almacen):
+    """EL FALLO QUE LLEGO DEL USO REAL, CON SU CAPTURA.
+
+    Jueves 3 de septiembre por la manana. Ultima sesion completa: LUNES 31 de
+    agosto. El martes 1 y el miercoles 2 fueron dias de mercado normales en
+    Wall Street y en Europa. La pantalla decia, en verde:
+
+        Datos al dia (sesion completa hasta el 31/08)
+
+    El razonamiento era circular. `ultima_de_los_indices` sale de NUESTRO
+    almacen: si no se descarga, los indices se quedan tan viejos como las
+    acciones, `min(indices, calendario)` devuelve la fecha de las acciones, y
+    la comparacion `last_price < sesion` se confirma a si misma. Para siempre,
+    en cada arranque, sin que fallara nada.
+
+    La ultima descarga es de antes del cierre del miercoles, asi que tampoco
+    por ahi consta que se haya mirado: hay que ir a por los datos.
+    """
+    sembrar(ultimo_precio=date(2026, 8, 31),
+            ultima_descarga=datetime(2026, 9, 2, 17, 0))
+    con_indices(hasta=date(2026, 8, 31))   # los indices, igual de viejos
+
+    hace_falta, motivo, _ = run_ingest.needs_update(
+        ahora=datetime(2026, 9, 3, 9, 49))
+
+    assert hace_falta, (
+        "los indices no van por delante de las acciones: no certifican que el "
+        "martes y el miercoles fueran festivos, solo que no hemos mirado"
+    )
+    assert "02/09" in motivo and "31/08" in motivo
+
+
+def test_un_indice_por_delante_si_certifica_el_festivo(almacen):
+    """El contrapeso, y por que basta UN indice.
+
+    En un festivo estadounidense los mercados europeos cotizan igual. Una sola
+    barra posterior a las acciones demuestra que SI se ha descargado despues, y
+    entonces el silencio de los demas es informacion —ese dia no hubo sesion
+    alli— y no ignorancia.
+
+    Sin esta distincion, el arreglo de arriba haria descargar en bucle cada vez
+    que hay un festivo, que es justo lo que los indices vinieron a evitar.
+    """
+    sembrar(ultimo_precio=MIERCOLES,
+            ultima_descarga=datetime(2026, 8, 19, 21, 30))
+    con_los_siete_indices(hasta_us=MIERCOLES, hasta_eu=JUEVES)
+
+    hace_falta, motivo, _ = run_ingest.needs_update(
+        ahora=datetime(2026, 8, 20, 23, 30))
+
+    assert not hace_falta, motivo
+
+
+def test_ir_por_detras_del_calendario_no_se_pinta_en_verde(almacen):
+    """La otra mitad del arreglo, y la que se ve.
+
+    Que no haya nada que descargar NO significa que los datos esten al dia:
+    puede significar que el mercado estuvo cerrado, y puede significar que la
+    ultima descarga no trajo lo que debia. Un "Datos al dia" en verde sobre una
+    sesion de hace tres dias es el mismo verde tranquilizador por falta de
+    datos que el resto del programa existe para evitar.
+    """
+    sembrar(ultimo_precio=date(2026, 8, 31),
+            ultima_descarga=datetime(2026, 9, 2, 23, 30))
+    con_indices(hasta=date(2026, 8, 31))
+
+    hace_falta, motivo, atrasado = run_ingest.needs_update(
+        ahora=datetime(2026, 9, 3, 9, 49))
+
+    assert not hace_falta, "ya se miro despues del cierre: bajar otra vez no arregla"
+    assert atrasado, "pero se va por detras, y eso hay que decirlo"
+    assert "2 sesiones por detras" in motivo
+    assert "al dia" not in motivo
+
+
+def test_al_dia_de_verdad_sigue_saliendo_al_dia(almacen):
+    """Contrapeso del anterior: el aviso no puede salir siempre, o deja de
+    leerse. Con la ultima sesion cerrada en el almacen, no hay atraso."""
+    sembrar(ultimo_precio=date(2026, 9, 2),
+            ultima_descarga=datetime(2026, 9, 2, 23, 30))
+    con_indices(hasta=date(2026, 9, 2))
+
+    hace_falta, motivo, atrasado = run_ingest.needs_update(
+        ahora=datetime(2026, 9, 3, 9, 49))
+
+    assert not hace_falta
+    assert not atrasado
+    assert "al dia" in motivo
+
+
+def test_el_atraso_se_cuenta_en_sesiones_y_no_en_dias():
+    """Un fin de semana no son tres sesiones perdidas.
+
+    El viernes 28 al lunes 31 hay UNA sesion de por medio, no tres. Contar los
+    dias del calendario convertiria cualquier lunes en una alarma, y una alarma
+    que salta todos los lunes deja de leerse.
+    """
+    assert run_ingest._sesiones_de_atraso(
+        date(2026, 8, 28), date(2026, 8, 31)) == 1
+    # Y de lunes a miercoles si son dos, que es el caso de la captura.
+    assert run_ingest._sesiones_de_atraso(
+        date(2026, 8, 31), date(2026, 9, 2)) == 2
+    # Sin atraso, cero: la frase no se escribe.
+    assert run_ingest._sesiones_de_atraso(
+        date(2026, 9, 2), date(2026, 9, 2)) == 0

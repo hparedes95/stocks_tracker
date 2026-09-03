@@ -22,7 +22,17 @@ from stocks_tracker.core import db
 from stocks_tracker.ingest import run_audit
 from stocks_tracker.providers.consensus import Veredicto
 
-HOY = date(2026, 8, 20)
+# HOY ES HOY, NO UNA FECHA ESCRITA A MANO.
+#
+# `auditar` mira las ultimas sesiones contando desde `date.today()`. Con una
+# fecha fija, el dia que el calendario la dejaba fuera de esa ventana los tests
+# se quedaban sin una sola lectura y `pd.concat` reventaba con "No objects to
+# concatenate". Un test que caduca solo es peor que no tenerlo: falla un
+# miercoles cualquiera y parece que lo rompio el ultimo cambio.
+#
+# El fallo salio de verdad: dos tests se pusieron rojos al llegar el 03/09 sin
+# que nadie tocara la auditoria.
+HOY = date.today()
 
 
 @pytest.fixture
@@ -282,7 +292,7 @@ def _leer(monkeypatch, proveedor, capsys):
 
     monkeypatch.setattr(run_audit, "build_provider", lambda n: proveedor)  # noqa: ARG005
     salida = run_audit._lecturas_del_contraste(
-        "mudo", ["AAA", "BBB"], date(2026, 8, 10), date(2026, 8, 20))
+        "mudo", ["AAA", "BBB"], HOY - timedelta(days=10), HOY)
     return salida, capsys.readouterr().out
 
 
@@ -354,7 +364,7 @@ def test_no_se_le_piden_mas_valores_de_los_que_su_plan_aguanta(monkeypatch, caps
     monkeypatch.setattr(run_audit, "build_provider", lambda n: proveedor)  # noqa: ARG005
 
     run_audit._lecturas_del_contraste(
-        "con_tope", ["A", "B", "C", "D", "E"], date(2026, 8, 10), date(2026, 8, 20))
+        "con_tope", ["A", "B", "C", "D", "E"], HOY - timedelta(days=10), HOY)
 
     assert proveedor.pedidos == ["A", "B", "C"], proveedor.pedidos
     assert "limite del plan" in capsys.readouterr().out
@@ -385,3 +395,28 @@ def test_la_cuota_agotada_no_se_confunde_con_una_averia(monkeypatch, capsys):
     assert salida.empty
     assert "cuota" in texto.lower(), texto
     assert "no ha respondido" not in texto, texto
+
+
+def test_sin_precios_en_la_ventana_se_dice_en_vez_de_reventar(warehouse, capsys):
+    """EL FALLO QUE SALIO SOLO AL CAMBIAR EL DIA.
+
+    `auditar` mira las ultimas sesiones. Si el almacen lleva semanas sin
+    actualizarse, en esas fechas no hay ni un precio nuestro ni del contraste,
+    y `pd.concat([])` reventaba con:
+
+        ValueError: No objects to concatenate
+
+    Que no dice nada de lo que pasa, y aparece en la cara del usuario al
+    ejecutar `stocks.ps1 auditar` sobre un almacen viejo: exactamente la
+    situacion en la que esta quien acaba de descubrir que sus datos estan
+    atrasados y va a comprobarlos.
+    """
+    sembrar()
+    with db.connect() as conn:
+        # Todo el almacen, tres meses atras: fuera de la ventana auditada.
+        conn.execute("UPDATE prices_daily SET date = date - INTERVAL 90 DAY")
+
+    veredictos = run_audit.auditar(muestra=0, contrastes=["stooq"])
+
+    assert veredictos.empty
+    assert "ventana auditada" in capsys.readouterr().out
