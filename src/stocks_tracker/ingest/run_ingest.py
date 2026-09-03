@@ -115,7 +115,13 @@ def ingest_universe(provider_name: str | None = None,
         spec = universes.get(key)
         if spec is None:
             continue
-        members, origin = resolve_universe(key, spec.tickers, spec.source)
+        # Los ultimos conocidos, del almacen. Es el respaldo bueno cuando el
+        # scrapeo falla: cien tickers de la semana pasada se parecen al indice
+        # de hoy; los veinte de la lista manual, no. Ver `resolve_universe`.
+        with connect(read_only=True) as conn:
+            ultimos = membership.vigentes(conn, key)
+        members, origin = resolve_universe(
+            key, spec.tickers, spec.source, ultimos_conocidos=ultimos)
         resolved[key] = members
         # El origen se guarda porque decide si se pueden CERRAR intervalos de
         # composicion. Con una lista de respaldo no se puede: los que faltan no
@@ -306,8 +312,25 @@ def _tickers_to_download(universes: list[str] | None = None) -> list[str]:
             return df["ticker"].tolist()
 
     with connect(read_only=True) as conn:
+        # LA CRIPTO NO ENTRA POR AQUI, Y SE VEIA EN LA SALIDA REAL.
+        #
+        # Los pares se llaman 'BTC/EUR' porque asi los conoce Kraken, que es
+        # con quien opera el bot. Yahoo los llama 'BTC-EUR', y esta consulta se
+        # los pasaba con la barra:
+        #
+        #     Failed to get ticker 'BTC/EUR' reason: ...
+        #     ['BTC/EUR']: YFException(... HTTP 404 Not Found)
+        #     ['ETH/EUR', 'LINK/EUR', 'ADA/EUR', 'DOT/EUR', 'SOL/EUR']:
+        #         possibly delisted; no timezone found
+        #
+        # Seis descargas fallidas en cada ejecucion, con su traza de Yahoo, por
+        # unos precios que YA los trae `ingest_crypto` desde Kraken. Y si
+        # llegaran a entrar seria peor: sobrescribirian con datos de Yahoo unos
+        # precios que el bot usa para operar contra Kraken.
         df = conn.execute(
-            "SELECT ticker FROM instruments WHERE is_active ORDER BY ticker"
+            "SELECT ticker FROM instruments WHERE is_active "
+            "AND (asset_class IS NULL OR asset_class <> 'crypto') "
+            "ORDER BY ticker"
         ).fetchdf()
     if df.empty:
         return all_active_tickers()

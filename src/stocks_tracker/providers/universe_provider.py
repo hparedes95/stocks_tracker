@@ -225,15 +225,41 @@ def es_fiable(origen: str) -> bool:
 
 
 def resolve_universe(universe: str, manual_tickers: list[str],
-                     source: str = "manual") -> tuple[list[str], str]:
+                     source: str = "manual",
+                     ultimos_conocidos: list[str] | None = None
+                     ) -> tuple[list[str], str]:
     """Tickers de un universo y de donde han salido.
 
-    Con `source: wikipedia` se intenta la descarga y, si falla, se cae a la
-    lista manual. Preferimos un universo reducido pero funcionando a una pagina
-    en blanco porque Wikipedia cambio una cabecera.
+    Con `source: wikipedia` se intenta la descarga y, si falla, se cae en este
+    orden: los ULTIMOS CONOCIDOS -los que constan en el almacen de la ultima
+    vez que si se pudo leer- y solo despues la lista manual.
+
+    POR QUE EL ORDEN IMPORTA TANTO
+
+    La lista manual del NASDAQ100 son VEINTE tickers. En un ranking transversal
+    eso no es "un universo mas pequeno": es otro universo. Cada z-score sale de
+    la mediana de los valores presentes, asi que pasar de 100 a 20 reordena las
+    oportunidades enteras aunque los precios sean identicos.
+
+    Es lo que hacia que dos ordenadores del mismo usuario dieran listas
+    distintas: en uno el scrapeo funciono y en el otro no. Salio en la salida
+    real de una instalacion, con la cabecera que ya no existe:
+
+        NASDAQ100: No se encontro la tabla de constituyentes [...]
+        NASDAQ100: 20 tickers (manual (fallo la descarga))
+
+    Cien tickers de la semana pasada se parecen muchisimo mas al indice de hoy
+    que veinte escritos a mano hace un ano. La lista manual sigue existiendo
+    como ultimo recurso, para la primera ejecucion, cuando el almacen no tiene
+    nada que recordar.
     """
     if source != "wikipedia":
         return manual_tickers, "manual"
+
+    def _respaldo(motivo: str) -> tuple[list[str], str]:
+        if ultimos_conocidos and len(ultimos_conocidos) > len(manual_tickers):
+            return list(ultimos_conocidos), f"ultimos conocidos ({motivo})"
+        return manual_tickers, f"manual ({motivo})"
 
     try:
         constituents = UniverseProvider().fetch_constituents(universe)
@@ -244,18 +270,18 @@ def resolve_universe(universe: str, manual_tickers: list[str],
         # los dos casos, el unico sintoma seria un universo reducido a la lista
         # manual sin ningun motivo aparente.
         console.print(f"[red]  {universe}: {exc}[/]")
-        return manual_tickers, "manual (falta lxml)"
+        return _respaldo("falta lxml")
     except ProviderError as exc:
         # El motivo se imprime. Antes se descartaba, y "manual (fallo la
         # descarga)" era todo lo que se sabia: no distinguia un 403 de un
         # timeout, de un cambio de formato de la pagina o —lo que realmente
         # pasaba— de un fallo de programacion nuestro. Costo dias averiguarlo.
         console.print(f"[yellow]  {universe}: {exc}[/]")
-        return manual_tickers, "manual (fallo la descarga)"
+        return _respaldo("fallo la descarga")
 
     tickers = constituents["ticker"].tolist()
     if len(tickers) < 20:
-        return manual_tickers, "manual (descarga incompleta)"
+        return _respaldo("descarga incompleta")
 
     # Se unen ambas: la lista manual puede contener valores que interesan y que
     # el indice no incluye.

@@ -280,3 +280,30 @@ def aviso_de_supervivencia(anos: float, anos_backtest: float) -> str:
         "precios de las empresas desaparecidas no estan disponibles, asi que "
         "el sesgo se reduce pero no desaparece."
     )
+
+
+def vigentes(conn, universo: str) -> list[str]:
+    """Los miembros que constan hoy en un universo, ordenados.
+
+    PARA QUE SIRVE: ES EL RESPALDO BUENO CUANDO FALLA LA DESCARGA.
+
+    `resolve_universe` caia a la lista escrita a mano en `universe.yaml`, que
+    para el NASDAQ100 son VEINTE tickers. Y eso, en un ranking transversal, no
+    es "un universo mas pequeno": es otro universo. Cada z-score sale de la
+    mediana de los valores presentes, asi que pasar de 100 a 20 reordena la
+    lista entera aunque los precios sean identicos.
+
+    Es lo que hacia que dos ordenadores del mismo usuario dieran oportunidades
+    distintas: en uno el scrapeo de Wikipedia funciono y en el otro no, y nada
+    lo decia salvo una linea entre cientos.
+
+    Aqui esta la lista de verdad: la de la ultima vez que SI se pudo leer.
+    Cien tickers de hace una semana se parecen mucho mas al indice de hoy que
+    veinte escritos a mano hace un ano.
+    """
+    filas = conn.execute(
+        "SELECT ticker FROM universe_membership "
+        "WHERE universe = ? AND valid_to IS NULL ORDER BY ticker",
+        [universo],
+    ).fetchall()
+    return [t for (t,) in filas]

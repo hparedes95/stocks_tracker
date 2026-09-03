@@ -52,7 +52,7 @@ class FakeProvider:
 def three_tickers(monkeypatch):
     from stocks_tracker.core import config
 
-    def fake_resolve(universe, manual, source="manual"):
+    def fake_resolve(universe, manual, source="manual", **kwargs):
         return (["AAA", "BBB", "CCC"], "manual") if universe == "SP500" else ([], "manual")
 
     monkeypatch.setattr(run_ingest, "resolve_universe", fake_resolve)
