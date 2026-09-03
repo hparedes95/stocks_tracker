@@ -8,6 +8,7 @@ otro escupe seis trazas de Yahoo en cada descarga.
 from __future__ import annotations
 
 import pathlib
+from datetime import date
 
 import duckdb
 
@@ -201,3 +202,116 @@ def test_un_instrumento_sin_clase_declarada_si_se_descarga(tmp_path, monkeypatch
                      "VALUES ('VIEJA', 'Sin clase', TRUE)")
 
     assert "VIEJA" in run_ingest._tickers_to_download()
+
+
+# ---------------------------------------------------------------------------
+# El universo que encoge de un dia para otro
+# ---------------------------------------------------------------------------
+def test_el_aviso_de_encogimiento_dice_CUALES_faltan(tmp_path, monkeypatch,
+                                                      capsys):
+    """"72 menos" no se puede accionar.
+
+    Salio del uso real: el usuario vio
+
+        El universo ha encogido: 601 -> 529 valores (72 menos).
+
+    y no habia forma de saber cuales sin abrir la base de datos. No es lo mismo
+    que falte un indice entero, que un mercado cerrara antes ese dia, o que
+    Yahoo diera tres tickers por deslistados: cada una se arregla distinto y
+    desde fuera se ven igual.
+    """
+    import pandas as pd
+
+    from stocks_tracker.compute import run_compute as rc
+    from stocks_tracker.core import db
+
+    class Stub:
+        warehouse_path = tmp_path / "w3.duckdb"
+        compute: dict = {"weights_preset": "balanced"}
+        raw: dict = {}
+        ui: dict = {}
+
+    monkeypatch.setattr(db, "get_settings", lambda: Stub())
+    db.migrate()
+
+    ayer, hoy = date(2026, 9, 1), date(2026, 9, 2)
+    antes = [f"T{i:03d}" for i in range(100)]
+    ahora = antes[:60]                     # cuarenta se caen
+
+    with db.connect() as conn:
+        for t in antes:
+            conn.execute(
+                "INSERT INTO factor_scores (ticker, date, weights_hash, "
+                "composite) VALUES (?, ?, 'w1', 1.0)", [t, ayer])
+        rc._registrar_universo(conn, ayer, "w1", antes,
+                               pd.Series(["Tech"] * len(antes)))
+        rc._registrar_universo(conn, hoy, "w1", ahora,
+                               pd.Series(["Tech"] * len(ahora)))
+
+    salida = capsys.readouterr().out
+    assert "100 -> 60" in salida
+    assert "Los que faltan" in salida
+    assert "T060" in salida, "el primero que se cayo tiene que nombrarse"
+
+
+def test_no_se_listan_seiscientos_tickers_en_la_consola(tmp_path, monkeypatch,
+                                                        capsys):
+    """Un volcado de seiscientos nombres no se lee, y ademas tapa el resto de
+    la salida. Se ensenan quince y se dice cuantos quedan."""
+    import pandas as pd
+
+    from stocks_tracker.compute import run_compute as rc
+    from stocks_tracker.core import db
+
+    class Stub:
+        warehouse_path = tmp_path / "w4.duckdb"
+        compute: dict = {"weights_preset": "balanced"}
+        raw: dict = {}
+        ui: dict = {}
+
+    monkeypatch.setattr(db, "get_settings", lambda: Stub())
+    db.migrate()
+
+    ayer, hoy = date(2026, 9, 1), date(2026, 9, 2)
+    antes = [f"T{i:03d}" for i in range(600)]
+    with db.connect() as conn:
+        for t in antes:
+            conn.execute(
+                "INSERT INTO factor_scores (ticker, date, weights_hash, "
+                "composite) VALUES (?, ?, 'w1', 1.0)", [t, ayer])
+        rc._registrar_universo(conn, ayer, "w1", antes,
+                               pd.Series(["Tech"] * len(antes)))
+        rc._registrar_universo(conn, hoy, "w1", antes[:100],
+                               pd.Series(["Tech"] * 100))
+
+    salida = capsys.readouterr().out
+    assert "y 485 mas" in salida
+    assert salida.count("T1") < 60, "no se vuelca la lista entera"
+
+
+def test_sin_encogimiento_no_se_nombra_a_nadie(tmp_path, monkeypatch, capsys):
+    """El contrapeso. Que entren y salgan dos valores es la vida normal de un
+    indice: un aviso que sale cada dia deja de leerse."""
+    import pandas as pd
+
+    from stocks_tracker.compute import run_compute as rc
+    from stocks_tracker.core import db
+
+    class Stub:
+        warehouse_path = tmp_path / "w5.duckdb"
+        compute: dict = {"weights_preset": "balanced"}
+        raw: dict = {}
+        ui: dict = {}
+
+    monkeypatch.setattr(db, "get_settings", lambda: Stub())
+    db.migrate()
+
+    ayer, hoy = date(2026, 9, 1), date(2026, 9, 2)
+    antes = [f"T{i:03d}" for i in range(100)]
+    with db.connect() as conn:
+        rc._registrar_universo(conn, ayer, "w1", antes,
+                               pd.Series(["Tech"] * len(antes)))
+        rc._registrar_universo(conn, hoy, "w1", antes[:99],
+                               pd.Series(["Tech"] * 99))
+
+    assert "ha encogido" not in capsys.readouterr().out

@@ -475,6 +475,36 @@ def _registrar_universo(conn, day, whash: str, tickers: list[str],
             "constituyentes y el universo se haya caido a la lista manual. "
             "Comprueba la ingesta antes de fiarte de estas oportunidades.[/]"
         )
+        # CUALES, Y NO SOLO CUANTOS.
+        #
+        # "72 menos" no se puede accionar: no dice si falta un indice entero,
+        # un mercado que ese dia cerro antes, o tres tickers que Yahoo dio por
+        # deslistados. Cada una se arregla distinto y desde fuera se ven igual.
+        #
+        # Salio del uso real: el usuario vio "601 -> 529 valores (72 menos)" y
+        # la unica forma de saber cuales era abrir la base de datos.
+        faltan = _quienes_faltan(conn, anterior[0], whash, tickers)
+        if faltan:
+            muestra = ", ".join(faltan[:15])
+            resto = f" y {len(faltan) - 15} mas" if len(faltan) > 15 else ""
+            console.print(f"[yellow]Los que faltan: {muestra}{resto}.[/]")
+
+
+def _quienes_faltan(conn, fecha_anterior, whash: str,
+                    ahora: list[str]) -> list[str]:
+    """Los tickers que se puntuaron la sesion pasada y hoy no.
+
+    Se leen de `factor_scores`, que es donde queda constancia de que un valor
+    ENTRO en el ranking. `universe_membership` no vale aqui: dice quien
+    pertenece al indice, no quien tenia precio ese dia, y la mayoria de las
+    bajas de un dia para otro son lo segundo.
+    """
+    filas = conn.execute(
+        "SELECT ticker FROM factor_scores WHERE weights_hash = ? AND date = ?",
+        [whash, fecha_anterior],
+    ).fetchall()
+    presentes = set(ahora)
+    return sorted(t for (t,) in filas if t not in presentes)
 
 
 # Factores que salen solo del precio. Los demas —calidad, valor, crecimiento,
