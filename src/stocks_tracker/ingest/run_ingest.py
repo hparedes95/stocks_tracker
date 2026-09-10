@@ -415,7 +415,18 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
         relayed = df.attrs.get("relayed_tickers", {})
         notes = []
         if failed:
-            notes.append(f"{len(failed)} tickers fallidos")
+            # CUALES, Y NO SOLO CUANTOS. Es el mismo criterio que el aviso de
+            # encogimiento del universo, y por la misma razon: "12 tickers
+            # fallidos" no se puede accionar. No es lo mismo que falle un
+            # mercado entero por un festivo local, que fallen tres valores que
+            # Yahoo da por deslistados sin estarlo, o que se haya agotado el
+            # presupuesto de peticiones a mitad de la lista. Cada una se
+            # arregla distinto y desde la consola se ven exactamente igual.
+            #
+            # Es ademas lo unico que permite responder a "MMC sale como
+            # possibly delisted": con el nombre delante se comprueba en un
+            # minuto si el ticker existe; con un contador, no.
+            notes.append(f"{len(failed)} tickers fallidos: {_nombrar(failed)}")
         if relayed:
             # Saber que el respaldo entro en juego es la senal de que la fuente
             # principal se esta rompiendo. Sin registrarlo, el relevo es
@@ -466,6 +477,19 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
 
     _avisar_de_la_calidad(problemas, revisiones_totales)
     return total
+
+
+def _nombrar(tickers: list[str], maximo: int = 15) -> str:
+    """Los nombres, no el numero. Recortado para que no tape el resto.
+
+    Quince y "y N mas": una lista de seiscientos no se lee y esconderia todo lo
+    demas que la ingesta tiene que decir. Van ordenados para que dos ejecuciones
+    con los mismos fallos escriban lo mismo y se puedan comparar de un vistazo.
+    """
+    nombres = sorted(dict.fromkeys(tickers))
+    muestra = ", ".join(nombres[:maximo])
+    resto = len(nombres) - maximo
+    return f"{muestra} y {resto} mas" if resto > 0 else muestra
 
 
 def _con_ohlc(conn) -> set[str]:

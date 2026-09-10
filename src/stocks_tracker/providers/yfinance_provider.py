@@ -10,6 +10,7 @@ comprueba recorriendo el AST de todo `src/`.
 
 from __future__ import annotations
 
+import math
 import random
 import time
 from datetime import date
@@ -88,6 +89,113 @@ def _extraer_acciones(frames: list) -> list[dict]:
     ).to_dict("records")
 
 
+# ---------------------------------------------------------------------------
+# La unidad de la rentabilidad por dividendo
+# ---------------------------------------------------------------------------
+# Yahoo CAMBIO LA UNIDAD DE `dividendYield` SIN CAMBIARLE EL NOMBRE.
+#
+# Antes publicaba 0.023 para un 2,3 %; ahora publica 2.3 para lo mismo. El campo
+# se sigue llamando igual, sigue siendo un numero y sigue teniendo una pinta
+# perfectamente razonable, asi que nada falla: el dato entra, se guarda y se
+# pinta.
+#
+# Lo que se veia en la instalacion del usuario era esto, y ninguna de las tres
+# lineas mencionaba la palabra "unidad":
+#
+#     Fundamentales imposibles descartados del ranking: dividend_yield (219)
+#
+# 219 de 529 valores. Ese numero es la firma del problema: no son 219 empresas
+# con el dato mal, son todas las que reparten mas de un 0,5 % de dividendo, que
+# es donde `consistency.IMPOSIBLES` pone el techo de lo posible (0, 0.50).
+# Leyendo 2.3 como fraccion, esa empresa reparte el 230 % de su cotizacion.
+#
+# El resto de la aplicacion espera FRACCION y no hay ninguna duda al respecto:
+# la ficha del valor lo formatea con "{:.2%}", la pagina de oportunidades lo
+# multiplica por 100 para enseñarlo, el panel de costes lo multiplica por 100
+# antes de pasarlo a `costs.dividendo_neto`, y `factors.yaml` declara la
+# submetrica con `max_valid: 0.20`. Asi que el desajuste se arregla AQUI, en el
+# adaptador, que es el unico sitio que sabe de que proveedor viene el numero.
+# Ensanchar el limite de cordura habria hecho pasar el dato malo por bueno.
+#
+# COMO SE DECIDE LA UNIDAD
+#
+# No por el tamaño del numero: 0.44 puede ser un 44 % (fraccion) o un 0,44 %
+# (porcentaje), y las dos lecturas caen dentro de lo que un rango admite. Se
+# decide con un ANCLA que no depende de la unidad en disputa: el dividendo
+# anual por accion dividido entre el precio. Los dos vienen en la divisa del
+# valor, asi que su cociente es una fraccion pase lo que pase con `dividendYield`.
+# Es el mismo criterio que `consistency` aplica a la beta: contrastar el numero
+# declarado contra uno calculado por nuestra cuenta.
+#
+# Sin ancla solo se corrige lo que es imposible en la otra lectura -por encima
+# de 1.0, o sea mas del 100 %- y lo demas se deja tal cual para que lo vea
+# `consistency`. Adivinar en la banda ambigua seria elegir a cara o cruz, que es
+# justo lo que el resto del modulo se niega a hacer.
+_LIMITE_FRACCION = 1.0
+
+
+def _numero(valor) -> float | None:
+    """Un float utilizable, o nada. Los huecos de Yahoo llegan como None."""
+    try:
+        salida = float(valor)
+    except (TypeError, ValueError):
+        return None
+    return salida if math.isfinite(salida) else None
+
+
+def _ancla_dividendo(info: dict) -> float | None:
+    """Rentabilidad por dividendo calculada por nuestra cuenta, en fraccion.
+
+    `dividendRate` es un IMPORTE por accion y el precio es otro importe: los dos
+    en la divisa del valor. Su cociente es una fraccion sin discusion posible,
+    venga como venga `dividendYield`.
+
+    `trailingAnnualDividendYield` sirve de segundo ancla. Es un campo distinto
+    del que cambio de unidad y Yahoo lo ha servido siempre en fraccion, pero
+    mira a los doce meses PASADOS mientras que `dividendYield` mira a los doce
+    siguientes: sirve para decidir la unidad, no para sustituir al declarado.
+    """
+    importe = _numero(info.get("dividendRate"))
+    precio = next(
+        (p for p in (_numero(info.get("currentPrice")),
+                     _numero(info.get("regularMarketPrice")),
+                     _numero(info.get("previousClose")))
+         if p is not None and p > 0),
+        None,
+    )
+    if importe is not None and importe > 0 and precio:
+        return importe / precio
+
+    trailing = _numero(info.get("trailingAnnualDividendYield"))
+    return trailing if trailing is not None and trailing > 0 else None
+
+
+def rendimiento_dividendo(info: dict) -> float | None:
+    """`dividendYield` de Yahoo, siempre en fraccion (0.023 = 2,3 %).
+
+    Publica para poder probarla con diccionarios de `info` de verdad sin montar
+    una descarga: el fallo que arregla no da error y solo se ve en el valor.
+    """
+    declarado = _numero(info.get("dividendYield"))
+    ancla = _ancla_dividendo(info)
+
+    if ancla is not None:
+        if declarado is None or declarado <= 0:
+            return ancla
+        # De las dos lecturas posibles del declarado gana la que se parece al
+        # ancla. No hace falta nada mas fino: las dos lecturas se llevan un
+        # factor 100 entre si, asi que la buena no se acerca a la mala ni con
+        # el ancla mas imprecisa.
+        return min((declarado, declarado / 100.0),
+                   key=lambda lectura: abs(lectura - ancla))
+
+    if declarado is None:
+        return None
+    # Sin ancla: solo lo que como fraccion seria imposible. Repartir mas del
+    # 100 % de la cotizacion en dividendos no existe; un 0,44 % si.
+    return declarado / 100.0 if declarado > _LIMITE_FRACCION else declarado
+
+
 def _is_rate_limit(exc: Exception) -> bool:
     text = f"{type(exc).__name__} {exc}".lower()
     return "ratelimit" in text or "429" in text or "too many requests" in text
@@ -155,7 +263,31 @@ class YFinanceProvider:
                     progress=False,
                 )
                 self.requests_used += 1
-                frames.append(self._reshape(raw, chunk))
+                trozo = self._reshape(raw, chunk)
+                frames.append(trozo)
+                # LOS QUE VUELVEN VACIOS SIN QUE NADIE PROTESTE.
+                #
+                # `yf.download` no lanza cuando un ticker del lote no trae
+                # nada: devuelve el lote sin sus columnas y escribe por su
+                # cuenta una linea que ni siquiera pasa por aqui.
+                #
+                #     ['MMC']: possibly delisted; no timezone found
+                #
+                # `_reshape` los saltaba con un `continue` y ahi se acababa la
+                # historia: no entraban en `failed`, no se contaban y no se
+                # nombraban. Ese valor se quedaba sin precio ese dia, salia del
+                # ranking y reaparecia dias despues dentro de un "72 menos"
+                # sin ninguna forma de saber que era el.
+                #
+                # Y "possibly delisted" casi nunca es un deslistado: MMC cotiza.
+                # Es lo que Yahoo dice cuando no le apetece servir un simbolo.
+                # Por eso van a `failed` y no a un mensaje de baja: `failed` es
+                # lo que la cadena le vuelve a pedir a Stooq, que es justo lo
+                # que hay que hacer con un valor que sigue cotizando.
+                servidos = (set(trozo["ticker"].unique())
+                            if not trozo.empty and "ticker" in trozo.columns
+                            else set())
+                failed.extend(t for t in chunk if t not in servidos)
             except Exception as exc:  # noqa: BLE001
                 if _is_rate_limit(exc):
                     # Se marca el resto como fallido y se sale: insistir cuando
@@ -358,7 +490,7 @@ class YFinanceProvider:
                     "debt_to_equity": info.get("debtToEquity"),
                     "net_debt_to_ebitda": self._net_debt_to_ebitda(info),
                     "current_ratio": info.get("currentRatio"),
-                    "dividend_yield": info.get("dividendYield"),
+                    "dividend_yield": rendimiento_dividendo(info),
                     "payout_ratio": info.get("payoutRatio"),
                     "shares_outstanding": info.get("sharesOutstanding"),
                     "beta": info.get("beta"),

@@ -315,3 +315,116 @@ def test_sin_encogimiento_no_se_nombra_a_nadie(tmp_path, monkeypatch, capsys):
                                pd.Series(["Tech"] * 99))
 
     assert "ha encogido" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# El ticker que vuelve vacio sin que nadie proteste
+# ---------------------------------------------------------------------------
+# "MMC aparece como possibly delisted" y MMC cotiza: es Marsh & McLennan, del
+# NYSE, y entra por la lista MANUAL de SP100, asi que no tiene nada que ver con
+# que el scrapeo del NASDAQ100 falle. Lo que pasa es esto:
+#
+#     ['MMC']: possibly delisted; no timezone found
+#
+# `yf.download` no lanza cuando un ticker del lote no trae nada. Devuelve el
+# lote sin sus columnas y escribe esa linea por su cuenta. El ticker se caia por
+# un `continue` y no aparecia en ningun contador: se quedaba sin precio ese dia,
+# salia del ranking y reaparecia dias despues dentro de un "72 menos".
+class _YahooFalso:
+    """El modulo yfinance, con lo justo para `fetch_ohlcv`."""
+
+    def __init__(self, mudos: set[str]):
+        self.mudos = mudos
+
+    def download(self, tickers, start, end, **kwargs):
+        import pandas as pd
+
+        sirve = [t for t in tickers if t not in self.mudos]
+        if not sirve:
+            return pd.DataFrame()
+        fechas = pd.to_datetime([date(2026, 9, 1), date(2026, 9, 2)])
+        columnas = pd.MultiIndex.from_product(
+            [sirve, ["Open", "High", "Low", "Close", "Adj Close", "Volume"]])
+        return pd.DataFrame(1.0, index=fechas, columns=columnas).rename_axis("Date")
+
+
+def _descarga(monkeypatch, tickers, mudos):
+    from stocks_tracker.providers import yfinance_provider as yp
+
+    monkeypatch.setattr(yp, "_import_yfinance", lambda: _YahooFalso(set(mudos)))
+    monkeypatch.setattr(yp.YFinanceProvider, "_pause", lambda self: None)
+    proveedor = yp.YFinanceProvider()
+    return proveedor.fetch_ohlcv(tickers, date(2026, 9, 1), date(2026, 9, 3))
+
+
+def test_un_ticker_que_vuelve_vacio_consta_como_fallido(monkeypatch):
+    """El fallo: Yahoo sirve el lote menos MMC y MMC desaparece sin dejar rastro.
+
+    Tiene que constar en `failed_tickers` y no en un mensaje de baja, porque es
+    justo lo que la cadena le vuelve a pedir a Stooq. Un valor que sigue
+    cotizando merece un segundo intento, no un certificado de defuncion.
+    """
+    salida = _descarga(monkeypatch, ["AAPL", "MMC", "MSFT"], mudos={"MMC"})
+
+    assert set(salida["ticker"]) == {"AAPL", "MSFT"}
+    assert salida.attrs["failed_tickers"] == ["MMC"], (
+        "el ticker que Yahoo no sirvio se ha perdido sin contarse"
+    )
+
+
+def test_los_que_si_llegan_no_se_marcan_como_fallidos(monkeypatch):
+    """El contrapeso. Marcar de mas dispararia el relevo a Stooq para el
+    universo entero y mezclaria dos fuentes en cada serie."""
+    salida = _descarga(monkeypatch, ["AAPL", "MSFT"], mudos=set())
+
+    assert salida.attrs["failed_tickers"] == []
+
+
+def test_un_lote_entero_mudo_tambien_se_nombra(monkeypatch):
+    """Un festivo local deja mudo un mercado entero. Sigue siendo informacion:
+    lo que no puede pasar es que se descarte en silencio."""
+    salida = _descarga(monkeypatch, ["SAN.MC", "BBVA.MC"], mudos={"SAN.MC", "BBVA.MC"})
+
+    assert set(salida.attrs["failed_tickers"]) == {"SAN.MC", "BBVA.MC"}
+
+
+# ---------------------------------------------------------------------------
+# Y que la consola diga CUALES
+# ---------------------------------------------------------------------------
+def test_la_ingesta_nombra_los_fallidos_y_no_solo_los_cuenta():
+    """"12 tickers fallidos" no se puede accionar.
+
+    No es lo mismo que falle un mercado entero por un festivo, que fallen tres
+    valores que Yahoo da por deslistados sin estarlo, o que se agote el
+    presupuesto de peticiones a mitad de la lista. Es el mismo criterio que el
+    aviso de encogimiento del universo.
+    """
+    from stocks_tracker.ingest.run_ingest import _nombrar
+
+    assert _nombrar(["MMC"]) == "MMC"
+    assert _nombrar(["MSFT", "AAPL"]) == "AAPL, MSFT", "sin orden no se comparan"
+    assert _nombrar(["MMC", "MMC"]) == "MMC", "el mismo ticker no es dos fallos"
+
+
+def test_una_lista_larga_se_recorta():
+    """Seiscientos nombres taparian todo lo demas que la ingesta tiene que
+    decir, que es exactamente lo contrario de lo que se busca."""
+    from stocks_tracker.ingest.run_ingest import _nombrar
+
+    salida = _nombrar([f"T{i:03d}" for i in range(40)])
+
+    assert salida.startswith("T000, T001")
+    assert salida.endswith("y 25 mas")
+    assert "T020" not in salida
+
+
+def test_la_consola_recibe_los_nombres_y_no_solo_el_numero():
+    """Guardarrail sobre el codigo real: volver a `f"{len(failed)} fallidos"` a
+    secas es un cambio de una linea que ningun test de unidad detecta."""
+    from stocks_tracker.core.config import project_root
+
+    src = (project_root()
+           / "src/stocks_tracker/ingest/run_ingest.py").read_text("utf-8")
+    bloque = src[src.index("def ingest_prices"):src.index("def _nombrar")]
+
+    assert "_nombrar(failed)" in bloque
