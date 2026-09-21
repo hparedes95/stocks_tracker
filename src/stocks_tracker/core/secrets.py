@@ -71,6 +71,16 @@ CREDENTIALS: tuple[Credential, ...] = (
         ),
     ),
     Credential(
+        env="ALPHA_VANTAGE_API_KEY", venue="datos",
+        purpose="Fuente adicional para contrastar precios de acciones de EE.UU.",
+        how="Clave gratuita en alphavantage.co/support/#api-key",
+        required_for_trading=False,
+        danger=(
+            "No mueve dinero. La cuota gratuita es pequena; si la clave se "
+            "filtra pueden agotarla y dejar la auditoria sin esta fuente."
+        ),
+    ),
+    Credential(
         env="FINNHUB_API_KEY", venue="noticias",
         purpose="Titulares por empresa y sentimiento textual orientativo",
         how="Cuenta gratuita en finnhub.io/register",

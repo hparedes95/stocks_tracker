@@ -465,9 +465,14 @@ def _proveedores(conn) -> Punto:
     ).fetchall())
     reales = {k: v for k, v in servidas.items() if k != "synthetic"}
 
-    from ..providers.twelve_data_provider import api_key
+    from ..providers.alpha_vantage_provider import api_key as alpha_key
+    from ..providers.twelve_data_provider import api_key as twelve_key
 
-    configurados = ["twelve_data"] if api_key() else []
+    configurados = []
+    if twelve_key():
+        configurados.append("twelve_data")
+    if alpha_key():
+        configurados.append("alpha_vantage")
     sin_estrenar = [n for n in configurados if n not in reales]
 
     if not reales:

@@ -8,13 +8,14 @@ paths:
 timezone: Europe/Madrid
 
 providers:
-  # Cadena de respaldo. El relevo ocurre POR TICKER y despues de intentarlo:
-  # lo que yfinance no consigue traer se le pide a Stooq. Ver providers/chain.py.
+  # Cadena de respaldo. El BCE sirve primero los pares de divisa con una fuente
+  # oficial y gratuita; para acciones no hace ninguna peticion. El relevo
+  # ocurre POR TICKER: lo que no cubre pasa a Yahoo y despues a Stooq.
   #
   # Stooq no ajusta el cierre por dividendos, asi que una serie servida a
   # medias por cada fuente tendria un salto artificial. `make repair` detecta
   # esas series y las reconstruye enteras desde una sola fuente.
-  price: [yfinance, stooq]
+  price: [ecb, yfinance, stooq]
   fundamentals: [yfinance]
 
 ingest:
@@ -61,9 +62,9 @@ consensus:
   # Proveedores de CONTRASTE. El almacen ya aporta lo que sirvio Yahoo, asi que
   # aqui van los demas.
   #
-  # Cuando haya clave, anadir `twelve_data`: con TRES fuentes, dos que
-  # concuerden hacen mayoria y la discrepante queda nombrada, en vez de quedarse
-  # todo en "no se sabe cual falla".
+  # Cuando haya clave, Twelve Data y/o Alpha Vantage entran automaticamente en
+  # la auditoria: no hace falta editar este fichero. Con TRES fuentes, dos que
+  # concuerden hacen mayoria y la discrepante queda nombrada.
   #   1. Cuenta gratuita en twelvedata.com (800 peticiones/dia)
   #   2. La clave va en el .env, NUNCA aqui: este fichero esta en el repositorio
   #      y el repositorio es publico.

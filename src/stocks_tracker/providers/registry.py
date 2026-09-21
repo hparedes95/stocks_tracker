@@ -31,6 +31,18 @@ def _build_twelve_data():
     return TwelveDataProvider()
 
 
+def _build_alpha_vantage():
+    from .alpha_vantage_provider import AlphaVantageProvider
+
+    return AlphaVantageProvider()
+
+
+def _build_ecb():
+    from .ecb_provider import EcbFxProvider
+
+    return EcbFxProvider()
+
+
 def _build_kraken():
     from .kraken_provider import KrakenPriceProvider
 
@@ -50,6 +62,11 @@ _BUILDERS["kraken"] = _build_kraken
 # universo. Existe para ser el TERCERO en la auditoria cruzada, donde se piden
 # decenas de valores y no cientos.
 _BUILDERS["twelve_data"] = _build_twelve_data
+_BUILDERS["alpha_vantage"] = _build_alpha_vantage
+# El BCE es gratuito, oficial y no necesita clave. Va primero en la cadena
+# para los pares EUR; para todo lo demas declara que no tiene cobertura y no
+# anade ninguna peticion.
+_BUILDERS["ecb"] = _build_ecb
 
 
 def available_providers() -> list[str]:

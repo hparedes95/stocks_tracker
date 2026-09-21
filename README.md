@@ -278,7 +278,8 @@ error, solo multiplica filas en silencio.
 ## Si Yahoo deja de responder
 
 yfinance es una API **no oficial** que ya se ha roto antes y se volverá a
-romper. La cadena de `settings.yaml` es `[yfinance, stooq]`, y el relevo ocurre
+romper. La cadena de `settings.yaml` es `[ecb, yfinance, stooq]`: el BCE sirve
+los pares de divisa con tipos oficiales y gratuitos, y el relevo ocurre
 **por ticker y después de intentarlo**: lo que el primero no consigue traer se
 le pide al segundo. El relevo anterior solo actuaba si el proveedor no se podía
 ni construir, que no es como Yahoo se rompe en la práctica —el import funciona,
@@ -318,10 +319,11 @@ techo, la amplitud aún aguanta mientras los nuevos máximos ya se secan) y
 
 ## Importar tu cartera (eToro, Trade Republic)
 
-**Ninguno de los dos se puede conectar automáticamente**, y conviene saber por
-qué antes de buscar alternativas raras:
+La aplicacion no depende de una conexion permanente con el broker. El camino
+estable y disponible para cualquier cuenta sigue siendo el extracto:
 
-- **eToro** no ofrece API de lectura de cartera a clientes particulares.
+- **eToro** tiene una API publica en acceso anticipado, pero no esta habilitada
+  para todas las cuentas y este proyecto no depende de ella.
 - **Trade Republic** no tiene API pública de ningún tipo. Existen clientes no
   oficiales que inician sesión con tu teléfono y tu PIN; eso significa entregar
   tus credenciales a un script de terceros e incumplir sus condiciones de uso,

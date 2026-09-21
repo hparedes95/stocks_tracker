@@ -94,7 +94,7 @@ jobs:
       - name: Proveedores y consenso
         if: ${{ always() && matrix.primary }}
         run: uv run --extra dev --locked pytest -q tests/test_consensus.py tests/test_auditoria_cruzada.py
-             tests/test_providers_chain.py
+             tests/test_providers_chain.py tests/test_ecb_provider.py tests/test_alpha_vantage.py
 
       - name: Fuga temporal y supervivencia
         if: ${{ always() && matrix.primary }}

@@ -210,11 +210,14 @@ def _contrastes_disponibles(cfg: dict) -> list[str]:
     veredicto en "invalido" y no se sabe cual miente. Con TRES, dos que
     concuerdan hacen mayoria y la discrepante queda nombrada.
     """
+    from ..providers import alpha_vantage_provider as av
     from ..providers import twelve_data_provider as td
 
     contrastes = list(cfg.get("providers", ["stooq"]))
     if td.api_key() and "twelve_data" not in contrastes:
         contrastes.append("twelve_data")
+    if av.api_key() and "alpha_vantage" not in contrastes:
+        contrastes.append("alpha_vantage")
     return contrastes
 
 
