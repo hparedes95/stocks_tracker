@@ -71,6 +71,12 @@ CREDENTIALS: tuple[Credential, ...] = (
         ),
     ),
     Credential(
+        env="FINNHUB_API_KEY", venue="noticias",
+        purpose="Titulares por empresa y sentimiento textual orientativo",
+        how="Cuenta gratuita en finnhub.io/register",
+        required_for_trading=False,
+    ),
+    Credential(
         env="TELEGRAM_BOT_TOKEN", venue="alertas",
         purpose="Avisos al movil cuando el mercado se mueve",
         how="Habla con @BotFather en Telegram y crea un bot",

@@ -100,6 +100,20 @@ def test_chain_survives_a_provider_that_raises():
     assert set(df["ticker"]) == {"AAA"}
 
 
+def test_chain_rejects_unsolicited_tickers_and_uses_the_backup():
+    class Rogue(FakeProvider):
+        def fetch_ohlcv(self, tickers, start, end, interval="1d"):
+            return super().fetch_ohlcv(["EVIL"], start, end, interval)
+
+    chain = ChainPriceProvider([
+        Rogue("roto", {"EVIL"}), FakeProvider("respaldo", {"AAA"})
+    ])
+    frame = chain.fetch_ohlcv(["AAA"], START, END)
+
+    assert frame["ticker"].tolist() == ["AAA"]
+    assert frame.attrs["provider_errors"]["roto"] == "ProviderError"
+
+
 def test_chain_reports_what_nobody_could_serve():
     chain = ChainPriceProvider(
         [FakeProvider("principal", {"AAA"}), FakeProvider("respaldo", {"BBB"})]
@@ -181,6 +195,25 @@ def test_stooq_treats_no_data_as_empty_not_as_a_crash():
     """Un simbolo desconocido devuelve 200 con el texto 'No data'."""
     assert StooqProvider._parse_csv("No data").empty
     assert StooqProvider._parse_csv("").empty
+
+
+def test_stooq_no_confunde_el_bloqueo_javascript_con_un_simbolo_sin_datos():
+    html = "<html><noscript>This site requires JavaScript to verify your browser.</noscript></html>"
+    with pytest.raises(ProviderError, match="JavaScript"):
+        StooqProvider._parse_csv(html)
+
+
+def test_stooq_expone_el_motivo_de_un_fallo_por_ticker(monkeypatch):
+    provider = StooqProvider()
+    provider.sleep_min = provider.sleep_max = 0
+
+    def blocked(*args, **kwargs):
+        raise ProviderError("verificacion JavaScript")
+
+    monkeypatch.setattr(provider, "_fetch_one", blocked)
+    frame = provider.fetch_ohlcv(["AAPL"], START, END)
+    assert frame.attrs["failed_tickers"] == ["AAPL"]
+    assert "JavaScript" in frame.attrs["provider_errors"]["AAPL"]
 
 
 def test_stooq_has_no_fundamentals_and_says_so():

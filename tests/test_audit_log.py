@@ -219,18 +219,19 @@ class _Args:
     universes = None
 
 
-def test_la_ingesta_registra_sus_cuatro_pasos(warehouse, monkeypatch):
+def test_la_ingesta_registra_todos_sus_pasos(warehouse, monkeypatch):
     """Se ejecuta de verdad, no se lee el codigo.
 
     Comprobar que el fichero contiene la cadena "audit.paso(" solo demuestra
-    que alguien la escribio. Aqui se sustituyen las cuatro descargas por
+    que alguien la escribio. Aqui se sustituyen las descargas por
     contadores y se mira el registro que queda: es lo unico que distingue una
     llamada colocada de una llamada que funciona.
     """
     from stocks_tracker.ingest import run_ingest
 
     for nombre, filas in (("ingest_universe", 600), ("ingest_prices", 12000),
-                          ("ingest_fundamentals", 90), ("ingest_macro", 40)):
+                          ("ingest_fundamentals", 90), ("ingest_macro", 40),
+                          ("ingest_news", 5)):
         monkeypatch.setattr(run_ingest, nombre,
                             lambda *a, _n=filas, **k: _n)
 
@@ -239,7 +240,7 @@ def test_la_ingesta_registra_sus_cuatro_pasos(warehouse, monkeypatch):
     registro = filas_de("audit_log")
     pasos = set(registro["paso"])
     assert pasos == {"ingest_universe", "ingest_prices", "ingest_fundamentals",
-                     "ingest_macro"}, pasos
+                     "ingest_macro", "ingest_news"}, pasos
     assert set(registro["estado"]) == {audit.OK}
     escrito = {r["paso"]: json.loads(r["salida"])["filas"]
                for _, r in registro.iterrows()}
@@ -252,7 +253,7 @@ def test_los_pasos_de_una_ingesta_comparten_run_id(warehouse, monkeypatch):
     from stocks_tracker.ingest import run_ingest
 
     for nombre in ("ingest_universe", "ingest_prices", "ingest_fundamentals",
-                   "ingest_macro"):
+                   "ingest_macro", "ingest_news"):
         monkeypatch.setattr(run_ingest, nombre, lambda *a, **k: 1)
 
     run_ingest._run(_Args())
@@ -278,7 +279,7 @@ def test_la_ingesta_pasa_su_run_id_a_las_descargas(warehouse, monkeypatch):
         return 1
 
     for nombre in ("ingest_universe", "ingest_prices", "ingest_fundamentals",
-                   "ingest_macro"):
+                   "ingest_macro", "ingest_news"):
         monkeypatch.setattr(run_ingest, nombre, espia)
 
     run_ingest._run(_Args())

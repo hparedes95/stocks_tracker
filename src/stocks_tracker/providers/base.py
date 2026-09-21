@@ -121,6 +121,21 @@ def empty_fundamentals() -> pd.DataFrame:
     return pd.DataFrame(columns=FUNDAMENTALS_COLUMNS)
 
 
+def validate_price_response(df: pd.DataFrame, requested: list[str]) -> None:
+    """Contrato mínimo antes de confiar en la respuesta de un adaptador."""
+    if not isinstance(df, pd.DataFrame):
+        raise ProviderError("el proveedor no devolvio un DataFrame")
+    missing = set(OHLCV_COLUMNS) - set(df.columns)
+    if not df.empty and missing:
+        raise ProviderError(f"faltan columnas OHLCV: {sorted(missing)}")
+    if "ticker" in df.columns:
+        unexpected = set(df["ticker"].dropna().astype(str)) - set(requested)
+        if unexpected:
+            raise ProviderError(
+                f"el proveedor devolvio tickers no solicitados: {sorted(unexpected)}"
+            )
+
+
 def normalize_ohlcv(df: pd.DataFrame, source: str) -> pd.DataFrame:
     """Deja el DataFrame en el esquema canonico y descarta filas inservibles.
 

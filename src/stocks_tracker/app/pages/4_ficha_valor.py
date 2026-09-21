@@ -251,7 +251,22 @@ with tab_cost:
     )
 
 with tab_news:
-    if tv_widgets.enabled() and tv_symbol:
+    own_news = da.get_news(ticker)
+    if not own_news.empty:
+        st.caption(
+            "El tono es una lectura léxica orientativa del titular; no forma "
+            "parte del score ni genera operaciones."
+        )
+        for _, item in own_news.iterrows():
+            raw_tone = item.get("sentiment")
+            tone = float(raw_tone) if pd.notna(raw_tone) else 0.0
+            marker = "🟢" if tone > 0 else "🔴" if tone < 0 else "⚪"
+            headline = str(item["headline"])
+            url = str(item.get("url") or "")
+            label = f"[{headline}]({url})" if url else headline
+            st.markdown(f"{marker} {label}")
+            st.caption(f"{item['published_at']} · {item['source']}")
+    elif tv_widgets.enabled() and tv_symbol:
         tv_widgets.top_stories(tv_symbol, height=560)
     else:
         st.caption("Noticias no disponibles sin TradingView o sin símbolo equivalente.")

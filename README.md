@@ -125,9 +125,45 @@ bloqueo de Yahoo. Las siguientes son incrementales y cuestan segundos.
 ## Desarrollo
 
 ```bash
-make test    # 417 tests, sin red
+make test    # suite completa, sin red
 make lint    # estilo
 ```
+
+Para reproducir exactamente el entorno que usa CI:
+
+```bash
+uv sync --extra dev --locked
+uv run --extra dev --locked pytest -q
+```
+
+`uv.lock` fija también las dependencias transitivas y es multiplataforma. Para
+actualizarlo de forma deliberada: `uv lock --upgrade`, seguido de la suite y de
+`uv run --extra dev pip-audit --skip-editable`.
+
+El instalador no resuelve versiones “a lo último” en cada equipo:
+`requirements-runtime.lock` fija el entorno de usuario con hashes y
+`requirements-dev.lock` hace lo mismo para las herramientas de desarrollo.
+Ambos se generan desde `uv.lock` y CI falla si se quedan desincronizados.
+
+Antes de aplicar un esquema nuevo se crea automáticamente una copia en
+`data/backups/`; se conservan las cinco últimas. Para enumerarlas o restaurar
+una de forma segura:
+
+```bash
+python -m stocks_tracker.core.db --list-backups
+python -m stocks_tracker.core.db --restore-backup data/backups/<copia>.duckdb
+python -m stocks_tracker.core.db --verify-backups
+```
+
+La restauración valida primero la copia y conserva el estado sustituido como
+`pre-restore`, por si fuera necesario deshacer también esa operación.
+`--verify-backups` va más lejos: clona cada copia, la abre y lee todas sus
+tablas sin tocar el almacén activo. En Windows, `autostart` programa este
+simulacro cada domingo.
+
+El ciclo diario exporta también `reports/informe-AAAA-MM-DD.md`, con frescura,
+procedencia, candidatos, calidad y alertas. Se puede crear a mano con
+`make report` o `stocks.ps1 report`.
 
 Los tests no tocan la red ni el almacén real: usan el proveedor sintético y una
 base de datos temporal. Los que más valen:
@@ -255,6 +291,11 @@ Stooq no pide clave, pero tiene dos limitaciones que conviene conocer:
   por cada fuente tendría un escalón artificial el día del relevo, y ese escalón
   no es un movimiento del mercado pero los indicadores no saben distinguirlo:
   aparece como un retorno enorme y puede disparar una señal.
+- **Puede exigir una verificación JavaScript.** En la comprobación real del 21
+  de septiembre de 2026 el endpoint CSV la exigía incluso para AAPL. El
+  proveedor ahora distingue ese bloqueo de un símbolo sin datos, lo registra y
+  deja actuar al siguiente proveedor. Compruébalo desde tu red con
+  `python -m stocks_tracker.providers.stooq_provider --verify-mappings`.
 
 Por eso la página de **Estado** detecta las series con fuentes mezcladas y
 `make repair` las reconstruye enteras desde una sola fuente. Solo reemplaza lo
@@ -478,6 +519,15 @@ el peor resultado posible.
 La pestaña **Canales** de la página de alertas muestra qué falta configurar y
 permite mandar un mensaje de prueba, sin revelar ningún secreto.
 
+### Noticias opcionales
+
+Si se configura `FINNHUB_API_KEY`, el ciclo guarda titulares recientes de la
+cartera, watchlist y señales (máximo 25 valores) y los muestra en la ficha. El
+tono es un clasificador léxico simple y transparente, etiquetado como
+`lexical-v1`; sirve para ordenar lectura, no entra en el score ni puede generar
+operaciones. Sin clave se mantiene el panel de TradingView y la ingesta sigue
+sin error.
+
 ### Automatizar
 
 [`scripts/daily_update.sh`](scripts/daily_update.sh) encadena ingesta, cálculo y
@@ -507,19 +557,13 @@ cara. Ejecútala a mano o con un cron semanal.
   (USD) —, mandato conservador diversificado, y aprobación humana obligatoria en el
   momento en que entra dinero real.
 
-## Pendiente de la fase 5
+## Límites externos conocidos
 
-La fase 5 es refinamiento continuo. Queda sin hacer, a propósito:
-
-- **Noticias y sentimiento** (Finnhub / Marketaux). Requieren clave y no se
-  pueden probar de verdad sin ella; las variables ya están reservadas en
-  `.env.example`.
-- **Exportación de un informe diario** en Markdown o PDF. Hoy solo hay descarga
-  a CSV en Oportunidades y en Alertas.
-- **Verificar el mapeo de Stooq mercado por mercado.** Los sufijos siguen la
-  convención pública de Stooq, pero solo está comprobado el caso estadounidense;
-  un ticker europeo que Stooq no reconozca queda registrado como fallido, que es
-  el comportamiento correcto de un respaldo pero no una cobertura garantizada.
+- Finnhub solo se puede verificar de extremo a extremo con una clave del
+  usuario; sin ella el módulo permanece inactivo.
+- Stooq está detrás de una verificación JavaScript desde la red usada para esta
+  revisión. El diagnóstico en vivo permite comprobar si vuelve a servir CSV,
+  pero no se intenta eludir su protección.
 
 ## Alcance excluido explícitamente
 

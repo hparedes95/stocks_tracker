@@ -29,6 +29,8 @@ PASOS_OBLIGATORIOS = {
     "Calidad de datos y corrupcion",
     "Proveedores y consenso",
     "Fuga temporal y supervivencia",
+    "Dependency audit",
+    "Runtime lock drift",
     "Secretos",
 }
 
@@ -61,7 +63,8 @@ def test_todos_los_pasos_se_ejecutan_aunque_uno_falle(workflow):
     for paso in pasos(workflow):
         if paso.get("name") == "Install":
             continue
-        assert paso.get("if") == "always()", (
+        condicion = str(paso.get("if", ""))
+        assert "always()" in condicion, (
             f"el paso '{paso.get('name')}' se salta cuando otro falla"
         )
 
@@ -106,9 +109,38 @@ def test_el_ci_no_ignora_fallos_con_continue_on_error(workflow):
 def test_el_lint_cubre_todo_el_repositorio(workflow):
     lint = [p for p in pasos(workflow) if p.get("name") == "Lint"][0]
 
-    assert lint["run"].strip() == "ruff check .", (
+    assert lint["run"].strip().endswith("ruff check ."), (
         "el lint se ha limitado a una carpeta"
     )
+
+
+def test_la_matriz_cubre_windows_y_los_extremos_de_python(workflow):
+    casos = workflow["jobs"]["test"]["strategy"]["matrix"]["include"]
+    combinaciones = {(c["os"], c["python"]) for c in casos}
+
+    assert ("windows-latest", "3.14") in combinaciones
+    assert {"3.11", "3.12", "3.14"} <= {python for _, python in combinaciones}
+
+
+def test_el_ci_instala_el_lockfile_sin_recalcularlo(workflow):
+    install = [p for p in pasos(workflow) if p.get("name") == "Install"][0]
+
+    assert "uv sync" in install["run"]
+    assert "--locked" in install["run"]
+
+
+def test_el_instalador_usa_dependencias_runtime_con_hashes():
+    raiz = project_root()
+    for name in ("requirements-runtime.lock", "requirements-dev.lock"):
+        lock = raiz / name
+        assert lock.exists()
+        assert "--hash=sha256:" in lock.read_text("utf-8")
+    installer = (raiz / "installer/install.ps1").read_text("utf-8")
+    setup = (raiz / "scripts/windows/stocks.ps1").read_text("utf-8")
+    assert "--require-hashes -r requirements-runtime.lock" in installer
+    assert "--require-hashes -r requirements-dev.lock" in setup
+    for text in (installer, setup):
+        assert "install -e . --no-deps" in text
 
 
 def test_el_workflow_no_pide_permisos_de_escritura(workflow):

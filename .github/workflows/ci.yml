@@ -9,16 +9,40 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux · Python 3.11
+            os: ubuntu-latest
+            python: "3.11"
+            primary: false
+          - name: Linux · Python 3.12
+            os: ubuntu-latest
+            python: "3.12"
+            primary: true
+          - name: Linux · Python 3.14
+            os: ubuntu-latest
+            python: "3.14"
+            primary: false
+          - name: Windows · Python 3.14
+            os: windows-latest
+            python: "3.14"
+            primary: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          version: "latest-known"
       - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv sync --extra dev --locked --python ${{ matrix.python }}
 
       # El orden va de lo barato a lo caro, para que un fallo tonto no cueste
       # tres minutos de espera. Pero TODOS los pasos se ejecutan aunque uno
@@ -27,40 +51,54 @@ jobs:
       # viajes donde deberia haber uno.
       - name: Lint
         if: always()
-        run: ruff check .
+        run: uv run --extra dev --locked ruff check .
 
       - name: Test
         if: always()
-        run: pytest -q
+        run: uv run --extra dev --locked pytest -q --cov=stocks_tracker --cov-branch --cov-report=term-missing
+
+      - name: Dependency audit
+        if: ${{ always() && matrix.primary }}
+        run: |
+          uv run --extra dev --locked pip-audit --skip-editable --cache-dir "${{ runner.temp }}/pip-audit"
+          uv run --extra dev --locked pip-audit -r requirements-runtime.lock --disable-pip --cache-dir "${{ runner.temp }}/pip-audit-runtime"
+
+      - name: Runtime lock drift
+        if: ${{ always() && matrix.primary }}
+        run: |
+          uv export --extra data --no-dev --no-emit-project --format requirements-txt --output-file requirements-runtime.lock --locked
+          uv export --extra data --extra dev --no-emit-project --format requirements-txt --output-file requirements-dev.lock --locked
+          git diff --exit-code -- requirements-runtime.lock
+          git diff --exit-code -- requirements-dev.lock
 
       # Se destacan aparte de la suite general porque responden a preguntas
       # distintas y porque, en verde, la salida de `pytest -q` no dice cual de
       # ellos se ejecuto. Que aparezcan con nombre propio en la lista de checks
       # es lo que hace evidente el dia que alguien los borre.
       - name: Regresion financiera
-        if: always()
-        run: pytest -q tests/test_regresion_financiera.py
+        if: ${{ always() && matrix.primary }}
+        run: uv run --extra dev --locked pytest -q tests/test_regresion_financiera.py
 
       - name: Calidad de datos y corrupcion
-        if: always()
-        run: pytest -q tests/test_quality.py tests/test_corrupcion.py
+        if: ${{ always() && matrix.primary }}
+        run: uv run --extra dev --locked pytest -q tests/test_quality.py tests/test_corrupcion.py
              tests/test_ohlc_tolerancia.py tests/test_cuarentena.py
 
       # Datos construidos a mala fe: series impecables que describen un mercado
       # que no existe. Los tres ataques de este fichero se colaron enteros la
       # primera vez, y las defensas salieron de ahi.
       - name: Auditoria adversarial
-        if: always()
-        run: pytest -q tests/test_auditoria_adversarial.py
+        if: ${{ always() && matrix.primary }}
+        run: uv run --extra dev --locked pytest -q tests/test_auditoria_adversarial.py
 
       - name: Proveedores y consenso
-        if: always()
-        run: pytest -q tests/test_consensus.py tests/test_auditoria_cruzada.py
+        if: ${{ always() && matrix.primary }}
+        run: uv run --extra dev --locked pytest -q tests/test_consensus.py tests/test_auditoria_cruzada.py
              tests/test_providers_chain.py
 
       - name: Fuga temporal y supervivencia
-        if: always()
-        run: pytest -q tests/test_no_lookahead.py tests/test_no_lookahead_pipeline.py
+        if: ${{ always() && matrix.primary }}
+        run: uv run --extra dev --locked pytest -q tests/test_no_lookahead.py tests/test_no_lookahead_pipeline.py
              tests/test_point_in_time.py tests/test_membership.py
 
       # Las once paginas pintadas enteras, sobre un almacen vacio y sobre uno
@@ -68,17 +106,17 @@ jobs:
       # menos se prueba a mano: la primera vez que se ejecutó esto destapó que
       # la pagina de Estado reventaba en una instalacion recien hecha.
       - name: Paginas del dashboard
-        if: always()
-        run: pytest -q tests/test_paginas.py
+        if: ${{ always() && matrix.primary }}
+        run: uv run --extra dev --locked pytest -q tests/test_paginas.py
 
       # Comprobaciones escritas que no ejecuta nadie. Es como quedaron vacias
       # `data_quality` y `corporate_actions` durante meses sin que fallara nada.
       - name: Codigo de verificacion desconectado
-        if: always()
-        run: pytest -q tests/test_codigo_muerto.py tests/test_audit_log.py
+        if: ${{ always() && matrix.primary }}
+        run: uv run --extra dev --locked pytest -q tests/test_codigo_muerto.py tests/test_audit_log.py
 
       # No es un test: es la puerta que impide que una clave llegue al
       # repositorio, que es publico. Va al final y siempre.
       - name: Secretos
-        if: always()
-        run: pytest -q tests/test_no_secrets_in_repo.py tests/test_secrets.py
+        if: ${{ always() && matrix.primary }}
+        run: uv run --extra dev --locked pytest -q tests/test_no_secrets_in_repo.py tests/test_secrets.py

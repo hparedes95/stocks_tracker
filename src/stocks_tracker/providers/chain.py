@@ -14,10 +14,12 @@ consigue traer se le pide al siguiente.
 from __future__ import annotations
 
 from datetime import date
+from time import perf_counter
 
 import pandas as pd
 
-from .base import ProviderError, empty_ohlcv, normalize_ohlcv
+from ..core.observability import emit
+from .base import ProviderError, empty_ohlcv, normalize_ohlcv, validate_price_response
 
 
 class ChainPriceProvider:
@@ -45,6 +47,7 @@ class ChainPriceProvider:
         by_source: dict[str, int] = {}
         relayed: dict[str, str] = {}
         eventos: list[dict] = []
+        provider_errors: dict[str, object] = {}
 
         for provider in self._providers:
             if not pending:
@@ -56,9 +59,11 @@ class ChainPriceProvider:
             if not askable:
                 continue
 
+            started = perf_counter()
             try:
                 df = provider.fetch_ohlcv(askable, start, end, interval)
-            except Exception:  # noqa: BLE001
+                validate_price_response(df, askable)
+            except Exception as exc:  # noqa: BLE001
                 # Un proveedor caido no interrumpe la cadena: para eso existe.
                 #
                 # `Exception` y no solo `ProviderError`: los errores previstos
@@ -69,11 +74,29 @@ class ChainPriceProvider:
                 # universo entero sin datos justo el dia en que el proveedor
                 # cambia algo, que es exactamente el dia para el que existe
                 # tener un segundo proveedor.
+                emit(
+                    "provider.failed",
+                    level="error",
+                    provider=provider.name,
+                    requested=len(askable),
+                    duration_ms=round((perf_counter() - started) * 1000, 1),
+                    error_type=type(exc).__name__,
+                )
+                provider_errors[provider.name] = type(exc).__name__
                 continue
 
             requests_used += int(df.attrs.get("requests_used", 0))
             eventos.extend(df.attrs.get("corporate_actions") or [])
+            if df.attrs.get("provider_errors"):
+                provider_errors[provider.name] = df.attrs["provider_errors"]
             if df.empty:
+                emit(
+                    "provider.completed",
+                    provider=provider.name,
+                    requested=len(askable),
+                    served=0,
+                    duration_ms=round((perf_counter() - started) * 1000, 1),
+                )
                 continue
 
             served = set(df["ticker"].unique())
@@ -82,6 +105,14 @@ class ChainPriceProvider:
             by_source[provider.name] = len(served)
             frames.append(df)
             pending = [t for t in pending if t not in served]
+            emit(
+                "provider.completed",
+                provider=provider.name,
+                requested=len(askable),
+                served=len(served),
+                remaining=len(pending),
+                duration_ms=round((perf_counter() - started) * 1000, 1),
+            )
 
         result = (
             normalize_ohlcv(pd.concat(frames, ignore_index=True), "chain")
@@ -110,6 +141,7 @@ class ChainPriceProvider:
         # de pedirlos se hacia y el resultado se tiraba a la basura una linea
         # antes de guardarlo.
         result.attrs["corporate_actions"] = eventos
+        result.attrs["provider_errors"] = provider_errors
         return result
 
     # ------------------------------------------------------------------

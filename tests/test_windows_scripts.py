@@ -378,8 +378,8 @@ def test_the_schedule_is_defined_in_exactly_one_place():
         "se duplicara y las dos copias divergiran"
     )
     lanzador = text("scripts/windows/stocks.ps1")
-    assert lanzador.count("Register-ScheduledTask") == 2, (
-        "se esperan exactamente dos: la de datos y la del bot"
+    assert lanzador.count("Register-ScheduledTask") == 3, (
+        "se esperan exactamente tres: datos, bot y simulacro de backups"
     )
 
 
@@ -390,8 +390,8 @@ def test_the_scheduled_tasks_survive_a_powered_off_computer():
     # Se cuenta el FLAG (`-StartWhenAvailable`) y no la palabra suelta: la
     # palabra aparece tambien en un comentario, y contarla daria tres donde
     # hay dos usos reales.
-    assert lanzador.count("-StartWhenAvailable") == 2, (
-        "alguna de las dos tareas se perderia si el equipo esta apagado"
+    assert lanzador.count("-StartWhenAvailable") == 3, (
+        "alguna de las tres tareas se perderia si el equipo esta apagado"
     )
 
 

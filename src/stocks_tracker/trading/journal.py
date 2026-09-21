@@ -154,7 +154,7 @@ class Journal:
                         [(r, e, i) for i, r, e in self._holds],
                     )
                 conn.execute("COMMIT")
-            except Exception:
+            except Exception:  # noqa: BLE001 — rollback atomico ante cualquier fallo
                 conn.execute("ROLLBACK")
                 raise
 

@@ -74,7 +74,7 @@ def evaluate(expression: str, variables: dict[str, Any]) -> bool:
     safe_globals: dict[str, Any] = {"__builtins__": {}}
     try:
         return bool(eval(compile(tree, "<condicion>", "eval"), safe_globals, dict(variables)))
-    except Exception:
+    except Exception:  # noqa: BLE001 — una condicion ajena nunca tumba las alertas
         return False
 
 

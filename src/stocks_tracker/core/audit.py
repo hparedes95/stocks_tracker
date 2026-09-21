@@ -44,6 +44,7 @@ from typing import Any
 from . import lineage
 from .db import connect
 from .ids import ulid
+from .observability import emit
 from .timeutils import utcnow
 
 OK = "ok"
@@ -104,11 +105,17 @@ def paso(nombre: str, run_id: str | None = None, config: dict | None = None):
     finally:
         try:
             guardar(registro, config)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             # Que falle el registro NO puede tumbar el paso que se estaba
             # registrando. Un audit log que rompe la ingesta es peor que no
             # tener audit log.
-            pass
+            emit(
+                "audit.persist_failed",
+                level="error",
+                step=registro.paso,
+                run_id=registro.run_id,
+                error_type=type(exc).__name__,
+            )
 
 
 def guardar(registro: Registro, config: dict | None = None) -> None:

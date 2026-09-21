@@ -59,6 +59,7 @@ main() {
     run_step "Ingesta" "$PYTHON" -m stocks_tracker.ingest.run_ingest --what all || failures=$((failures + 1))
     run_step "Calculo" "$PYTHON" -m stocks_tracker.compute.run_compute || failures=$((failures + 1))
     run_step "Alertas" "$PYTHON" -m stocks_tracker.alerts.run_alerts || failures=$((failures + 1))
+    run_step "Informe" "$PYTHON" -m stocks_tracker.core.daily_report || failures=$((failures + 1))
 
     # Limpieza del historico, para que la tabla de alertas no crezca sin limite.
     "$PYTHON" -m stocks_tracker.alerts.run_alerts --purge-days 365 >>"$LOG_FILE" 2>&1 || true

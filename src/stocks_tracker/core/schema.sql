@@ -320,6 +320,23 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_rule ON alerts(rule_id, triggered_at);
 
+-- Titulares opcionales. El sentimiento es lexico y orientativo, no una señal
+-- predictiva; se guarda el metodo para que nunca parezca una cifra de la API.
+CREATE TABLE IF NOT EXISTS news_items (
+  source       VARCHAR,
+  external_id  VARCHAR,
+  ticker       VARCHAR,
+  published_at TIMESTAMP,
+  headline     VARCHAR,
+  summary      VARCHAR,
+  url          VARCHAR,
+  sentiment    DOUBLE,
+  sentiment_method VARCHAR,
+  ingested_at  TIMESTAMP,
+  PRIMARY KEY (source, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_news_ticker ON news_items(ticker, published_at);
+
 -- ============ OPERACION ============
 CREATE TABLE IF NOT EXISTS ingest_log (
   run_id       VARCHAR,

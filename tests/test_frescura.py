@@ -209,7 +209,10 @@ def test_un_festivo_no_dispara_una_descarga_en_cada_arranque(almacen):
     arranque. Una vez si; en bucle no.
     """
     sembrar(ultimo_precio=MARTES,
-            ultima_descarga=datetime(2026, 8, 19, 21, 30))
+            # 20:30 UTC = 22:30 en Madrid: se intento antes de que el cierre
+            # estuviera disponible a las 23:00. Usar 21:30 hacia que el test
+            # cambiara de resultado segun la zona horaria del equipo.
+            ultima_descarga=datetime(2026, 8, 19, 20, 30))
     con_indices(hasta=MARTES)              # los indices tampoco tienen el 19
 
     primera, motivo, _ = run_ingest.needs_update(

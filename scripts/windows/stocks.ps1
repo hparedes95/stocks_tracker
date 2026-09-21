@@ -51,6 +51,8 @@
       watchtest Simula un desplome del 8% para probar los avisos
       run       Arranca el dashboard y abre el navegador
       daily     Ciclo completo: ingesta + calculo + alertas
+      backup-check Ensaya la restauracion de todas las copias locales
+      report    Exporta la fotografia diaria a reports/informe-AAAA-MM-DD.md
       test      Ejecuta los tests
       lint      Comprueba el estilo del codigo
 #>
@@ -66,7 +68,7 @@ param(
                  'consejo', 'calibrar', 'porque',
                  'alerts', 'watch', 'watchtest', 'run', 'daily', 'test',
                  'real', 'update', 'autostart', 'autostart-off',
-                 'lint', 'help')]
+                 'backup-check', 'report', 'lint', 'help')]
     [string]$Task = 'help',
 
     # Efectivo disponible para invertir. El programa NO puede saberlo: no
@@ -238,7 +240,9 @@ switch ($Task) {
 
         Write-Step "Instalando dependencias (tarda un par de minutos)"
         & $Py -m pip install --upgrade pip --quiet
-        & $Py -m pip install -e ".[data,dev]"
+        & $Py -m pip install --require-hashes -r requirements-dev.lock
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & $Py -m pip install -e . --no-deps
 
         Write-Step "Creando el almacen de datos"
         & $Py -m stocks_tracker.core.db --migrate
@@ -397,10 +401,26 @@ switch ($Task) {
             -Description 'Ciclo del bot de cripto: propone, aplica el riesgo y ejecuta.' `
             -Force | Out-Null
 
+        # Una copia que nunca se restaura es una esperanza, no un respaldo.
+        # El domingo se clona cada backup, se abre y se leen todas sus tablas;
+        # el almacen activo no se toca.
+        $backup = New-ScheduledTaskAction -Execute 'powershell.exe' `
+            -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$taskScript`" backup-check" `
+            -WorkingDirectory $Root
+        $backupTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '12:30'
+        $backupSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+            -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries `
+            -ExecutionTimeLimit (New-TimeSpan -Minutes 20)
+        Register-ScheduledTask -TaskName 'Stocks Tracker - prueba de backups' `
+            -Action $backup -Trigger $backupTrigger -Settings $backupSettings `
+            -Description 'Ensaya la restauracion y lectura de las copias DuckDB.' `
+            -Force | Out-Null
+
         Write-Host ""
         Write-Host "Automatizacion activada." -ForegroundColor Green
         Write-Host "  Datos:  cada dia a las 23:15, con el mercado americano cerrado."
         Write-Host "  Bot:    cada 6 horas, empezando a las 00:20."
+        Write-Host "  Copias: simulacro de restauracion los domingos a las 12:30."
         Write-Host "  Si el ordenador esta apagado, se ejecutan al encenderlo."
         Write-Host ""
         Write-Host "  OJO: con el ordenador apagado el bot NO opera." -ForegroundColor Yellow
@@ -415,7 +435,8 @@ switch ($Task) {
         # despues de que el usuario creyera haberlo desactivado, que es la
         # peor forma posible de que un boton de apagado no apague.
         foreach ($nombre in @('Stocks Tracker - actualizacion diaria',
-                              'Stocks Tracker - ciclo del bot')) {
+                              'Stocks Tracker - ciclo del bot',
+                              'Stocks Tracker - prueba de backups')) {
             Unregister-ScheduledTask -TaskName $nombre `
                 -Confirm:$false -ErrorAction SilentlyContinue
         }
@@ -427,6 +448,16 @@ switch ($Task) {
         Assert-Venv
         Write-Step "Descargando datos reales (la primera vez tarda varios minutos)"
         & $Py -m stocks_tracker.ingest.run_ingest --what all
+    }
+
+    'backup-check' {
+        Assert-Venv
+        & $Py -m stocks_tracker.core.db --verify-backups
+    }
+
+    'report' {
+        Assert-Venv
+        & $Py -m stocks_tracker.core.daily_report
     }
 
     'universo' {
@@ -764,7 +795,8 @@ switch ($Task) {
             @{ Name = 'Ingesta de cripto'; Args = @('-m', 'stocks_tracker.ingest.ingest_crypto') },
             @{ Name = 'Calculo'; Args = @('-m', 'stocks_tracker.compute.run_compute') },
             @{ Name = 'Consejos'; Args = @('-m', 'stocks_tracker.compute.run_advice') },
-            @{ Name = 'Alertas'; Args = @('-m', 'stocks_tracker.alerts.run_alerts') }
+            @{ Name = 'Alertas'; Args = @('-m', 'stocks_tracker.alerts.run_alerts') },
+            @{ Name = 'Informe'; Args = @('-m', 'stocks_tracker.core.daily_report') }
         )) {
             Write-Step $step.Name
             try { & $Py @($step.Args) }

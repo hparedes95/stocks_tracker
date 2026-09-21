@@ -21,6 +21,7 @@ fallido: es exactamente el comportamiento que se quiere de un respaldo.
 
 from __future__ import annotations
 
+import argparse
 import io
 import random
 import time
@@ -134,6 +135,7 @@ class StooqProvider:
 
         frames: list[pd.DataFrame] = []
         failed: list[str] = []
+        errors: dict[str, str] = {}
 
         for i, ticker in enumerate(tickers):
             if self.requests_used >= self.max_requests:
@@ -152,8 +154,9 @@ class StooqProvider:
                 # Insistir cuando ya estan limitando solo empeora el bloqueo.
                 failed.extend(tickers[i:])
                 break
-            except ProviderError:
+            except ProviderError as exc:
                 failed.append(ticker)
+                errors[ticker] = f"{type(exc).__name__}: {exc}"
                 continue
 
             if frame.empty:
@@ -171,6 +174,7 @@ class StooqProvider:
         )
         result.attrs["failed_tickers"] = failed
         result.attrs["requests_used"] = self.requests_used
+        result.attrs["provider_errors"] = errors
         return result
 
     def _fetch_one(self, symbol: str, start: date, end: date) -> pd.DataFrame:
@@ -200,6 +204,12 @@ class StooqProvider:
         'No data', asi que hay que detectarlo por contenido.
         """
         head = text.lstrip()[:64].lower()
+        if head.startswith("<!doctype html") or head.startswith("<html"):
+            if "requires javascript" in text.lower() or "/__verify" in text.lower():
+                raise ProviderError(
+                    "Stooq exige una verificacion JavaScript y no ha servido CSV"
+                )
+            raise ProviderError("Stooq devolvio HTML en vez de CSV")
         if not head.startswith("date"):
             return pd.DataFrame()
 
@@ -228,3 +238,47 @@ class StooqProvider:
 
     def fetch_metadata(self, tickers: list[str]) -> pd.DataFrame:  # noqa: ARG002
         raise NotSupportedError("Stooq no sirve metadatos.")
+
+
+_PROBES = {
+    "Estados Unidos": "AAPL",
+    "Madrid": "SAN.MC",
+    "Xetra": "BMW.DE",
+    "Paris": "AIR.PA",
+    "Amsterdam": "ASML.AS",
+    "Londres": "AZN.L",
+}
+
+
+def verify_mappings() -> dict[str, str]:
+    """Prueba una muestra real; no convierte una convencion en una garantia."""
+    provider = StooqProvider()
+    provider.sleep_min = provider.sleep_max = 0
+    end = date.today()
+    start = date(end.year - 1, end.month, min(end.day, 28))
+    result: dict[str, str] = {}
+    for market, ticker in _PROBES.items():
+        symbol = _to_stooq(ticker)
+        try:
+            frame = provider._fetch_one(str(symbol), start, end)
+            result[market] = "ok" if not frame.empty else "sin datos"
+        except ProviderError as exc:
+            result[market] = f"error: {exc}"
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Diagnostico en vivo del respaldo Stooq")
+    parser.add_argument("--verify-mappings", action="store_true")
+    args = parser.parse_args()
+    if not args.verify_mappings:
+        parser.print_help()
+        return 0
+    statuses = verify_mappings()
+    for market, status in statuses.items():
+        print(f"{market:16} {status}")
+    return 0 if statuses and all(status == "ok" for status in statuses.values()) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

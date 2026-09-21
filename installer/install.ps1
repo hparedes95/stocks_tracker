@@ -345,7 +345,10 @@ $Py = Join-Path $InstallDir '.venv\Scripts\python.exe'
 if (-not (Test-Path $Py)) { Fail "No se ha podido crear el entorno de Python." $null }
 
 & $Py -m pip install --upgrade pip --quiet
-& $Py -m pip install -e ".[data,dev]" --quiet
+& $Py -m pip install --require-hashes -r requirements-runtime.lock --quiet
+if ($LASTEXITCODE -eq 0) {
+    & $Py -m pip install -e . --no-deps --quiet
+}
 if ($LASTEXITCODE -ne 0) { Fail "Ha fallado la instalacion de dependencias." $null }
 
 & $Py -m stocks_tracker.core.db --migrate

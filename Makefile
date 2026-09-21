@@ -1,6 +1,6 @@
 .PHONY: help setup migrate ingest ingest-demo compute compute-presets repair \
 	real validate alerts alerts-dry daily watch watch-test watch-status \
-	run test lint fmt clean
+	run report backup-check test lint fmt clean
 
 PY := .venv/bin/python
 UV := uv
@@ -21,12 +21,15 @@ help:
 	@echo "make watch        Vigila el mercado en vivo y avisa si se desploma"
 	@echo "make watch-test   Simula un desplome del 8% para probar los avisos"
 	@echo "make run          Arranca el dashboard (solo 127.0.0.1)"
+	@echo "make report       Exporta el informe diario en Markdown"
+	@echo "make backup-check Ensaya la restauracion de las copias"
 	@echo "make test         Ejecuta los tests"
 	@echo "make lint         Comprueba estilo"
 
 setup:
 	$(UV) venv
-	$(UV) pip install -e ".[data,dev]"
+	$(UV) pip install --require-hashes -r requirements-runtime.lock
+	$(UV) pip install -e . --no-deps
 	git config core.hooksPath scripts/git-hooks || true
 
 # Sin extras de datos: util en entornos sin acceso a Yahoo.
@@ -36,6 +39,12 @@ setup-min:
 
 migrate:
 	$(PY) -m stocks_tracker.core.db --migrate
+
+report:
+	$(PY) -m stocks_tracker.core.daily_report
+
+backup-check:
+	$(PY) -m stocks_tracker.core.db --verify-backups
 
 ingest:
 	$(PY) -m stocks_tracker.ingest.run_ingest --what all

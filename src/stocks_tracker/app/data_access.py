@@ -729,6 +729,20 @@ def get_active_signals(ticker: str) -> list[str]:
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
+def get_news(ticker: str, limit: int = 20) -> pd.DataFrame:
+    """Noticias propias si Finnhub esta configurado; vacio en caso contrario."""
+    return _fetch(
+        """
+        SELECT published_at, headline, summary, url, source, sentiment,
+               sentiment_method
+        FROM news_items WHERE ticker = ?
+        ORDER BY published_at DESC LIMIT ?
+        """,
+        [ticker, limit],
+    )
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
 def get_sector_medians(sector: str) -> pd.Series:
     """Medianas del sector, para poder decir 'PER 11 frente a 14,8 del sector'.
 
@@ -1253,7 +1267,7 @@ def replace_positions(frame: pd.DataFrame, note: str = "") -> int:
                          today, note, now],
                     )
             conn.execute("COMMIT")
-        except Exception:
+        except Exception:  # noqa: BLE001 — toda averia debe revertir la transaccion
             conn.execute("ROLLBACK")
             raise
 

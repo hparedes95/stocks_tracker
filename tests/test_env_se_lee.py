@@ -123,7 +123,7 @@ def test_todas_las_credenciales_registradas_se_leen_del_env(tmp_path):
     codigo = (
         "import os, stocks_tracker;"
         "print(','.join(k for k in os.environ if k.startswith(("
-        "'TWELVE_','KRAKEN_','TELEGRAM_','POLYMARKET_','FRED_')))"
+            "'TWELVE_','KRAKEN_','TELEGRAM_','POLYMARKET_','FRED_','FINNHUB_')))"
         ")"
     )
     visto = _en_un_proceso_limpio(

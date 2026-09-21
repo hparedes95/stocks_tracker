@@ -36,6 +36,7 @@ from ..providers.base import completeness
 from ..providers.fred_provider import FredProvider
 from ..providers.registry import get_price_provider
 from ..providers.universe_provider import es_fiable, resolve_universe
+from .ingest_news import ingest as ingest_news
 
 console = Console()
 
@@ -1022,7 +1023,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Ingesta de datos de mercado")
     parser.add_argument(
         "--what", default="all",
-        choices=["all", "universe", "prices", "fundamentals", "macro"],
+        choices=["all", "universe", "prices", "fundamentals", "macro", "news"],
         help="que descargar",
     )
     parser.add_argument(
@@ -1145,6 +1146,8 @@ def _run(args) -> None:
               todos_los_tickers=bool(todos))
     if args.what in ("all", "macro") and args.provider != "synthetic":
         _paso("ingest_macro", lambda: ingest_macro(run_id=run_id))
+    if args.what in ("all", "news") and args.provider != "synthetic":
+        _paso("ingest_news", lambda: ingest_news(run_id=run_id))
 
     console.print("[bold green]Ingesta terminada.[/]")
 
