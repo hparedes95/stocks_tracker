@@ -37,12 +37,12 @@ from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
 
-from stocks_tracker.trading.brokers.base import (
+from stocks_tracker.backtest.simulation.base import (
     BrokerRejectedError,
     InsufficientFundsError,
     OrderRequest,
 )
-from stocks_tracker.trading.brokers.simulated import SimulatedBroker
+from stocks_tracker.backtest.simulation.simulated import SimulatedBroker
 
 TICKERS = ("AAA", "BBB", "CCC")
 N_SESIONES = 12

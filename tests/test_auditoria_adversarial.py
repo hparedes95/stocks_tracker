@@ -35,8 +35,7 @@ from datetime import date, timedelta
 import numpy as np
 import pandas as pd
 
-from stocks_tracker.core import quality
-from stocks_tracker.trading import sizing
+from stocks_tracker.core import quality, sizing
 
 HOY = date(2026, 8, 20)
 

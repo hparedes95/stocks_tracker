@@ -26,24 +26,50 @@ from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components import health_panel
 from stocks_tracker.app.components.common import render_disclaimer
 from stocks_tracker.app.components.theme import format_money
+from stocks_tracker.app.research_actions import refresh_research
 from stocks_tracker.core.advice import ETIQUETA, Conviccion, Veredicto
 from stocks_tracker.core.advice_store import resumen_honesto
 
-st.title("Qué haría hoy")
+st.title("Asesor de acciones")
 st.caption(
     "Lo que **tus reglas** implican hoy, no lo que va a hacer el mercado. "
-    "Ningún módulo de este programa predice nada: lo que hace es aplicar tus "
-    "criterios igual todos los días y enseñar el porqué."
+    "Propuestas explicables para tu decisión manual. Consulta también Predicción "
+    "y escenarios; todavía no hay una ventaja predictiva demostrada."
 )
+
+
+# La ejecución es explícita: nunca en cada rerun ni en segundo plano.
+
+with st.expander("Actualizar datos y recomendaciones", expanded=True):
+    cash = st.number_input("Efectivo disponible para esta consulta (EUR)",
+                           min_value=0.0, value=0.0, step=100.0)
+    st.caption("No se conecta con tu banco. El efectivo no declarado se considera cero. "
+               "Los botones no compran ni venden; la descarga puede tardar varios minutos.")
+    download = st.button("Actualizar datos y análisis", type="primary")
+    recalculate = st.button("Recalcular asesor con los datos guardados")
+    if download or recalculate:
+        with st.spinner("Preparando el análisis…"):
+            try:
+                refresh_research(cash=cash, download=download)
+            except Exception as exc:  # noqa: BLE001 — frontera de acción manual en la interfaz
+                st.error(f"No se ha completado el análisis: {exc}. "
+                         "Las recomendaciones anteriores NO se han actualizado.")
+            else:
+                st.cache_data.clear()
+                st.success("Consulta completada. Si faltan datos o efectivo puede no haber propuestas.")
+
+st.warning("Herramienta experimental: la fuerza de una señal no es una probabilidad "
+           "de acertar. El marcador y los estudios históricos no demuestran "
+           "rentabilidad futura ni rentabilidad neta de costes.")
 
 COLOR = {
     Veredicto.VENDER: "🔴", Veredicto.REDUCIR: "🟠", Veredicto.COMPRAR: "🟢",
     Veredicto.AMPLIAR: "🟢", Veredicto.MANTENER: "⚪", Veredicto.VETADA: "⛔",
     Veredicto.SIN_OPINION: "❔",
 }
-FUERZA = {Conviccion.ALTA: "convicción alta",
-          Conviccion.MEDIA: "convicción media",
-          Conviccion.BAJA: "convicción baja"}
+FUERZA = {Conviccion.ALTA: "coincidencia alta con las reglas",
+          Conviccion.MEDIA: "coincidencia media con las reglas",
+          Conviccion.BAJA: "coincidencia baja con las reglas"}
 
 
 # ===========================================================================
@@ -125,9 +151,9 @@ guardadas = da.get_advice()
 
 if guardadas.empty:
     st.info(
-        "Todavía no hay consejos calculados. Ejecuta `stocks.ps1 consejo` "
-        "—o `python -m stocks_tracker.compute.run_advice`— después del cálculo "
-        "diario y aparecerán aquí.\n\n"
+        "Todavía no hay propuestas accionables guardadas. Usa los botones superiores "
+        "para actualizar los datos y recalcular el asesor. Con efectivo cero o "
+        "evidencia insuficiente puede no recomendar ninguna compra.\n\n"
         "Se calculan en un paso aparte y no al abrir esta página, para que "
         "quede constancia de cada uno: sin esa constancia el marcador de arriba "
         "no podría llenarse nunca.",
@@ -135,6 +161,10 @@ if guardadas.empty:
     )
     st.stop()
 
+
+st.caption(f"Recomendaciones guardadas con fecha {pd.to_datetime(guardadas['fecha']).max():%d/%m/%Y}.")
+st.info("Son propuestas, no operaciones realizadas. Revisa fecha, precios y efectivo "
+        "antes de decidir. El historial anterior se conserva, pero no se presenta como actual.")
 
 def _lista(campo: str, fila) -> list[str]:
     try:

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from stocks_tracker.trading.sizing import regime_factor, size_by_atr, trailing_stop
+from stocks_tracker.core.sizing import regime_factor, size_by_atr, trailing_stop
 
 BASE = dict(
     risk_per_trade_pct=1.5,

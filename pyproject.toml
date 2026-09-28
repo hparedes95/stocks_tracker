@@ -1,7 +1,7 @@
 [project]
 name = "stocks-tracker"
 version = "0.1.0"
-description = "Dashboard de monitorizacion de mercado y deteccion de oportunidades"
+description = "Analisis de acciones, escenarios de mercado y asesor de cartera"
 requires-python = ">=3.11,<3.15"
 dependencies = [
     "streamlit>=1.40",
@@ -56,6 +56,7 @@ build-backend = "hatchling.build"
 packages = ["src/stocks_tracker"]
 
 [tool.ruff]
+extend-exclude = ["archive"]
 line-length = 100
 target-version = "py311"
 
@@ -70,7 +71,9 @@ filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.coverage.run]
 branch = true
-source = ["stocks_tracker"]
+# Streamlit ejecuta las páginas como scripts, no con el nombre del paquete.
+# Medir por ruta incluye también sus ejecuciones en AppTest.
+source = ["src/stocks_tracker"]
 
 [tool.coverage.report]
 fail_under = 66

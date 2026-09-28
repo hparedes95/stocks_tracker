@@ -164,7 +164,7 @@ def test_hay_un_test_por_cada_modulo_de_verificacion():
     raiz = project_root()
     verificadores = {
         "quality", "consensus", "consistency", "corporate", "integrity",
-        "lineage", "membership", "quarantine", "reconcile", "golden",
+        "lineage", "membership", "quarantine", "golden",
         "multiple_testing", "experiments",
     }
     contenido = "\n".join(

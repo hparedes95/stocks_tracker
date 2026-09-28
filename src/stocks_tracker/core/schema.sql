@@ -886,3 +886,11 @@ CREATE TABLE IF NOT EXISTS recommendations (
   emitida_at      TIMESTAMP,
   PRIMARY KEY (fecha, ticker, weights_hash)
 );
+
+-- Última consulta explícita, incluso si no produjo propuestas. El historial
+-- no se borra; esta marca evita mostrar como actuales consejos de otra consulta.
+CREATE TABLE IF NOT EXISTS advisor_runs (
+  weights_hash VARCHAR PRIMARY KEY,
+  evaluated_at TIMESTAMP,
+  session_date DATE
+);

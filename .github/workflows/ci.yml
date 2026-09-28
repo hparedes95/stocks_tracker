@@ -55,7 +55,7 @@ jobs:
 
       - name: Test
         if: always()
-        run: uv run --extra dev --locked pytest -q --cov=stocks_tracker --cov-branch --cov-report=term-missing
+        run: uv run --extra dev --locked pytest -q --cov=src/stocks_tracker --cov-branch --cov-report=term-missing
 
       - name: Dependency audit
         if: ${{ always() && matrix.primary }}

@@ -155,7 +155,8 @@ def test_sin_calcular_la_pagina_dice_que_hacer(almacen):
     prueba = _pintar()
 
     texto = " ".join(str(e.value) for e in prueba.info)
-    assert "run_advice" in texto or "consejo" in texto
+    assert "botones superiores" in texto
+    assert any(b.label == "Actualizar datos y análisis" for b in prueba.button)
 
 
 def test_el_efectivo_se_pide_al_calcular_y_no_se_inventa():
@@ -299,3 +300,59 @@ def test_preguntar_por_algo_que_no_tienes_lo_dice(almacen, capsys):
 
     assert por_que("ZZZZ") == 1
     assert "no esta en tu cartera" in capsys.readouterr().out
+
+
+def test_consulta_sin_propuestas_no_reutiliza_las_anteriores(almacen, monkeypatch):
+    from stocks_tracker.app import data_access as da
+    from stocks_tracker.compute.run_advice import calcular_y_guardar
+    from stocks_tracker.core import advice_build
+
+    _sembrar_cartera()
+    assert calcular_y_guardar() > 0
+    assert not da.get_advice().empty
+    monkeypatch.setattr(advice_build, "de_la_cartera", lambda *a, **kw: [])
+    assert calcular_y_guardar() == 0
+    st.cache_data.clear()
+    assert da.get_advice().empty
+    with db.connect(read_only=True) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0] > 0
+
+
+def test_actualizar_solo_cuando_se_pulsa_un_boton(almacen, monkeypatch):
+    from unittest.mock import Mock
+
+    from stocks_tracker.app import research_actions
+
+    refresh = Mock()
+    monkeypatch.setattr(research_actions, "refresh_research", refresh)
+    prueba = _pintar()
+    refresh.assert_not_called()
+    prueba.number_input[0].set_value(1500.0)
+    prueba.button[1].click().run()
+    assert not prueba.exception
+    refresh.assert_called_once_with(cash=1500.0, download=False)
+    prueba.run()
+    assert not prueba.exception
+    assert refresh.call_count == 1
+
+
+def test_no_se_propone_comprar_el_valor_que_se_recomienda_vender(almacen, monkeypatch):
+    from stocks_tracker.compute.run_advice import calcular_y_guardar
+    from stocks_tracker.core import advice_build
+    from stocks_tracker.core.scoring import preset_hash
+
+    _sembrar_cartera()
+    with db.connect() as conn:
+        db.upsert_df(conn, "factor_scores", pd.DataFrame([{
+            "ticker": "AAA", "date": HOY, "weights_hash": preset_hash("balanced"),
+            "composite": 2.0, "composite_pctile": .99, "coverage": .99,
+        }]), keys=["ticker", "date", "weights_hash"])
+    received = []
+
+    def candidates(ranking, **kwargs):
+        received.extend(ranking["ticker"].tolist())
+        return []
+
+    monkeypatch.setattr(advice_build, "de_los_candidatos", candidates)
+    assert calcular_y_guardar(caja=1500.) > 0
+    assert "AAA" not in received

@@ -43,6 +43,7 @@ from ..core.advice_store import guardar_recomendaciones
 from ..core.config import get_settings
 from ..core.db import connect, migrate
 from ..core.scoring import preset_hash
+from ..core.timeutils import utcnow
 
 console = Console()
 
@@ -185,6 +186,7 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
                    f.value_z, f.growth_z, f.quality_z, f.momentum_z,
                    f.lowvol_z, f.dividend_z, f.technical_z,
                    inst.gics_sector, inst.currency, i.close, i.atr_pct,
+                   i.above_sma200, i.rsi14, i.drawdown, i.realized_vol_252,
                    fu.payout_ratio, fu.net_debt_to_ebitda, fu.trailing_pe
             FROM factor_scores f
             JOIN instruments inst ON inst.ticker = f.ticker
@@ -198,24 +200,31 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
             [whash, dia],
         ).fetchdf()
         cambios = fx.tipos(conn)
+        mercado = conn.execute(
+            "SELECT regime FROM regime_daily WHERE date = ?", [dia]).fetchone()
+        regimen = mercado[0] if mercado and mercado[0] else "neutral"
         universo = conn.execute(
             "SELECT universe_hash FROM scoring_runs WHERE weights_hash = ? "
             "ORDER BY date DESC LIMIT 1", [whash]).fetchone()
 
     valor = fx.total(posiciones["valor_eur"]) if not posiciones.empty else 0.0
     equity = (valor if valor == valor else 0.0) + caja
+    if valor != valor:
+        console.print("[yellow]No se puede valorar toda la cartera. "
+                      "No se proponen compras nuevas.[/]")
+        ranking = ranking.iloc[:0]
 
-    # La cartera PRIMERO, y no por orden de lectura: una venta libera una de
-    # las siete plazas, y sin resolverla antes un buen candidato saldria vetado
-    # por una plaza que esta a punto de quedar libre.
+    # Una recomendación de venta no libera plazas hasta registrarla en cartera.
     recomendaciones = advice_build.de_la_cartera(
         salud, posiciones, pesos_sector=pesos_sector)
-    libera = sum(1 for r in recomendaciones
-                 if r.veredicto is advice.Veredicto.VENDER)
+    salidas = {r.ticker for r in recomendaciones
+               if r.veredicto in (advice.Veredicto.VENDER, advice.Veredicto.REDUCIR)}
+    if not ranking.empty:
+        ranking = ranking.loc[~ranking["ticker"].isin(salidas)]
 
     recomendaciones += advice_build.de_los_candidatos(
-        ranking, equity=equity, caja=caja,
-        n_posiciones=max(len(posiciones) - libera, 0),
+        ranking, equity=equity, caja=caja, regimen=regimen,
+        n_posiciones=posiciones["ticker"].nunique() if not posiciones.empty else 0,
         pesos_actuales=pesos_actuales, pesos_sector=pesos_sector,
         tipos_cambio=cambios,
     )
@@ -229,6 +238,13 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
                                 strict=False)))
 
     with connect() as conn:
+        evaluated_at = utcnow()
+        # Invalidar la consulta anterior ANTES de escribir. El upsert ya tiene
+        # transacción propia: ante un fallo no se mostrarán consejos antiguos.
+        conn.execute(
+            "INSERT OR REPLACE INTO advisor_runs VALUES (?, ?, ?)",
+            [whash, evaluated_at, dia],
+        )
         n = guardar_recomendaciones(
             conn, recomendaciones, dia=dia, weights_hash=whash,
             precios=precios,
@@ -416,8 +432,8 @@ def calibrar(preset: str | None = None, horizonte_meses: int = 6):
     concreta de este modulo —el corte del percentil 90— y no una estrategia
     entera. Lo segundo ya existe y tiene su propia puerta.
     """
+    from ..backtest import readiness as gate
     from ..core import advice_calib
-    from ..trading import gate
 
     nombre = preset or "bot_core"
     bloqueos = tuple(gate.find_blockers(preset=nombre))

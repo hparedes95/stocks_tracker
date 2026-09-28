@@ -188,7 +188,7 @@ def _consenso(conn, ahora: pd.Timestamp) -> Punto:
     if invalidos:
         return Punto("Consenso entre proveedores", MAL,
                      f"{invalidos} valores con precios incompatibles entre "
-                     "fuentes. El bot no operara esos valores.",
+                     "fuentes. No usar estos valores para decidir hasta resolver la discrepancia.",
                      "Estado de los datos")
     degradados = conteo.get("degradado", 0)
     verificados = conteo.get("verificado", 0)
@@ -408,45 +408,6 @@ def _trazabilidad(conn) -> Punto:
                  "Commitea los cambios y vuelve a calcular")
 
 
-def _reconciliacion(conn, ahora: pd.Timestamp) -> Punto:
-    fila = conn.execute(
-        "SELECT MAX(checked_at) FROM reconciliation"
-    ).fetchone()
-    posiciones = conn.execute(
-        "SELECT COUNT(*) FROM positions WHERE closed_at IS NULL"
-    ).fetchone()[0]
-
-    if not posiciones:
-        return Punto("Cartera contra el broker", BIEN,
-                     "No hay ninguna posicion abierta que contrastar.")
-    if fila is None or fila[0] is None:
-        return Punto(
-            "Cartera contra el broker", SIN_COMPROBAR,
-            f"{posiciones} posiciones abiertas y nunca se han contrastado con el "
-            "broker. Es la unica comprobacion que se hace contra quien tiene el "
-            "dinero de verdad.",
-            "Ejecuta `reconciliar`",
-        )
-    if _caducada(fila[0], ahora):
-        return Punto("Cartera contra el broker", SIN_COMPROBAR,
-                     f"La ultima revision es del "
-                     f"{pd.Timestamp(fila[0]):%d/%m/%Y}.", "Ejecuta `reconciliar`")
-
-    # Se lee con `reconcile.ultima_revision` y no con una consulta propia: es la
-    # misma pregunta que contesta la pantalla, y dos consultas para la misma
-    # pregunta acaban contestando cosas distintas el dia que una se toca.
-    from . import reconcile
-
-    revision = reconcile.ultima_revision(conn)
-    difieren = int((revision["estado"] == "difiere").sum()) if not revision.empty else 0
-    if difieren:
-        return Punto("Cartera contra el broker", MAL,
-                     f"{difieren} diferencias con el broker sin resolver.",
-                     "Estado de los datos")
-    return Punto("Cartera contra el broker", BIEN,
-                 f"Las {posiciones} posiciones cuadran con el broker.")
-
-
 def _proveedores(conn) -> Punto:
     """Que fuentes han servido datos DE VERDAD, y cuales solo estan escritas.
 
@@ -501,7 +462,6 @@ COMPROBACIONES = (
     ("Fundamentales", _fundamentales, False),
     ("Ranking", _ranking, False),
     ("Validacion de senales", _validacion, False),
-    ("Cartera contra el broker", _reconciliacion, True),
     ("Splits y dividendos", _splits_y_dividendos, False),
     ("Retorno ajustado", _retorno_ajustado, False),
     ("Trazabilidad del calculo", _trazabilidad, False),

@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from stocks_tracker.backtest.simulation.base import OrderRequest
+from stocks_tracker.backtest.simulation.simulated import SimulatedBroker, _Holding
 from stocks_tracker.core.scoring import zscore_by_group
-from stocks_tracker.trading.brokers.base import OrderRequest
-from stocks_tracker.trading.brokers.simulated import SimulatedBroker, _Holding
 
 
 def test_small_group_fallback_uses_full_universe():

@@ -1,63 +1,9 @@
-"""El asesor: una sola decision por valor, con sus motivos y su tamano.
+"""Asesor manual: propuestas explicables, no órdenes ni predicción garantizada.
 
-QUE ES ESTO Y QUE NO ES
-
-No predice. Ningun modulo de este programa sabe lo que va a hacer el mercado, y
-este tampoco. Lo que hace es aplicar TUS reglas de forma consistente y decir en
-voz alta lo que implican hoy.
-
-La diferencia importa mas de lo que parece:
-
-    Prediccion   "AAPL va a subir, compra."
-                 No es construible. Cualquier numero que lo acompane es
-                 precision falsa.
-
-    Decision     "Tus reglas implican comprar AAPL por A, B y C. Tamano 380 EUR,
-                 stop en 172,40. Esto seria un error si pasa D. Reglas de este
-                 tipo llevan N aciertos de M."
-                 Esto si, y es lo que hace un asesor con disciplina.
-
-La segunda es ademas la que da dinero. Lo que arruina la rentabilidad de un
-particular no suele ser fallar la prediccion: es la inconsistencia, el tamano
-mal puesto y los costes e impuestos. Las tres cosas se arreglan con reglas
-escritas y aplicadas igual todos los dias.
-
-LAS TRES DECISIONES QUE GOBIERNAN ESTE MODULO
-
-Las tomo el usuario, y estan aqui porque cambian el codigo entero:
-
-1. HORIZONTE: MESES. Mandan los factores y el deterioro. Las senales tecnicas
-   solo entran si su evidencia esta en ESTABLE o CONFIRMADA; una senal recien
-   descubierta no mueve un consejo. A meses vista, el ruido de una semana no es
-   informacion.
-
-2. VENDER SOLO SI LA TESIS SE ROMPE. No hay rotacion por "hay algo mejor".
-   Cambiar una posicion buena por otra ligeramente mejor gana unas decimas en
-   teoria y pierde en comisiones, cambio de divisa e impuestos: es justo donde
-   se evapora la rentabilidad del particular. Y ante la duda, REDUCIR antes que
-   VENDER, porque una venta es irreversible y activa impuestos.
-
-3. LA REGLA FISCAL AVISA, NO VETA. El coste sale calculado en euros al lado de
-   la recomendacion. A veces cortar una perdida es lo correcto aunque cueste
-   impuestos, y esa decision es del que pone el dinero.
-
-POR QUE NO PASA POR `RiskManager`
-
-`trading/risk.py` gobierna la EJECUCION contra una cuenta viva: perdida diaria,
-ordenes por dia, day trades, killswitch. Nada de eso aplica a un consejo que no
-ejecuta nada, y montar un `StrategyContext` con su broker para poder aconsejar
-seria arrastrar medio bot a una pantalla de lectura.
-
-Lo que si aplica son los limites de FORMA de la cartera —cuanto puede pesar una
-posicion, un sector, cuantas posiciones caben, cuanta caja se reserva— y esos
-se leen del MISMO `config/trading.yaml`, para que el asesor y el bot no puedan
-decir cosas distintas. `sizing.size_by_atr` se reutiliza tal cual.
-
-SIN_OPINION ES UN VEREDICTO DE PRIMERA CLASE
-
-Cuando faltan datos, este modulo lo dice. No rellena con MANTENER, que sonaria
-a "lo he mirado y esta bien". El hueco tiene que verse: es la unica forma de
-que se arregle.
+Aplica reglas de selección, deterioro y tamaño. Sus límites se configuran en
+settings.yaml, sección advisor.risk, con valores conservadores por defecto.
+La convicción expresa coincidencia con criterios, no probabilidad calibrada.
+Ante datos insuficientes emite SIN_OPINION. Nunca modifica la cartera.
 """
 
 from __future__ import annotations
@@ -66,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from . import deterioration as det
-from .config import get_trading_config
+from .config import get_settings
 
 
 # ---------------------------------------------------------------------------
@@ -182,13 +128,8 @@ class Recomendacion:
 
 
 def _limites() -> dict:
-    """Los limites de FORMA de la cartera, del mismo sitio que los del bot.
-
-    Compartir fichero no es comodidad: es que el asesor y el bot no puedan
-    decir cosas distintas sobre la misma cartera. Dos fuentes de verdad para el
-    mismo limite se separan el dia que alguien toca una.
-    """
-    riesgo = get_trading_config().raw.get("risk", {})
+    """Límites del asesor, sin dependencia de configuración de ejecución."""
+    riesgo = get_settings().raw.get("advisor", {}).get("risk", {})
     return {
         "risk_per_trade_pct": float(riesgo.get("risk_per_trade_pct", 1.5)),
         "atr_stop_mult": float(riesgo.get("atr_stop_mult", 2.5)),
@@ -392,7 +333,7 @@ def sobre_una_posicion(
                 "Si el tope del "
                 f"{lim['max_position_pct']:.0f} % ya no refleja el riesgo que "
                 "quieres correr, lo que hay que cambiar es `max_position_pct` "
-                "en config/trading.yaml, no esta posicion.",
+                "en config/settings.yaml (advisor), no esta posicion.",
             ],
             titulos_a_soltar=(
                 titulos * (1 - lim["max_position_pct"] / peso_pct)
@@ -546,7 +487,7 @@ def sobre_un_candidato(
     que es la unica en la que sirve: un stop es un precio que se mira en el
     grafico y se teclea en el broker.
     """
-    from ..trading.sizing import size_by_atr
+    from .sizing import size_by_atr
 
     lim = _limites()
     banderas = banderas or []
@@ -631,7 +572,7 @@ def sobre_un_candidato(
             ],
             desmentiria=[
                 "Si alguna de las que tienes esta en VENDER por tesis rota, "
-                "esa plaza se libera sola y este candidato vuelve a estar "
+                "esa plaza solo se libera al registrar la venta y este candidato vuelve a estar "
                 "disponible.",
             ],
         )
@@ -683,7 +624,10 @@ def sobre_un_candidato(
         regime=regimen,
         risk_per_trade_pct=lim["risk_per_trade_pct"],
         atr_stop_mult=lim["atr_stop_mult"],
-        max_position_pct=lim["max_position_pct"],
+        max_position_pct=min(
+            max(0.0, lim["max_position_pct"] - (peso_actual_pct or 0.0)),
+            max(0.0, lim["max_sector_pct"] - (peso_sector_pct or 0.0)),
+        ),
         target_position_pct=lim["target_position_pct"],
         min_cash_pct=lim["min_cash_pct"],
         min_notional=lim["min_notional"],

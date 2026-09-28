@@ -12,9 +12,7 @@ entre `SELECT`s.
 EL ORDEN IMPORTA Y ES DELIBERADO
 
 Primero la cartera, despues los candidatos. Lo que ya tienes puede costarte
-dinero hoy; lo que no tienes puede esperar a manana. Ademas, una venta libera
-una plaza de las siete, y sin resolver antes la cartera un candidato bueno
-saldria VETADA por una plaza que en realidad esta a punto de quedar libre.
+dinero hoy; lo que no tienes puede esperar a manana. Las ventas propuestas no liberan plazas ni efectivo hasta registrarse.
 """
 
 from __future__ import annotations
@@ -43,7 +41,7 @@ def de_la_cartera(salud: pd.DataFrame, posiciones: pd.DataFrame,
     if posiciones is None or posiciones.empty:
         return []
 
-    pesos_sector = pesos_sector or {}
+    pesos_sector = dict(pesos_sector or {})
     avisos_fiscales = avisos_fiscales or {}
     percentiles = percentiles or {}
     stops = stops or {}
@@ -102,13 +100,13 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
     if ranking is None or ranking.empty:
         return []
 
-    pesos_actuales = pesos_actuales or {}
-    pesos_sector = pesos_sector or {}
+    pesos_actuales = dict(pesos_actuales or {})
+    pesos_sector = dict(pesos_sector or {})
     avisos_fiscales = avisos_fiscales or {}
     tipos_cambio = tipos_cambio or {}
 
     fuera: list[Recomendacion] = []
-    for _, fila in ranking.head(limite).iterrows():
+    for _, fila in ranking.drop_duplicates("ticker").head(limite).iterrows():
         ticker = str(fila["ticker"])
         precio = as_float(fila.get("close"))
         atr_pct = as_float(fila.get("atr_pct"))
@@ -147,7 +145,7 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
             ))
             continue
 
-        fuera.append(advice.sobre_un_candidato(
+        propuesta = advice.sobre_un_candidato(
             ticker,
             percentil=as_float(fila.get("composite_pctile")),
             cobertura=as_float(fila.get("coverage")),
@@ -160,7 +158,17 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
             motivos_ranking=_motivos_del_ranking(fila),
             aviso_fiscal=avisos_fiscales.get(ticker, ""),
             tipo_cambio=cambio,
-        ))
+        )
+        fuera.append(propuesta)
+        if propuesta.veredicto in (advice.Veredicto.COMPRAR, advice.Veredicto.AMPLIAR):
+            importe = propuesta.importe_eur or 0.0
+            caja = max(0.0, caja - importe)
+            if ticker not in pesos_actuales:
+                n_posiciones += 1
+            peso = importe / equity * 100 if equity > 0 else 0.0
+            pesos_actuales[ticker] = pesos_actuales.get(ticker, 0.0) + peso
+            sector = str(fila.get("gics_sector") or "")
+            pesos_sector[sector] = pesos_sector.get(sector, 0.0) + peso
     return fuera
 
 

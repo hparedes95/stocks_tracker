@@ -57,7 +57,7 @@ from stocks_tracker.core.config import project_root
 # por separado lo detecta.
 VERIFICADORES = (
     "quality", "consensus", "consistency", "corporate", "integrity", "lineage",
-    "membership", "quarantine", "reconcile", "golden", "multiple_testing",
+    "membership", "quarantine", "golden", "multiple_testing",
     "experiments", "audit",
     # `advice_store` entra aqui despues de que su `guardar()` se quedara sin
     # llamante durante un commit entero. La pagina calculaba las

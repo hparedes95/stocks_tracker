@@ -11,12 +11,12 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from stocks_tracker.trading.brokers.base import (
+from stocks_tracker.backtest.simulation.base import (
     BrokerRejectedError,
     InsufficientFundsError,
     OrderRequest,
 )
-from stocks_tracker.trading.brokers.simulated import SimulatedBroker, snapshot
+from stocks_tracker.backtest.simulation.simulated import SimulatedBroker, snapshot
 
 
 def bars(rows: list[tuple]) -> pd.DataFrame:
@@ -92,7 +92,7 @@ def test_a_gap_below_the_stop_fills_at_the_real_open():
         ]),
         initial_cash=1000.0, slippage_bps=0.0,
     )
-    from stocks_tracker.trading.brokers.simulated import _Holding
+    from stocks_tracker.backtest.simulation.simulated import _Holding
 
     gap._holdings["AAA"] = _Holding(qty=1.0, avg_entry_price=100.0)
 
@@ -108,7 +108,7 @@ def test_a_gap_below_the_stop_fills_at_the_real_open():
 
 
 def test_a_stop_that_is_not_touched_keeps_waiting():
-    from stocks_tracker.trading.brokers.simulated import _Holding
+    from stocks_tracker.backtest.simulation.simulated import _Holding
 
     calm = SimulatedBroker(
         prices=bars([
@@ -208,7 +208,7 @@ def test_day_trades_are_counted():
     """Con menos de 25.000 $ FINRA permite 3 en 5 dias habiles. Con 50 EUR es
     una restriccion dura, y hay que poder probarla en el backtest en lugar de
     descubrirla operando."""
-    from stocks_tracker.trading.brokers.simulated import _Holding
+    from stocks_tracker.backtest.simulation.simulated import _Holding
 
     pdt = SimulatedBroker(
         prices=bars([

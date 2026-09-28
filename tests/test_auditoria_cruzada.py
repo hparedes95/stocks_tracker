@@ -225,43 +225,6 @@ def test_volver_a_auditar_pisa_el_veredicto_viejo(warehouse):
 # Y llega hasta el bot
 # ---------------------------------------------------------------------------
 
-def test_el_contexto_trae_el_veredicto_mas_reciente(warehouse):
-    """El de HOY y no el de la primera auditoria.
-
-    Importa porque un valor que estuvo roto y ya no lo esta seguiria vetado
-    para siempre, y al reves —lo peor— un valor que se rompio ayer seguiria
-    operandose con el 'verificado' del mes pasado.
-
-    La auditoria cruzada no corre todos los dias sobre todos los valores: el
-    presupuesto de las APIs gratuitas no da. Por eso se toma el ultimo que
-    haya, no el de la fecha exacta.
-
-    Llama a `build_context` DE VERDAD. La primera version de este test repetia
-    la consulta dentro del propio test, asi que probaba mi copia y no la real:
-    al mutar el ORDER BY de `context.py` seguia pasando tan tranquilo.
-    """
-    sembrar(en_cartera=(), con_senal=(), universo=("AAA",))
-    with db.connect() as conn:
-        run_audit.guardar(
-            conn,
-            veredicto_de("AAA", 100.0, 0.3, Veredicto.INVALIDO)
-            .assign(fecha=HOY - timedelta(days=10)),
-            "run-viejo",
-        )
-        run_audit.guardar(
-            conn, veredicto_de("AAA", 100.0, 0.001, Veredicto.VERIFICADO),
-            "run-nuevo",
-        )
-
-    from stocks_tracker.trading.context import build_context
-
-    ctx = build_context(as_of=HOY, mode="simulated")
-
-    assert ctx.consenso.get("AAA") == str(Veredicto.VERIFICADO), (
-        "el bot se quedaria con un veredicto caducado"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Que la auditoria diga POR QUE no ha podido contrastar
 # ---------------------------------------------------------------------------

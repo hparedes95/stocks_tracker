@@ -62,7 +62,7 @@ def huella_universo(tickers) -> str:
 
 PRESET_LABELS = {
     "balanced": "Equilibrado", "value": "Valor", "growth": "Crecimiento",
-    "dividend": "Dividendo", "momentum": "Momentum", "bot_core": "Nucleo del bot",
+    "dividend": "Dividendo", "momentum": "Momentum", "bot_core": "Tendencia y riesgo",
 }
 
 PRESET_DESCRIPTIONS = {
@@ -71,7 +71,7 @@ PRESET_DESCRIPTIONS = {
     "growth": "Prima el crecimiento de ventas y beneficios, y el momentum que suele acompanarlo. Es el perfil mas volatil.",
     "dividend": "Prima el reparto sostenible: rentabilidad por dividendo, calidad y baja volatilidad. Payout desbocado penaliza.",
     "momentum": "Prima lo que ya lo esta haciendo bien. Funciona en tendencia y sufre en los giros de mercado.",
-    "bot_core": "El ranking que usa el bot de trading. Solo factores que se pueden calcular con precios, para que su historico sea comprobable: los fundamentales solo existen a dia de hoy.",
+    "bot_core": "Perfil de investigacion basado en precios: tendencia, volatilidad y senales tecnicas. Su ranking no representa una probabilidad de ganar.",
 }
 
 

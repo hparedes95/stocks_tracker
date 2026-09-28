@@ -334,6 +334,11 @@ if ((Test-Path $envEjemplo) -and -not (Test-Path $envFile)) {
 }
 Write-Host "  Copiado"
 
+# Detener versiones anteriores antes de los pasos largos de datos y calculo.
+& powershell -NoProfile -ExecutionPolicy Bypass `
+    -File (Join-Path $InstallDir 'scripts\windows\remove-legacy-tasks.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'No se pudieron retirar las tareas antiguas.' }
+
 # ---------------------------------------------------------------------------
 # 4. Entorno
 # ---------------------------------------------------------------------------
@@ -461,22 +466,13 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # ---------------------------------------------------------------------------
-# 8. Actualizacion automatica
+# 8. Retirar automatizaciones de versiones anteriores
 # ---------------------------------------------------------------------------
-Write-Step 8 8 "Programando las tareas automaticas"
-# Se llama a `stocks.ps1 autostart` en vez de registrar las tareas aqui.
-# Antes este bloque duplicaba la logica de programacion, y el resultado fue
-# exactamente lo que pasa siempre con una copia: al anadir el ciclo del bot en
-# `autostart`, el instalador siguio programando solo la actualizacion de datos.
-# Quien instalaba desde cero se quedaba sin bot y sin ninguna senal de que
-# faltaba algo.
-try {
-    & powershell -NoProfile -ExecutionPolicy Bypass `
-        -File (Join-Path $InstallDir 'scripts\windows\stocks.ps1') autostart
-    if ($LASTEXITCODE -ne 0) { throw "codigo $LASTEXITCODE" }
-} catch {
-    Write-Host "  No se ha podido programar: $($_.Exception.Message)" -ForegroundColor Yellow
-    Write-Host "  Activalas luego con: .\scripts\windows\stocks.ps1 autostart"
+Write-Step 8 8 "Retirando tareas antiguas"
+& powershell -NoProfile -ExecutionPolicy Bypass `
+    -File (Join-Path $InstallDir 'scripts\windows\remove-legacy-tasks.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "No se pudieron retirar las tareas antiguas. Revisa los permisos del Programador de tareas."
 }
 
 Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
@@ -516,8 +512,8 @@ switch ($script:Resultado) {
     }
 }
 Write-Host ""
-Write-Host "  Se actualiza solo: cada noche a las 23:15, y tambien al abrirlo si"
-Write-Host "  los datos se han quedado viejos. No tienes que ejecutar nada."
+Write-Host "  Los datos se revisan al abrirlo. No se programan tareas en segundo plano."
+Write-Host "  El asesor informa; las compras y ventas las decides tu."
 Write-Host ""
 Write-Host "  Para el ranking sobre las 600 empresas del universo completo"
 Write-Host "  (varios minutos, una sola vez):"

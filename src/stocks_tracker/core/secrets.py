@@ -231,7 +231,8 @@ def main() -> int:
 
     por_venue: dict[str, list[tuple[Credential, bool]]] = {}
     for cred, present in status():
-        por_venue.setdefault(cred.venue, []).append((cred, present))
+        if cred.venue in {"macro", "datos", "noticias"}:
+            por_venue.setdefault(cred.venue, []).append((cred, present))
 
     for venue, items in por_venue.items():
         print(f"  [{venue}]")
@@ -246,11 +247,6 @@ def main() -> int:
                     for linea in _wrap(cred.danger, 66):
                         print(f"          ! {linea}")
         print()
-
-    for venue in ("kraken", "polymarket"):
-        listo, faltan = venue_ready(venue)
-        estado = "listo para operar" if listo else f"faltan {', '.join(faltan)}"
-        print(f"  {venue}: {estado}")
 
     print()
     print("  Las credenciales van en el fichero .env, nunca en el codigo ni en")

@@ -79,6 +79,17 @@ consensus:
   tolerancia: 0.005      # 0,5 %: por debajo, dos fuentes "dicen lo mismo"
   maxima: 0.02           # 2 %: por encima, son datos incompatibles
 
+advisor:
+  risk:
+    risk_per_trade_pct: 1.5
+    atr_stop_mult: 2.5
+    max_position_pct: 22.0
+    target_position_pct: 15.0
+    max_positions: 7
+    max_sector_pct: 35.0
+    min_cash_pct: 10.0
+    min_notional: 1.0
+
 ui:
   locale: es
   tradingview:

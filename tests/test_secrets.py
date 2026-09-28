@@ -83,12 +83,12 @@ def test_redaction_covers_every_declared_credential(monkeypatch):
 
 def test_the_alert_channel_uses_the_shared_redaction(monkeypatch):
     """notify.py registra errores de envio; un token dentro seria permanente."""
-    from stocks_tracker.alerts import notify
+
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:token-de-telegram-real")
     secrets.load_env.cache_clear()
 
-    limpio = notify._redact("fallo al enviar con 123456:token-de-telegram-real")
+    limpio = secrets.redact("fallo al enviar con 123456:token-de-telegram-real")
     assert "token-de-telegram-real" not in limpio
 
 
@@ -146,4 +146,5 @@ def test_the_report_never_prints_a_value(monkeypatch, capsys):
     secrets.main()
     salida = capsys.readouterr().out
     assert "valor-que-no-debe-salir" not in salida
-    assert "KRAKEN_API_KEY" in salida
+    assert "KRAKEN_API_KEY" not in salida
+    assert "FRED_API_KEY" in salida

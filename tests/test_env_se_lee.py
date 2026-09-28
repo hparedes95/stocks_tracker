@@ -138,5 +138,6 @@ def test_el_env_de_ejemplo_documenta_todas_las_credenciales():
     existe: el instalador copia ese fichero como plantilla."""
     texto = (project_root() / ".env.example").read_text("utf-8")
 
-    faltan = [c.env for c in CREDENTIALS if c.env not in texto]
+    faltan = [c.env for c in CREDENTIALS
+              if c.venue in {"macro", "datos", "noticias"} and c.env not in texto]
     assert not faltan, f"credenciales sin documentar en .env.example: {faltan}"

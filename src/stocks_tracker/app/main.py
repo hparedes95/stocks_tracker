@@ -23,7 +23,6 @@ from stocks_tracker.app.components.common import (  # noqa: E402
     render_data_origin_banner,
     render_freshness_badge,
     render_integrity_badge,
-    render_pending_alerts_badge,
 )
 
 st.set_page_config(
@@ -76,8 +75,6 @@ tv_widgets.ticker_tape(compact=True)
 
 # Se guarda aparte porque el aviso de la barra lateral enlaza con ella, y
 # `st.page_link` necesita el objeto de pagina, no su ruta.
-alerts_page = st.Page("pages/9_alertas.py", title="Alertas",
-                      icon=":material/notifications:", url_path="alertas")
 estado_page = st.Page("pages/8_estado.py", title="Estado de los datos",
                       icon=":material/database:", url_path="estado")
 
@@ -86,13 +83,15 @@ pages = {
     # la pregunta con la que se abre el programa —qué hago hoy— y el resto
     # existe para sostenerla: los datos, la calidad, los factores y el deterioro
     # acaban aquí, en una decisión por valor.
-    "Qué hacer": [
-        st.Page("pages/12_asesor.py", title="Qué haría hoy",
-                icon=":material/lightbulb:", url_path="asesor"),
+    "Análisis y decisiones": [
+        st.Page("pages/12_asesor.py", title="Asesor de acciones",
+                icon=":material/lightbulb:", url_path="asesor", default=True),
+        st.Page("pages/13_prediccion.py", title="Predicción y escenarios",
+                icon=":material/query_stats:", url_path="prediccion"),
     ],
     "Mercado": [
         st.Page("pages/1_que_se_mueve_hoy.py", title="Qué se mueve hoy",
-                icon=":material/trending_up:", url_path="hoy", default=True),
+                icon=":material/trending_up:", url_path="hoy"),
         st.Page("pages/2_sectores.py", title="Sectores y rotación",
                 icon=":material/donut_large:", url_path="sectores"),
         st.Page("pages/6_macro.py", title="Macro y riesgo",
@@ -113,11 +112,6 @@ pages = {
                 icon=":material/bookmark:", url_path="watchlist"),
         st.Page("pages/11_diario.py", title="Diario de decisiones",
                 icon=":material/history_edu:", url_path="diario"),
-        alerts_page,
-    ],
-    "El bot": [
-        st.Page("pages/10_bot.py", title="Qué hace el bot",
-                icon=":material/smart_toy:", url_path="bot"),
     ],
     "Sistema": [
         estado_page,
@@ -145,6 +139,5 @@ with st.sidebar:
     # El semaforo va ANTES que los avisos: si los datos no son fiables, lo
     # demas que diga la pantalla importa menos.
     render_integrity_badge(estado_page)
-    render_pending_alerts_badge(alerts_page)
 
 navigation.run()

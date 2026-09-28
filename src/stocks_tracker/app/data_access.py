@@ -878,12 +878,13 @@ def get_advice(preset: str | None = None) -> pd.DataFrame:
     """
     return _fetch(
         """
-        SELECT * FROM recommendations
-        WHERE weights_hash = ?
-          AND fecha = (SELECT MAX(fecha) FROM recommendations
-                       WHERE weights_hash = ?)
+        SELECT r.* FROM recommendations r
+        JOIN advisor_runs a ON a.weights_hash = r.weights_hash
+        WHERE r.weights_hash = ?
+          AND r.fecha = a.session_date AND r.emitida_at >= a.evaluated_at
+          AND a.session_date = (SELECT date FROM current_session)
         """,
-        [_preset_hash(preset), _preset_hash(preset)],
+        [_preset_hash(preset)],
     )
 
 
