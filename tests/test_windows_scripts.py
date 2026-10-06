@@ -795,3 +795,11 @@ def test_legacy_cleanup_is_scoped_and_checks_task_actions():
     assert "$task.Actions" in cleanup
     assert "Stop-ScheduledTask" in cleanup
     assert "Unregister-ScheduledTask" in cleanup
+
+
+def test_legacy_cleanup_requests_elevation_only_after_access_denied():
+    cleanup = text("scripts/windows/remove-legacy-tasks.ps1")
+    assert "acceso denegado|access (is )?denied" in cleanup
+    assert "-Verb RunAs" in cleanup
+    assert "-Elevated" in cleanup
+    assert "-Wait -PassThru" in cleanup
