@@ -43,14 +43,16 @@ aqui produce un marcador bonito que no mide nada.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date
 
 import pandas as pd
 
-from . import fx, lineage
+from . import lineage
 from .advice import ACCIONABLES, Recomendacion, Veredicto
+from .evaluation import BENCHMARKS, MODEL_VERSION, independent_episodes
 from .timeutils import utcnow
 
 # Cuantas recomendaciones puntuadas hacen falta para ensenar un porcentaje.
@@ -104,7 +106,20 @@ def guardar_recomendaciones(conn, recomendaciones: list[Recomendacion], *, dia: 
 
     df = pd.DataFrame(filas)
     from .db import upsert_df
-
+    from .investor_profile import load
+    from .market_bundle import engine_fingerprint
+    profile = load(conn)
+    signature = hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()[:10]
+    df["model_version"] = f"{MODEL_VERSION}:{engine_fingerprint()[:12]}:{signature}"
+    countries = dict(conn.execute("SELECT ticker, country FROM instruments").fetchall())
+    df["benchmark"] = [r.benchmark or BENCHMARKS.get(countries.get(r.ticker), "VT") for r in accionables]
+    df["roundtrip_cost"] = [getattr(r, "roundtrip_cost", None) for r in accionables]
+    # Registro inmutable de cada cambio, aunque la tarjeta diaria se sustituya.
+    for record in df.to_dict("records"):
+        payload = json.dumps(record, default=str, sort_keys=True, ensure_ascii=False)
+        identity = hashlib.sha256(payload.encode()).hexdigest()
+        conn.execute("INSERT INTO recommendation_ledger VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+                     [identity, ahora, payload])
     return upsert_df(conn, "recommendations", df,
                      keys=["fecha", "ticker", "weights_hash"])
 
@@ -124,6 +139,8 @@ class Resultado:
     aciertos: int
     exceso_medio: float | None      # puntos porcentuales sobre el indice
     retorno_medio: float | None     # bruto, sin comparar con nada
+    version: str = "legacy"
+    neto_medio: float | None = None
 
     @property
     def tasa(self) -> float | None:
@@ -150,127 +167,11 @@ def _acierto(veredicto: str, exceso: float) -> bool:
 
 
 def puntuar(conn, *, hasta: date | None = None,
-            benchmark: str = "^GSPC") -> pd.DataFrame:
-    """Cada recomendacion vencida, con lo que hizo el valor y el mercado.
+            benchmark: str | None = None) -> pd.DataFrame:
+    """Resultados al vencimiento, nunca al último precio posterior."""
+    from .evaluation import evaluate
 
-    "Vencida" es que haya pasado su horizonte. Antes de eso no se puntua: mirar
-    a los quince dias una recomendacion pensada a seis meses mide el ruido de
-    dos semanas y no la decision.
-
-    Devuelve una fila por recomendacion. El agregado lo hace `marcador`, para
-    que quien quiera revisar un caso concreto pueda hacerlo: un marcador que
-    solo da totales no deja aprender de los fallos.
-    """
-    hasta = hasta or date.today()
-    limite = pd.Timestamp(hasta)
-
-    # Se lee y se cruza en pandas en vez de en un ASOF de SQL.
-    #
-    # No es preferencia de estilo: un ASOF de DuckDB exige comparar dos
-    # COLUMNAS, y aqui una de las dos fechas es un parametro. Con `p.date <= ?`
-    # responde "Missing ASOF JOIN inequality" —la misma trampa que ya esta
-    # documentada en `data_access.get_window_returns`—. Y el volumen es de unas
-    # pocas decenas de filas, asi que cruzarlo aqui no cuesta nada y se lee.
-    filas = conn.execute(
-        """
-        SELECT fecha, ticker, veredicto, conviccion, precio, horizonte_meses
-        FROM recommendations
-        WHERE precio IS NOT NULL AND precio > 0
-        ORDER BY fecha DESC, ticker
-        """
-    ).fetchdf()
-    if filas.empty:
-        return filas
-
-    filas["fecha"] = pd.to_datetime(filas["fecha"])
-    # Un mes son 30 dias: no hace falta mas precision para decidir si una
-    # recomendacion a seis meses ya se puede juzgar.
-    filas["vence"] = filas["fecha"] + pd.to_timedelta(
-        filas["horizonte_meses"].fillna(6) * 30, unit="D")
-    filas = filas[filas["vence"] <= limite]
-    if filas.empty:
-        return filas
-
-    precios = conn.execute(
-        "SELECT ticker, date, close FROM prices_daily "
-        "WHERE close IS NOT NULL AND date <= ? ORDER BY ticker, date",
-        [hasta],
-    ).fetchdf()
-    if precios.empty:
-        return filas.iloc[0:0]
-    precios["date"] = pd.to_datetime(precios["date"])
-
-    ultimo = (precios.sort_values("date").groupby("ticker")["close"].last()
-              .rename("precio_ahora"))
-    filas = filas.merge(ultimo, left_on="ticker", right_index=True, how="left")
-
-    indice = precios[precios["ticker"] == benchmark][["date", "close"]]
-    if indice.empty:
-        # Sin indice no se puede medir el exceso, y medir contra cero seria
-        # justamente el fallo que este modulo evita. Mejor no puntuar nada.
-        return filas.iloc[0:0]
-    filas = pd.merge_asof(
-        filas.sort_values("fecha"), indice.sort_values("date"),
-        left_on="fecha", right_on="date", direction="backward",
-    ).rename(columns={"close": "bench_entonces"})
-    filas["bench_ahora"] = float(indice.sort_values("date")["close"].iloc[-1])
-
-    if filas.empty:
-        return filas
-
-    # LOS DOS RETORNOS, EN LA MISMA MONEDA
-    #
-    # Dentro de cada serie la divisa se cancela —un retorno es un cociente—,
-    # pero el EXCESO resta dos retornos que pueden estar en monedas distintas:
-    # un valor espanol en euros contra el S&P 500 en dolares.
-    #
-    # Con el euro subiendo un 5 % frente al dolar en el periodo, un valor que
-    # iguale al indice en moneda local aparece con un +5 % de exceso que el
-    # inversor no ha ganado. El marcador se apuntaria aciertos por el tipo de
-    # cambio, que es exactamente lo que no puede hacer una pantalla que existe
-    # para decir si el asesor acierta.
-    #
-    # Se pasan los dos a euros con el tipo de CADA fecha. Si falta algun tipo,
-    # esa fila sale NaN y `dropna` la descarta: no puntuar es correcto, y
-    # puntuar con el cambio a medias no.
-    # EL BENCHMARK VA EN LA CONSULTA. Sin el, `divisas.get(benchmark)` no
-    # acertaba NUNCA —`_divisas` solo recibia los tickers recomendados— y el
-    # indice se daba por euros mientras el valor si se convertia. Eso no
-    # arreglaba el fallo original: lo INVERTIA, y ademas en el caso mas comun,
-    # un valor estadounidense contra el S&P 500. Un valor que igualara al
-    # indice salia con -11,28 pp de exceso puestos enteros por el cambio.
-    divisas = _divisas(conn, list(filas["ticker"]) + [benchmark])
-    tabla = fx.tipos_en(conn, list(filas["fecha"]) + [limite])
-    filas["divisa"] = filas["ticker"].map(divisas).fillna(fx.BASE)
-    divisa_indice = divisas.get(benchmark, fx.BASE)
-    hoy = pd.Series([limite] * len(filas), index=filas.index)
-
-    entonces_eur = fx.a_base_en_fecha(
-        filas["precio"], filas["divisa"], filas["fecha"], tabla)
-    ahora_eur = fx.a_base_en_fecha(
-        filas["precio_ahora"], filas["divisa"], hoy, tabla)
-    bench_entonces_eur = fx.a_base_en_fecha(
-        filas["bench_entonces"], pd.Series([divisa_indice] * len(filas),
-                                           index=filas.index),
-        filas["fecha"], tabla)
-    bench_ahora_eur = fx.a_base_en_fecha(
-        filas["bench_ahora"], pd.Series([divisa_indice] * len(filas),
-                                        index=filas.index), hoy, tabla)
-
-    filas["retorno"] = ahora_eur / entonces_eur - 1.0
-    filas["retorno_indice"] = bench_ahora_eur / bench_entonces_eur - 1.0
-    filas["exceso"] = filas["retorno"] - filas["retorno_indice"]
-    # Sin precio posterior o sin indice no se puede juzgar. Se descartan en vez
-    # de contarlas como fallo: un dato que falta no es un error del asesor, y
-    # cargarselo en su cuenta haria el marcador injustamente malo.
-    filas = filas.dropna(subset=["retorno", "exceso"])
-    if filas.empty:
-        return filas
-    filas["acierto"] = [
-        _acierto(v, e) for v, e in zip(filas["veredicto"], filas["exceso"],
-                                       strict=True)
-    ]
-    return filas
+    return evaluate(conn, hasta=hasta, benchmark=benchmark)
 
 
 def marcador(puntuadas: pd.DataFrame) -> list[Resultado]:
@@ -283,6 +184,17 @@ def marcador(puntuadas: pd.DataFrame) -> list[Resultado]:
     if puntuadas.empty:
         return []
 
+    puntuadas = independent_episodes(puntuadas)
+    # Nunca sumar modelos/perfiles distintos en un supuesto historial único.
+    versions = [k for k in ("model_version", "weights_hash", "benchmark", "horizonte_meses") if k in puntuadas]
+    if versions and puntuadas.groupby(versions, dropna=False).ngroups > 1:
+        salida = []
+        for key, group in puntuadas.groupby(versions, dropna=False):
+            label = " / ".join(map(str, key if isinstance(key, tuple) else (key,)))
+            for result in marcador(group):
+                from dataclasses import replace
+                salida.append(replace(result, veredicto=f"{result.veredicto} [{label}]", version=label))
+        return salida
     salida = []
     grupos = list(puntuadas.groupby("veredicto"))
     grupos.append(("TODO", puntuadas))
@@ -291,8 +203,10 @@ def marcador(puntuadas: pd.DataFrame) -> list[Resultado]:
             veredicto=str(nombre),
             puntuadas=len(g),
             aciertos=int(g["acierto"].sum()),
-            exceso_medio=float(g["exceso"].mean() * 100),
+            exceso_medio=float(g.get("ventaja_bruta", g["exceso"]).mean() * 100),
             retorno_medio=float(g["retorno"].mean() * 100),
+            neto_medio=(float(g["ventaja_neta"].mean() * 100)
+                        if "ventaja_neta" in g and g["ventaja_neta"].notna().all() else None),
         ))
     return salida
 
@@ -305,6 +219,8 @@ def resumen_honesto(resultados: list[Resultado]) -> str:
     testear palabra por palabra.
     """
     total = next((r for r in resultados if r.veredicto == "TODO"), None)
+    if resultados and total is None:
+        return "Resultados separados por modelo, perfil e índice. No se mezclan en una tasa global."
     if total is None or total.puntuadas == 0:
         return (
             "Todavia no hay ninguna recomendacion vencida que puntuar. El "

@@ -894,3 +894,42 @@ CREATE TABLE IF NOT EXISTS advisor_runs (
   evaluated_at TIMESTAMP,
   session_date DATE
 );
+
+-- Versiones y supuestos de evaluación: no mezclar estrategias ni inventar costes.
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS model_version VARCHAR;
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS benchmark VARCHAR;
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS roundtrip_cost DOUBLE;
+CREATE TABLE IF NOT EXISTS recommendation_ledger (
+  observation_id VARCHAR PRIMARY KEY,
+  recorded_at TIMESTAMP,
+  payload VARCHAR
+);
+CREATE TABLE IF NOT EXISTS advisor_diagnostics (
+  ticker VARCHAR PRIMARY KEY,
+  evaluated_at TIMESTAMP,
+  reason VARCHAR
+);
+CREATE TABLE IF NOT EXISTS market_bundle_state (
+  singleton INTEGER PRIMARY KEY,
+  manifest VARCHAR,
+  imported_at TIMESTAMP,
+  frozen BOOLEAN
+);
+CREATE TABLE IF NOT EXISTS sec_facts (
+  cik VARCHAR,
+  ticker VARCHAR,
+  concept VARCHAR,
+  unit VARCHAR,
+  period_start DATE,
+  period_end DATE,
+  filed DATE,
+  accession VARCHAR,
+  form VARCHAR,
+  value DOUBLE,
+  source_url VARCHAR,
+  PRIMARY KEY (cik, concept, unit, period_start, period_end, accession)
+);
+CREATE TABLE IF NOT EXISTS investor_preferences (
+  singleton INTEGER PRIMARY KEY,
+  preferences VARCHAR
+);

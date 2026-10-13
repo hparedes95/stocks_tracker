@@ -58,6 +58,46 @@ if prices.empty:
 latest_ind = indicators.iloc[-1] if not indicators.empty else pd.Series(dtype=float)
 latest_price = prices.iloc[-1]
 
+with st.expander("Estados oficiales y sensibilidad de valoración"):
+    from stocks_tracker.core.db import connect
+    from stocks_tracker.core.market_bundle import frozen_market
+    from stocks_tracker.core.valuation_sensitivity import cashflow_sensitivity
+    from stocks_tracker.ingest.sec_fundamentals import refresh
+    from stocks_tracker.providers.sec_provider import annual_review
+    st.caption("SEC/EDGAR gratuito y sin claves. Cobertura parcial de empresas US-GAAP; "
+               "ausencia de datos no implica buena salud financiera.")
+    if st.button("Consultar cuentas oficiales de este valor", disabled=frozen_market()):
+        with st.spinner("Consultando publicaciones oficiales…"):
+            response = refresh(ticker)
+        st.info(f"{response['reason']} Filas guardadas: {response['updated']}.")
+        st.cache_data.clear()
+    with connect(read_only=True) as conn:
+        official = conn.execute("SELECT * FROM sec_facts WHERE ticker=?", [ticker]).fetchdf()
+    review = annual_review(official, as_of=latest_price['date'])
+    if review['reason']:
+        st.info(review['reason'])
+    for warning in review['warnings']:
+        st.warning(warning)
+    if not review['facts'].empty:
+        st.dataframe(review['facts'][['concept', 'period_end', 'filed', 'value', 'unit', 'source_url']],
+                     hide_index=True, column_config={'source_url': st.column_config.LinkColumn('Documento oficial')})
+        if review.get('free_cash_flow') is not None:
+            st.metric("Caja libre anual aproximada (USD)", f"{review['free_cash_flow']:,.0f}")
+        if review.get('net_debt') is not None:
+            st.metric("Deuda financiera a largo plazo y tramo corriente menos caja (USD)", f"{review['net_debt']:,.0f}")
+        if review.get('interest_coverage') is not None:
+            st.metric("Cobertura de intereses por resultado operativo", f"{review['interest_coverage']:.1f}x")
+        cap = fundamentals.get('market_cap') if fundamentals is not None else None
+        currency = fundamentals.get('currency') if fundamentals is not None else None
+        sector_name = str(instrument.get('gics_sector', '') if instrument is not None else '').lower()
+        if cap and currency == 'USD' and review.get('free_cash_flow') is not None and 'financ' not in sector_name:
+            sensitivity = cashflow_sensitivity(review['free_cash_flow'], float(cap))
+            if not sensitivity.empty:
+                st.dataframe(sensitivity, hide_index=True)
+                st.caption("Sensibilidad hipotética: cinco años de caja y crecimiento terminal del 2 %. "
+                           "No es una tasación ni una señal de compra. CFO menos capex es una aproximación; "
+                           "no normaliza partidas extraordinarias, nueva deuda, dilución ni cambios de capital circulante.")
+
 # ---------------------------------------------------------------------------
 # Cabecera
 # ---------------------------------------------------------------------------

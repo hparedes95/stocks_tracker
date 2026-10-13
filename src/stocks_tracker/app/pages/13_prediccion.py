@@ -4,6 +4,8 @@ import streamlit as st
 
 from stocks_tracker.core.db import connect
 from stocks_tracker.core.forecast import scenarios
+from stocks_tracker.core.market_bundle import state
+from stocks_tracker.core.predictive_validation import validate_models
 
 st.title("Predicción y escenarios")
 st.caption("Explora qué ocurrió después de tendencias similares. "
@@ -26,7 +28,11 @@ with connect(read_only=True) as conn:
         "SELECT date, adj_close, source FROM prices_daily WHERE ticker = ? ORDER BY date",
         [ticker],
     ).fetchdf()
-result = scenarios(prices, horizon=horizon)
+    shared = state(conn)
+cutoff = shared.get('as_of') if shared.get('frozen') else None
+result = scenarios(prices, horizon=horizon, as_of=cutoff)
+if cutoff:
+    st.warning(f"Análisis histórico fijado a la copia del {cutoff}. No es una cotización actual.")
 if not prices.empty:
     st.caption("Fuente del histórico: " +
                ", ".join(sorted(prices["source"].dropna().astype(str).unique())) +
@@ -55,3 +61,16 @@ else:
 
 st.caption("Las propuestas de compra o venta se consultan en el asesor, junto con la "
            "cartera y la calidad de los datos. Estos escenarios no ejecutan operaciones.")
+
+with st.expander("¿Predice mejor que una referencia sencilla?", expanded=True):
+    if st.button("Evaluar modelos sobre periodos posteriores al entrenamiento"):
+        with st.spinner("Evaluación temporal sin utilizar el futuro para entrenar…"):
+            validation = validate_models(prices, horizon=horizon, as_of=cutoff)
+        st.info(validation.reason)
+        if not validation.metrics.empty:
+            st.dataframe(validation.metrics, hide_index=True)
+            st.caption("Menor error absoluto y menor Brier son mejores. La cobertura mide cuántas "
+                       "veces el retorno quedó entre los percentiles previstos. Estos resultados "
+                       "no convierten las frecuencias en probabilidades futuras calibradas. "
+                       "No se selecciona automáticamente el mejor modelo del pasado.")
+            st.dataframe(validation.trials, hide_index=True)

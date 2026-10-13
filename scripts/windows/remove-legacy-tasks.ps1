@@ -39,7 +39,7 @@ try {
                 '-File', ('"{0}"' -f $PSCommandPath), '-Elevated'
             )
             $proceso = Start-Process -FilePath 'powershell.exe' `
-                -ArgumentList $argumentos -Verb RunAs -Wait -PassThru -ErrorAction Stop
+                -ArgumentList $argumentos -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop
             exit $proceso.ExitCode
         } catch {
             Write-Error ("No se concedio el permiso para retirar las tareas antiguas. " +

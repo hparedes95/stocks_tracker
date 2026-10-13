@@ -409,6 +409,24 @@ Write-Host "  Acceso directo creado en el Escritorio"
 # ---------------------------------------------------------------------------
 # 7. Precios reales
 # ---------------------------------------------------------------------------
+$CopiaImportada = $false
+$EstadoCopia = & $Py -c "from stocks_tracker.core.market_bundle import frozen_market; print(int(frozen_market()))"
+if ($LASTEXITCODE -eq 0 -and ($EstadoCopia | Out-String).Trim() -eq '1') {
+    $CopiaImportada = $true
+    $script:Resultado = 'CopiaCompartida'
+}
+if (-not $CopiaImportada -and $UniversoCompleto -and -not $script:PreservedData -and -not $ConDatosDePrueba) {
+    Write-Host "  Si tienes una copia .stmarket exportada por otro PC, puedes usarla ahora."
+    $CopiaMercado = Read-Host "  Ruta del archivo (Intro para descargar datos por separado)"
+    if (-not [string]::IsNullOrWhiteSpace($CopiaMercado)) {
+        $CopiaMercado = $CopiaMercado.Trim().Trim('"')
+        & $Py -m stocks_tracker.core.market_bundle --import-file $CopiaMercado
+        if ($LASTEXITCODE -ne 0) { throw "No se ha podido importar la copia. No se mezclaran datos." }
+        $CopiaImportada = $true
+        $script:Resultado = 'CopiaCompartida'
+    }
+}
+if (-not $CopiaImportada) {
 Write-Step 7 8 "Descargando precios reales de los indices"
 Write-Host "  Sustituyen a los datos de prueba. Un minuto."
 # Se comprueba $LASTEXITCODE y no try/catch: un comando nativo que sale con
@@ -466,6 +484,7 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # ---------------------------------------------------------------------------
+}
 # 8. Retirar automatizaciones de versiones anteriores
 # ---------------------------------------------------------------------------
 Write-Step 8 8 "Retirando tareas antiguas"
@@ -492,6 +511,10 @@ Write-Host ""
 # mensajes contradictorios, el que se queda en la memoria es el ultimo, y era el
 # falso.
 switch ($script:Resultado) {
+    'CopiaCompartida' {
+        Write-Host "  Se conserva la misma base de mercado del equipo de origen."
+        Write-Host "  No se haran descargas locales hasta que desactives la copia."
+    }
     'Ok' {
         Write-Host "  Los indices muestran ya el mercado real."
     }

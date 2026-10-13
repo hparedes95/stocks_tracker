@@ -117,7 +117,8 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
         # `equity` y `caja` vienen en euros; `precio` y `atr14`, en la divisa
         # de cotizacion. Sin este tipo se dimensionaba dividiendo euros entre
         # dolares. Ver `advice.sobre_un_candidato`.
-        divisa = str(fila.get("currency") or fx.BASE).upper()
+        raw_currency = fila.get("currency")
+        divisa = str(raw_currency).upper() if pd.notna(raw_currency) and raw_currency else "DESCONOCIDA"
         # SIN TIPO NO SE DIMENSIONA, Y NO SE CAE A 1,0.
         #
         # El respaldo a 1,0 restauraba el fallo original —dividir euros entre

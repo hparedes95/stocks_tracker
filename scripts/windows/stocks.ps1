@@ -177,6 +177,19 @@ function Find-Python {
 }
 
 
+# Una copia importada no se mezcla con ingesta, auditorias ni backtests locales.
+# Incluye tiene-universo: una copia valida puede tener menos de 200 valores.
+if ($Task -in @('update', 'universo', 'ingest', 'demo', 'real', 'compute', 'presets',
+               'validate', 'validate-freeze', 'validate-confirm', 'auditar', 'daily', 'tiene-universo')) {
+    Assert-Venv
+    $CopiaActiva = & $Py -c "from stocks_tracker.core.market_bundle import frozen_market; print(int(frozen_market()))"
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    if (($CopiaActiva | Out-String).Trim() -eq '1') {
+        Write-Host "Base compartida: se conserva la copia importada, sin nuevas descargas ni recalculos."
+        exit 0
+    }
+}
+
 switch ($Task) {
 
     'setup' {

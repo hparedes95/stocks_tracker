@@ -1020,6 +1020,11 @@ def repair_mixed_sources(provider_name: str | None = None,
 
 
 def main() -> None:
+    from stocks_tracker.core.market_bundle import frozen_market
+    if frozen_market():
+        console.print("[yellow]Base compartida: se conserva la copia importada. "
+                      "Desactívala desde Base de mercado compartida para descargar.[/]")
+        return
     parser = argparse.ArgumentParser(description="Ingesta de datos de mercado")
     parser.add_argument(
         "--what", default="all",

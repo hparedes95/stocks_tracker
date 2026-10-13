@@ -20,7 +20,8 @@ marcador mintiera en la direccion agradable.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -57,9 +58,10 @@ def _precio(conn, ticker: str, cuando: date, close: float) -> None:
 
 def _emitir(conn, ticker: str, veredicto: Veredicto, precio: float,
             cuando: date = HACE_UN_ANO) -> None:
-    store.guardar_recomendaciones(
-        conn, [Recomendacion(ticker, veredicto, Conviccion.ALTA)],
-        dia=cuando, weights_hash=PERFIL, precios={ticker: precio})
+    with patch.object(store, 'utcnow', return_value=datetime.combine(cuando, datetime.min.time())):
+        store.guardar_recomendaciones(
+            conn, [Recomendacion(ticker, veredicto, Conviccion.ALTA, benchmark="^GSPC")],
+            dia=cuando, weights_hash=PERFIL, precios={ticker: precio})
 
 
 def _escenario(conn, *, valor_entonces: float, valor_ahora: float,
@@ -70,6 +72,13 @@ def _escenario(conn, *, valor_entonces: float, valor_ahora: float,
     _precio(conn, ticker, HOY, valor_ahora)
     _precio(conn, "^GSPC", HACE_UN_ANO, indice_entonces)
     _precio(conn, "^GSPC", HOY, indice_ahora)
+    # Casos de mecánica de evaluación: divisas explícitas, entrada posterior
+    # y precios al vencimiento; no hay relleno artificial a un año.
+    for symbol, initial, final in ((ticker, valor_entonces, valor_ahora),
+                                  ("^GSPC", indice_entonces, indice_ahora)):
+        conn.execute("INSERT INTO instruments(ticker,currency) VALUES (?,'EUR') ON CONFLICT DO NOTHING", [symbol])
+        _precio(conn, symbol, HACE_UN_ANO + timedelta(days=1), initial)
+        _precio(conn, symbol, (pd.Timestamp(HACE_UN_ANO) + pd.DateOffset(months=6)).date(), final)
     _emitir(conn, ticker, veredicto, valor_entonces)
 
 

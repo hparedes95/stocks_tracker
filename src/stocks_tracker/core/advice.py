@@ -117,6 +117,8 @@ class Recomendacion:
     # Comun
     aviso_fiscal: str = ""
     horizonte_meses: int = 6
+    benchmark: str | None = None
+    roundtrip_cost: float | None = None
 
     @property
     def accionable(self) -> bool:
@@ -651,8 +653,8 @@ def sobre_un_candidato(
     motivos = [f"Percentil {percentil:.0%} del universo puntuado."]
     motivos += motivos_ranking or []
     motivos.append(
-        f"Arriesgas {tam.risk_amount:.2f} EUR hasta el stop de "
-        f"{stop_local:.2f}."
+        f"Pérdida estimada de {tam.risk_amount:.2f} EUR si se ejecuta al stop de "
+        f"{stop_local:.2f}; la pérdida real puede ser mayor por gaps y deslizamiento."
     )
     if tam.capped_by:
         motivos.append(f"El tamano lo limita: {tam.capped_by.replace('_', ' ')}.")

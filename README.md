@@ -31,7 +31,7 @@ También puedes ejecutar `scripts/windows/stocks.ps1 autostart-off`.
 Los escenarios son descriptivos y experimentales, no un modelo predictivo
 validado. Usan precios ajustados de una sola fuente, episodios no solapados y
 entrada en la sesión posterior a la señal. Rechazan datos sintéticos, inválidos,
-mezclados o antiguos y se abstienen con menos de ocho episodios comparables.
+mezclados o antiguos y se abstienen con menos de veinte episodios comparables.
 Los percentiles históricos no son un intervalo de confianza del resultado futuro.
 La frecuencia de subidas no es una probabilidad calibrada.
 
@@ -39,7 +39,52 @@ Las recomendaciones del asesor son reglas explicables, no asesoramiento
 profesional ni garantía de beneficios. Su fuerza expresa coincidencia con reglas,
 no probabilidad de acertar. La validación existente también es experimental:
 el marcador no acredita rentabilidad neta, independencia de las observaciones
-ni resultados futuros. La validación prospectiva y de costes sigue siendo necesaria.
+ni resultados futuros. El marcador separa modelos, perfiles e índices, evalúa
+al vencimiento con retorno ajustado en EUR y muestra costes solo si se registraron.
+Las recomendaciones repetidas y solapadas de la misma acción no suman nuevos episodios.
+
+## La misma base en varios ordenadores (sin servicios de pago)
+
+1. Actualiza **ambos PC a la misma versión** y usa la misma configuración de análisis.
+2. En el equipo con el histórico completo: **Sistema → Base de mercado compartida →
+   Preparar archivo → Descargar**. Se genera un archivo `.stmarket`.
+3. Traslada el archivo por USB u otro medio privado. **No se transfiere automáticamente.**
+4. Importa el mismo archivo en los dos equipos para congelarlos sobre la misma base.
+   Una instalación nueva permite introducir su ruta antes de descargar el universo.
+5. Comprueba que coincidan la huella y la fecha de la base común en la barra lateral.
+
+Incluye precios, fundamentales acumulados, universo y resultados de mercado. No
+incluye posiciones, efectivo, diario, watchlist, claves ni recomendaciones personales.
+Por ello los consejos de cartera pueden ser distintos: dependen también de tus compras,
+efectivo y perfil. Los widgets externos en directo no pertenecen a la copia.
+
+Una copia importada detiene las descargas y recálculos de mercado, incluido el `.bat`.
+Para obtener una base nueva: desactívala en el PC de origen, actualiza, exporta e
+importa el nuevo archivo en ambos. Si cambia la versión del motor, genera una copia
+con esa versión. No hay sincronización en segundo plano ni almacenamiento en GitHub.
+Antes de reemplazar una base local, expórtala si quieres conservarla. La importación
+es transaccional y valida integridad y compatibilidad antes de modificar tablas.
+Las copias son para uso privado conforme a las condiciones de los proveedores.
+
+## Evidencia y riesgo del asesor
+
+- Configuración breve dentro del asesor: horizonte, costes supuestos, tolerancia
+  al escenario de pérdida y límite de posiciones correlacionadas. Sin confirmación
+  no se proponen compras; tampoco cuando faltan datos o ventaja neta suficiente.
+- Comparación temporal de modelos de tendencia y volatilidad con referencias
+  sencillas. No elige retrospectivamente el ganador ni promete probabilidades calibradas.
+  Con históricos cortos puede abstenerse durante mucho tiempo: no se rebajan los
+  requisitos para generar recomendaciones.
+- Escenarios de caída y divisas, correlaciones y riesgo histórico en EUR. Un stop
+  no garantiza la pérdida calculada: gaps y ejecución pueden empeorarla.
+- Cuentas oficiales SEC/EDGAR sin API key, con periodo, fecha de publicación y
+  enlace verificable. Actualizar datos desde el asesor consulta un lote limitado;
+  en la ficha puede consultarse un emisor. Cobertura US-GAAP parcial, no toda la bolsa mundial.
+  La SEC puede rechazar conexiones (por ejemplo, HTTP 403): se muestra que la fuente
+  no está disponible y no se presenta la ausencia de cuentas como una validación oficial.
+- Sensibilidad de valoración bajo varios supuestos, no un precio objetivo único.
+  La confirmación estadística de rentabilidad real sigue pendiente; los tests de
+  software no sustituyen esa evidencia.
 
 ## Datos y privacidad
 

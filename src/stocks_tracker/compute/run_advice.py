@@ -229,6 +229,11 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
         tipos_cambio=cambios,
     )
 
+    from ..core.advisor_evidence import apply_gate
+    with connect(read_only=True) as conn:
+        recomendaciones = apply_gate(conn, recomendaciones, as_of=dia,
+                                      positions=posiciones, cash=caja)
+
     precios = {}
     if not posiciones.empty:
         precios.update(dict(zip(posiciones["ticker"], posiciones["close"],
@@ -245,6 +250,11 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
             "INSERT OR REPLACE INTO advisor_runs VALUES (?, ?, ?)",
             [whash, evaluated_at, dia],
         )
+        conn.execute("DELETE FROM advisor_diagnostics")
+        for rec in recomendaciones:
+            if not rec.accionable:
+                conn.execute("INSERT OR REPLACE INTO advisor_diagnostics VALUES (?, ?, ?)",
+                             [rec.ticker, evaluated_at, " · ".join(rec.motivos)])
         n = guardar_recomendaciones(
             conn, recomendaciones, dia=dia, weights_hash=whash,
             precios=precios,

@@ -1238,6 +1238,10 @@ def _informe_del_universo(preset: str | None) -> int:
 
 
 def main() -> None:
+    from stocks_tracker.core.market_bundle import frozen_market
+    if frozen_market():
+        console.print("[yellow]Base compartida: se conservan los resultados de la copia importada.[/]")
+        return
     parser = argparse.ArgumentParser(description="Calculo de indicadores, factores y scores")
     parser.add_argument(
         "--check-stale", action="store_true", dest="check_stale",

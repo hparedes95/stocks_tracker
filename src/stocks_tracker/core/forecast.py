@@ -29,7 +29,7 @@ class Forecast:
 
 
 def scenarios(prices: pd.DataFrame, *, horizon: int = 63,
-              as_of=None, min_episodes: int = 8) -> Forecast:
+              as_of=None, min_episodes: int = 20) -> Forecast:
     if horizon not in (21, 63, 126):
         raise ValueError("Horizonte admitido: 21, 63 o 126 sesiones.")
     if prices.empty:
@@ -50,6 +50,8 @@ def scenarios(prices: pd.DataFrame, *, horizon: int = 63,
 
     if frame["date"].duplicated().any():
         return unavailable("Hay sesiones duplicadas; revisa la serie.")
+    if frame["date"].diff().dt.days.dropna().gt(7).any():
+        return unavailable("Hay huecos de más de siete días; no se cuentan como sesiones continuas.")
     if "source" not in frame or frame["source"].isna().any():
         return unavailable("No consta la procedencia de todos los precios.")
     sources = set(frame["source"].astype(str))

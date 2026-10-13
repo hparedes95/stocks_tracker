@@ -115,6 +115,8 @@ pages = {
     ],
     "Sistema": [
         estado_page,
+        st.Page("pages/14_datos_compartidos.py", title="Base de mercado compartida",
+                icon=":material/sync:", url_path="datos-compartidos"),
     ],
 }
 
@@ -135,6 +137,16 @@ if _fallo_esquema:
 
 with st.sidebar:
     st.markdown("### Stocks Tracker")
+    from stocks_tracker.core.db import connect
+    from stocks_tracker.core.market_bundle import engine_fingerprint, state
+    with connect(read_only=True) as conn:
+        bundle = state(conn)
+    if bundle.get("frozen"):
+        st.info(f"Base común {bundle['bundle_id'][:12]} · {bundle['as_of']}")
+        if bundle.get('engine') != engine_fingerprint():
+            st.warning("Copia de otra versión del motor: importa una copia actualizada antes de usar el asesor.")
+    else:
+        st.caption("Base local · no sincronizada entre equipos")
     render_freshness_badge()
     # El semaforo va ANTES que los avisos: si los datos no son fiables, lo
     # demas que diga la pantalla importa menos.

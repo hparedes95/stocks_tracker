@@ -434,7 +434,12 @@ def test_el_indice_se_convierte_a_euros_igual_que_el_valor(almacen):
                      "('^GSPC', DATE '2026-08-24', 5500.0), "
                      "('EURUSD=X', DATE '2025-01-10', 1.05), "
                      "('EURUSD=X', DATE '2026-08-24', 1.17)")
-        salida = advice_store.puntuar(conn, hasta=dt.date(2026, 8, 24))
+        # La versión nueva exige precios de entrada posterior y vencimiento,
+        # retorno ajustado y procedencia explícita, no el último precio a un año.
+        conn.execute("UPDATE prices_daily SET date='2025-01-13' WHERE date='2025-01-10'")
+        conn.execute("UPDATE prices_daily SET date='2025-07-10' WHERE date='2026-08-24'")
+        conn.execute("UPDATE prices_daily SET adj_close=close, source='yfinance'")
+        salida = advice_store.puntuar(conn, hasta=dt.date(2026, 8, 24), benchmark='^GSPC')
 
     assert len(salida) == 1
     assert float(salida["exceso"].iloc[0]) == pytest.approx(0.0, abs=1e-9), (

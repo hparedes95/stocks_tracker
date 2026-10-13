@@ -53,7 +53,7 @@ def test_el_atr_en_porcentaje_se_convierte_a_euros():
     """
     ranking = pd.DataFrame([{
         "ticker": "AAA", "composite_pctile": 0.96, "coverage": 0.9,
-        "close": 400.0, "atr_pct": 2.0, "gics_sector": "Tech",
+        "close": 400.0, "atr_pct": 2.0, "gics_sector": "Tech", "currency": "EUR",
     }])
 
     r = build.de_los_candidatos(ranking, equity=100_000.0, caja=50_000.0)[0]
@@ -68,7 +68,7 @@ def test_los_motivos_nombran_los_dos_factores_que_mas_empujan():
     """Dos y no siete: un consejo con siete motivos no tiene ninguno."""
     ranking = pd.DataFrame([{
         "ticker": "AAA", "composite_pctile": 0.96, "coverage": 0.9,
-        "close": 100.0, "atr_pct": 2.0, "gics_sector": "Tech",
+        "close": 100.0, "atr_pct": 2.0, "gics_sector": "Tech", "currency": "EUR",
         "value_z": 2.4, "quality_z": 1.8, "momentum_z": 1.1, "growth_z": 0.2,
     }])
 
@@ -111,7 +111,7 @@ def test_un_factor_mediocre_no_se_nombra_aunque_sobre_sitio():
     """
     ranking = pd.DataFrame([{
         "ticker": "AAA", "composite_pctile": 0.96, "coverage": 0.9,
-        "close": 100.0, "atr_pct": 2.0, "gics_sector": "Tech",
+        "close": 100.0, "atr_pct": 2.0, "gics_sector": "Tech", "currency": "EUR",
         "value_z": 2.4, "quality_z": 0.3, "momentum_z": 0.1, "growth_z": -0.2,
     }])
 

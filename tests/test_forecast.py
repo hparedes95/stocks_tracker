@@ -6,7 +6,7 @@ import pytest
 from stocks_tracker.core.forecast import scenarios
 
 
-def history(n=2500):
+def history(n=4000):
     return pd.DataFrame({
         "date": pd.bdate_range(end="2026-09-24", periods=n),
         "adj_close": 100 * np.exp(np.arange(n) * .0002),
@@ -89,7 +89,7 @@ def test_stale_and_short_series_abstain():
 
 def test_small_sample_does_not_show_a_frequency():
     result = scenarios(history(900), as_of="2026-09-24")
-    assert result.median is not None
+    assert result.median is None
     assert 8 <= result.observations < 20
     assert result.historical_up_frequency is None
 

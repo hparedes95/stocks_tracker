@@ -86,13 +86,13 @@ universes:
     asset_class: etf
     tickers:
       # Indice
-      - SPY, QQQ, IWM, DIA, VTI
+      - SPY, QQQ, IWM, DIA, VTI, VT
       # Sectoriales GICS (EE.UU.) - base de la rotacion sectorial
       - XLK, XLF, XLV, XLE, XLI, XLY, XLP, XLU, XLB, XLRE, XLC
       # Renta fija y refugio
       - TLT, IEF, HYG, LQD, GLD
       # Europa
-      - VGK, EWP, EZU
+      - VGK, EWP, EZU, EWG, EWQ, EWU
 
   INDICES:
     name: "Indices"

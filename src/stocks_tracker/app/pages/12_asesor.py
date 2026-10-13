@@ -29,6 +29,9 @@ from stocks_tracker.app.components.theme import format_money
 from stocks_tracker.app.research_actions import refresh_research
 from stocks_tracker.core.advice import ETIQUETA, Conviccion, Veredicto
 from stocks_tracker.core.advice_store import resumen_honesto
+from stocks_tracker.core.db import connect
+from stocks_tracker.core.investor_profile import load as load_profile
+from stocks_tracker.core.investor_profile import save as save_profile
 
 st.title("Asesor de acciones")
 st.caption(
@@ -36,6 +39,27 @@ st.caption(
     "Propuestas explicables para tu decisión manual. Consulta también Predicción "
     "y escenarios; todavía no hay una ventaja predictiva demostrada."
 )
+
+with connect(read_only=True) as conn:
+    profile = load_profile(conn)
+with st.expander("Tu horizonte, costes y límites", expanded=not profile['confirmed']):
+    st.caption("Son supuestos personales, no tarifas verificadas de tu bróker ni garantías de pérdida máxima.")
+    months = st.selectbox("Horizonte de la recomendación (meses)", [1, 3, 6],
+                           index=[1, 3, 6].index(profile['horizon_months']))
+    cost_pct = st.number_input("Coste estimado total de comprar y vender (%)", min_value=.01,
+                               max_value=20.0, value=float(profile['roundtrip_pct']), step=.1)
+    loss_pct = st.number_input("Caída de cartera que quieres usar como límite de riesgo (%)",
+                               min_value=1., max_value=60., value=float(profile['max_loss_pct']))
+    cluster_pct = st.number_input("Máxima exposición a posiciones muy correlacionadas (%)",
+                                  min_value=1., max_value=100., value=float(profile['max_cluster_pct']))
+    confirm_profile = st.checkbox("He revisado estos supuestos", value=profile['confirmed'])
+    if st.button("Guardar perfil del asesor"):
+        with connect() as conn:
+            save_profile(conn, {'horizon_months': months, 'roundtrip_pct': cost_pct,
+                               'max_loss_pct': loss_pct, 'max_cluster_pct': cluster_pct,
+                               'confirmed': confirm_profile})
+        st.cache_data.clear()
+        st.success("Perfil guardado. Recalcula el asesor para aplicarlo.")
 
 
 # La ejecución es explícita: nunca en cada rerun ni en segundo plano.
@@ -61,6 +85,31 @@ with st.expander("Actualizar datos y recomendaciones", expanded=True):
 st.warning("Herramienta experimental: la fuerza de una señal no es una probabilidad "
            "de acertar. El marcador y los estudios históricos no demuestran "
            "rentabilidad futura ni rentabilidad neta de costes.")
+
+with st.expander("Riesgo conjunto de tu cartera"):
+    from stocks_tracker.compute.run_advice import _cartera
+    from stocks_tracker.core.portfolio_risk import analyse, returns_in_eur
+    with connect(read_only=True) as conn:
+        positions, _, _ = _cartera(conn)
+        session = conn.execute("SELECT date FROM current_session").fetchone()
+        if not positions.empty and session:
+            values = positions.groupby('ticker')['valor_eur'].sum(min_count=1).to_dict()
+            currencies = positions.drop_duplicates('ticker').set_index('ticker')['currency'].to_dict()
+            returns = returns_in_eur(conn, list(values), as_of=session[0])
+            report = analyse(returns, values, cash=cash, currencies=currencies)
+            if report.get('reason'):
+                st.warning(report['reason'])
+            if 'equity' in report:
+                st.write("Exposición por divisa (incluye efectivo EUR en el total):", report['currency_exposure'])
+                st.metric("Escenario: todas las posiciones caen un 30 %", f"{report['shock_equity_30_eur']:,.0f} EUR")
+                st.metric("Escenario: divisas extranjeras pierden un 10 % frente al EUR", f"{report['shock_foreign_fx_10_eur']:,.0f} EUR")
+                if 'correlations' in report:
+                    st.dataframe(report['correlations'])
+                    st.write(f"Media del peor 5 % de días históricos: {report['mean_worst_5pct_day_eur']:,.0f} EUR")
+                st.caption("Escenarios hipotéticos, no predicciones ni pérdidas máximas. "
+                           "El histórico supone los pesos actuales y no reproduce tu rentabilidad realizada.")
+        else:
+            st.info("Añade posiciones para medir el riesgo conjunto.")
 
 COLOR = {
     Veredicto.VENDER: "🔴", Veredicto.REDUCIR: "🟠", Veredicto.COMPRAR: "🟢",
@@ -90,6 +139,7 @@ if resultados:
             # estadistica invita a confiar antes de tiempo.
             "Tasa": (r.tasa * 100) if r.tasa is not None else None,
             "Exceso medio (pp)": r.exceso_medio,
+            "Ventaja neta estimada (pp)": r.neto_medio,
         }
         for r in resultados
     ]
@@ -149,6 +199,12 @@ st.divider()
 # signifique algo.
 guardadas = da.get_advice()
 
+with connect(read_only=True) as conn:
+    diagnostics = conn.execute("SELECT ticker AS Valor, reason AS Motivo FROM advisor_diagnostics ORDER BY ticker").fetchdf()
+if not diagnostics.empty:
+    with st.expander("Por qué no se propone operar en otros valores"):
+        st.dataframe(diagnostics, hide_index=True)
+
 if guardadas.empty:
     st.info(
         "Todavía no hay propuestas accionables guardadas. Usa los botones superiores "
@@ -194,7 +250,7 @@ def _tarjeta(fila) -> None:
             cols = st.columns(3)
             cols[0].metric("Importe", format_money(fila["importe_eur"], "EUR"))
             cols[1].metric("Stop", f"{fila['stop']:.2f}" if fila["stop"] else "—")
-            cols[2].metric("Arriesgas",
+            cols[2].metric("Pérdida estimada al stop",
                            format_money(fila["riesgo_eur"], "EUR")
                            if fila["riesgo_eur"] else "—")
         elif fila["titulos"]:

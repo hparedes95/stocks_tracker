@@ -213,9 +213,8 @@ def test_sin_efectivo_declarado_no_se_recomienda_comprar_nada(almacen):
     )
 
 
-def test_con_efectivo_declarado_si_se_puede_comprar(almacen):
-    """Contraprueba: el veto tiene que ser por falta de caja y no porque el
-    camino de compra este roto."""
+def test_efectivo_y_ranking_no_bastan_sin_evidencia(almacen):
+    """Tener efectivo no demuestra ventaja fuera de muestra."""
     from stocks_tracker.compute.run_advice import calcular_y_guardar
 
     with db.connect() as conn:
@@ -239,9 +238,10 @@ def test_con_efectivo_declarado_si_se_puede_comprar(almacen):
             "SELECT veredicto, importe_eur, stop FROM recommendations "
             "WHERE ticker = 'BBB'").fetchone()
 
-    assert fila and fila[0] == "comprar"
-    assert fila[1] > 0, "una compra sin importe no es accionable"
-    assert fila[2] == pytest.approx(50.0 - 2.5 * 1.0), "el stop no cuadra"
+    assert fila is None
+    with db.connect(read_only=True) as conn:
+        reason = conn.execute("SELECT reason FROM advisor_diagnostics WHERE ticker='BBB'").fetchone()[0]
+    assert "Confirma" in reason
 
 
 def test_la_calibracion_sale_en_pantalla_y_no_promete_de_mas(almacen):
@@ -327,8 +327,8 @@ def test_actualizar_solo_cuando_se_pulsa_un_boton(almacen, monkeypatch):
     monkeypatch.setattr(research_actions, "refresh_research", refresh)
     prueba = _pintar()
     refresh.assert_not_called()
-    prueba.number_input[0].set_value(1500.0)
-    prueba.button[1].click().run()
+    next(x for x in prueba.number_input if x.label == "Efectivo disponible para esta consulta (EUR)").set_value(1500.0)
+    next(x for x in prueba.button if x.label == "Recalcular asesor con los datos guardados").click().run()
     assert not prueba.exception
     refresh.assert_called_once_with(cash=1500.0, download=False)
     prueba.run()

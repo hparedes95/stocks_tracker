@@ -12,12 +12,15 @@ def refresh_research(*, cash: float, download: bool = False) -> None:
     if not math.isfinite(cash) or cash < 0:
         raise ValueError("El efectivo debe ser finito y no negativo.")
     steps = []
-    if download:
+    from stocks_tracker.core.market_bundle import frozen_market
+    frozen = frozen_market()
+    if download and not frozen:
         steps.append(["stocks_tracker.ingest.run_ingest", "--what", "all"])
-    steps.extend([
-        ["stocks_tracker.compute.run_compute"],
-        ["stocks_tracker.compute.run_advice", "--caja", str(cash)],
-    ])
+    if not frozen:
+        steps.append(["stocks_tracker.compute.run_compute"])
+    if download and not frozen:
+        steps.append(["stocks_tracker.ingest.sec_fundamentals"])
+    steps.append(["stocks_tracker.compute.run_advice", "--caja", str(cash)])
     for step in steps:
         result = subprocess.run(
             [sys.executable, "-m", *step], cwd=project_root(),
