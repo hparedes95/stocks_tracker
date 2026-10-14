@@ -222,20 +222,16 @@ def restore_block() -> str:
     dos veces: la primera es la que BORRA la copia anterior, justo lo
     contrario, y cortar ahi mete en el trozo el bloque de respaldo entero.
     """
-    src = text("installer/install.ps1")
-    inicio = src.index("    # El almacen y las claves son del usuario")
-    return src[inicio:src.index("# 4. Entorno")]
+    src = text("installer/release_install.py")
+    return src[src.index('def copy_private'):src.index('def install')]
 
 
 def test_reinstalling_saves_data_keys_and_config_before_deleting():
-    src = text("installer/install.ps1")
-    block = src[src.index("if (Test-Path $InstallDir) {"):src.index("Expand-Archive")]
-
-    for item in ("'data'", "'.env'", "'config'"):
-        assert item in block, f"reinstalar borraria {item}"
-    assert block.index("Copy-Item") < block.index("Remove-Item $InstallDir"), (
-        "se borra la instalacion antes de poner a salvo los datos"
-    )
+    src = text("installer/release_install.py")
+    assert "'--copy-private', target, stage" in src
+    assert src.index("'--copy-private', target, stage") < src.index('target.rename(previous)')
+    assert 'rmtree' not in src
+    assert 'private_digest(target)' in src
 
 
 def test_the_store_and_the_keys_come_back_after_an_update():
@@ -243,7 +239,7 @@ def test_the_store_and_the_keys_come_back_after_an_update():
     version nueva costaria una descarga de universo entera y volver a pegar las
     credenciales."""
     restore = restore_block()
-    assert "foreach ($item in @('data', '.env'))" in restore, (
+    assert "for name in ('data', '.env'):" in restore, (
         "el almacen y las claves no se restauran"
     )
 
@@ -263,14 +259,11 @@ def test_an_update_does_not_restore_the_old_config_over_the_new_one():
     # linea concreta: cualquier otra forma de devolver `config` a su sitio
     # —copiar la copia entera, un Copy-Item suelto— tiene el mismo efecto y
     # pasaria desapercibida.
-    copias = [linea.strip() for linea in restore.splitlines() if "Copy-Item" in linea]
+    copias = [linea.strip() for linea in restore.splitlines() if "shutil.copy" in linea]
     assert copias == [
-        # El almacen y las claves, a su sitio.
-        "Copy-Item $source -Destination $InstallDir -Recurse -Force",
-        # La configuracion anterior, al lado y no encima.
-        "Copy-Item $configVieja -Destination $aparte -Recurse -Force",
-        # El fichero de claves vacio, si no habia.
-        "Copy-Item $envEjemplo -Destination $envFile -Force",
+        'shutil.copytree(path, stage / name)',
+        'shutil.copy2(path, stage / name)',
+        "shutil.copytree(source / 'config', stage / 'config.anterior')",
     ], f"se copia algo mas de lo previsto al restaurar: {copias}"
 
 
@@ -278,10 +271,9 @@ def test_the_installer_creates_the_env_file_for_the_keys():
     """Poner una credencial tiene que ser abrir un fichero que ya existe. Si
     hay que saber que primero se copia `.env.example` a `.env`, "pon tus
     claves" deja de ser un paso y pasa a ser una consulta."""
-    src = text("installer/install.ps1")
+    src = text("installer/release_install.py")
     assert ".env.example" in src, "no se parte del fichero de ejemplo"
-    creacion = src[src.index("$envEjemplo = "):]
-    assert "-not (Test-Path $envFile)" in creacion, (
+    assert "if not (stage / '.env').exists():" in src, (
         "sobrescribiria el .env del usuario, con sus claves dentro"
     )
 
@@ -302,7 +294,7 @@ def test_reinstalling_does_not_regenerate_demo_data():
 def test_the_preserved_data_flag_is_actually_set():
     """La guardia anterior no sirve de nada si nadie enciende la bandera."""
     src = text("installer/install.ps1")
-    setter = "if ($item -eq 'data') { $script:PreservedData = $true }"
+    setter = "$script:PreservedData = Test-Path (Join-Path $InstallDir 'data')"
     assert setter in src, "la bandera de datos conservados no se activa nunca"
     # Y tiene que activarse antes de leerse.
     assert src.index(setter) < src.index("if ($script:PreservedData) {")
@@ -608,8 +600,11 @@ def test_a_failure_to_check_the_version_does_not_block_the_dashboard():
 def test_the_installer_records_the_installed_version():
     """Sin la marca, el lanzador no puede saber si hace falta actualizar."""
     src = text("installer/install.ps1")
-    assert "'.version'" in src
+    helper = text("installer/release_install.py")
+    assert "(target / '.version').write_text" in helper
+    assert helper.index('check(target)') < helper.index("(target / '.version').write_text")
     assert "api.github.com/repos/$Repo/commits/$Branch" in src
+    assert 'archive/$($head.sha).zip' in src
 
 
 # ---------------------------------------------------------------------------
@@ -624,9 +619,9 @@ def test_the_installer_leaves_the_folder_before_deleting_it():
     borrado se lleva por delante todo el contenido y falla al final, abortando
     el script con la instalacion ya vaciada."""
     src = text("installer/install.ps1")
-    borrado = src.index("Remove-Item $InstallDir -Recurse -Force")
-    salida = src.index("Set-Location $env:LOCALAPPDATA")
-    assert salida < borrado, (
+    reemplazo = src.index('& $python.Exe @($python.Prefix) $transaction')
+    salida = src.index("Set-Location $temp")
+    assert salida < reemplazo, (
         "se borra la carpeta sin haber salido de ella antes"
     )
 
@@ -635,15 +630,14 @@ def test_the_backup_survives_an_interrupted_update():
     """En una carpeta con nombre, no en una temporal aleatoria: si el proceso
     se corta entre el borrado y la restauracion, los datos tienen que poder
     recuperarse sin adivinar donde quedaron."""
-    src = text("installer/install.ps1")
+    src = text("installer/release_install.py")
     assert "'StocksTracker.backup'" in src
-    assert "Recuperando datos de una actualizacion interrumpida" in src
     # Y la copia solo se borra despues de restaurar. Se comprueba sobre la
     # restauracion en si, no sobre la linea que la hace: el borrado prematuro
     # de esa copia es el unico camino que pierde el almacen para siempre.
-    restaurar = src.index("foreach ($item in @('data', '.env'))")
-    limpiar = src.index("Remove-Item $backup -Recurse -Force", restaurar)
-    assert restaurar < limpiar
+    assert 'previous.rename(target)' in src
+    assert "'.update.json'" in src and "'.recovery.json'" in src
+    assert 'rmtree' not in src
 
 
 def test_the_launcher_reexecutes_from_temp_before_updating():

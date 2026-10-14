@@ -86,6 +86,18 @@ st.warning("Herramienta experimental: la fuerza de una señal no es una probabil
            "de acertar. El marcador y los estudios históricos no demuestran "
            "rentabilidad futura ni rentabilidad neta de costes.")
 
+with st.expander("Estado de validación de los modelos"):
+    st.write("Una prueba histórica favorable no activa por sí sola una compra. Al recalcular con el perfil "
+             "confirmado se fija un protocolo para cada valor: la evaluación final empieza al día siguiente "
+             "y necesita resultados futuros vencidos. Un protocolo refutado no vuelve a intentarse. "
+             "Cambiar el motor, el horizonte o el coste supuesto crea otro protocolo y conserva el anterior. "
+             "Los protocolos viajan en la copia de mercado para que una instalación nueva no empiece desde cero.")
+    st.caption("Los avisos sobre deterioro o concentración de tu cartera no esperan a que un modelo predictivo sea confirmado.")
+    with connect(read_only=True) as conn:
+        protocols = conn.execute("SELECT json_extract_string(protocol, '$.ticker') AS ticker, "
+                                 "created_at, holdout_start, status FROM prediction_plans ORDER BY created_at DESC LIMIT 100").fetchdf()
+    st.dataframe(protocols, hide_index=True)
+
 with st.expander("Riesgo conjunto de tu cartera"):
     from stocks_tracker.compute.run_advice import _cartera
     from stocks_tracker.core.portfolio_risk import analyse, returns_in_eur
@@ -245,6 +257,15 @@ def _tarjeta(fila) -> None:
         )
         for motivo in _lista("motivos", fila):
             st.markdown(f"- {motivo}")
+        try:
+            assessment = json.loads(fila.get('assessment') or '{}')
+        except (TypeError, ValueError):
+            assessment = {}
+        with st.expander("Datos, evidencia y encaje personal"):
+            for name, title in (('datos', 'Calidad del dato'), ('evidencia', 'Evidencia predictiva'), ('encaje', 'Encaje personal')):
+                st.write(f"{title}: {assessment.get(name, 'Sin evaluación separada registrada; revisa los motivos y los datos de la posición.')}")
+            st.caption(f"Versión: {fila.get('model_version', 'heredada')} · "
+                       f"Sesión: {fila['fecha']} · emisión: {fila.get('emitida_at', 'no registrada')}.")
 
         if fila["importe_eur"] and fila["importe_eur"] > 0:
             cols = st.columns(3)

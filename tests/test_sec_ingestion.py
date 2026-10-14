@@ -76,3 +76,14 @@ def test_invalid_cik_does_not_make_a_request(monkeypatch):
     monkeypatch.setattr(provider,'_get',lambda _:pytest.fail('unexpected network'))
     with pytest.raises(ValueError):
         provider.fetch_company('A','../other')
+
+
+def test_blocked_provider_has_bounded_retry_pause(connection, monkeypatch):
+    calls = []
+    def fail():
+        calls.append(1)
+        raise RuntimeError('blocked')
+    monkeypatch.setattr(service, 'ticker_map', fail)
+    service.refresh('A')
+    assert '24 horas' in service.refresh('A')['reason']
+    assert len(calls) == 1

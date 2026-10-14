@@ -12,9 +12,10 @@ import numpy as np
 import pandas as pd
 from scipy.stats import t
 
+from ..backtest.metrics import hac_standard_error
 from .forecast import scenarios
 
-VERSION = "trend-vol-walkforward-v1"
+VERSION = "trend-vol-walkforward-v2-prospective"
 
 
 @dataclass(frozen=True)
@@ -25,18 +26,20 @@ class Validation:
     lower_excess: float | None = None
     metrics: pd.DataFrame = field(default_factory=pd.DataFrame)
     trials: pd.DataFrame = field(default_factory=pd.DataFrame)
+    status: str = 'evidencia_insuficiente'
 
 
 def validate_models(prices: pd.DataFrame, *, horizon=63, as_of=None,
                     benchmark: pd.DataFrame | None = None,
-                    roundtrip_cost: float = 0.01, family_size: int = 1) -> Validation:
+                    roundtrip_cost: float = 0.01, family_size: int = 1,
+                    holdout_start=None) -> Validation:
     if not np.isfinite(roundtrip_cost) or not 0 <= roundtrip_cost < 1:
         raise ValueError("Costes de ida y vuelta inválidos.")
     if not isinstance(family_size, int) or not 1 <= family_size <= 100000:
         raise ValueError("Número de comparaciones inválido.")
     check = scenarios(prices, horizon=horizon, as_of=as_of, min_episodes=1)
     if check.reason:
-        return Validation(check.reason)
+        return Validation(check.reason, status='datos_no_utilizables')
     p = prices.copy()
     p["date"] = pd.to_datetime(p["date"])
     p = p[p["date"] <= check.as_of].sort_values("date").reset_index(drop=True)
@@ -93,18 +96,33 @@ def validate_models(prices: pd.DataFrame, *, horizon=63, as_of=None,
     reason = "Sin evidencia suficiente de ventaja neta en el estado actual."
     lower = None
     qualified = False
+    status = 'evidencia_insuficiente'
     if n >= 30:
         excess = conditioned['excess'].to_numpy()
         # Ventanas no solapadas NO garantizan independencia; exigimos además
         # estabilidad por tercios cronológicos y mostramos los episodios.
-        lower = float(excess.mean() - t.ppf(1 - .025 / family_size, n - 1) * excess.std(ddof=1) / np.sqrt(n))
+        error = max(hac_standard_error(excess), excess.std(ddof=1) / np.sqrt(n))
+        lower = float(excess.mean() - t.ppf(1 - .025 / (family_size * 3), n - 1) * error)
         errors = metrics.set_index('model')['error_absoluto']
         improves = errors['tendencia_volatilidad'] < min(errors['sin_cambio'], errors['mediana_historica'])
         stable = all(block.mean() > roundtrip_cost for block in np.array_split(excess, 3))
-        qualified = bool(improves and stable and lower > roundtrip_cost)
-        if qualified:
-            reason = "El modelo técnico supera las referencias y los costes en esta prueba temporal; "
-            reason += "no valida todo el asesor ni garantiza rentabilidad futura."
+        historical = bool(improves and stable and np.isfinite(lower) and lower > 2 * roundtrip_cost)
+        status = 'historica_favorable' if historical else 'historica_desfavorable'
+        reason = ('Evidencia histórica favorable bajo estos supuestos; seguimiento prospectivo pendiente.'
+                  if historical else 'La ventaja histórica no supera todas las pruebas y el doble de costes.')
+        # Nunca llamar independiente a una partición antigua que ya se ha mirado.
+        # El último tramo empieza DESPUÉS de registrar el protocolo en este PC.
+        reserved = conditioned[conditioned['date'] >= pd.Timestamp(holdout_start)] if holdout_start else conditioned.iloc[:0]
+        if len(reserved) >= 30:
+            x = reserved.excess.to_numpy()
+            se = max(hac_standard_error(x), x.std(ddof=1) / np.sqrt(len(x)))
+            limit = x.mean() - t.ppf(1 - .025 / (family_size * 3), len(x) - 1) * se
+            stable_reserved = all(block.mean() > 2 * roundtrip_cost for block in np.array_split(x, 3))
+            qualified = bool(historical and np.isfinite(limit) and limit > 2 * roundtrip_cost and stable_reserved)
+            status = 'confirmada' if qualified else 'refutada'
+            lower = float(limit)
+            reason = ('Evidencia prospectiva favorable del modelo técnico, no del asesor completo.' if qualified
+                      else 'El periodo reservado no confirma la ventaja; este protocolo queda refutado.')
     if bench is None:
         reason = "Comparación predictiva disponible; falta referencia válida para evaluar ventaja neta."
-    return Validation(reason, n, qualified, lower, metrics, detail)
+    return Validation(reason, n, qualified, lower, metrics, detail, status)

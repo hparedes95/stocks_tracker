@@ -409,6 +409,14 @@ def upsert_df(
     try:
         conn.execute("BEGIN TRANSACTION")
         join = " AND ".join(f"t.{k} = s.{k}" for k in keys)
+        if table == 'prices_daily' and conn.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='price_revisions'"
+        ).fetchone()[0]:
+            changed = ' OR '.join(f't.{col} IS DISTINCT FROM s.{col}' for col in
+                                  ('open', 'high', 'low', 'close', 'adj_close', 'volume', 'source'))
+            conn.execute(f"INSERT INTO price_revisions SELECT uuid()::VARCHAR, current_timestamp, "
+                         f"t.ticker,t.date,to_json(t),to_json(s) FROM prices_daily t JOIN _payload s ON {join} "
+                         f"WHERE {changed}")
         conn.execute(
             f"DELETE FROM {table} AS t WHERE EXISTS "
             f"(SELECT 1 FROM _payload AS s WHERE {join})"

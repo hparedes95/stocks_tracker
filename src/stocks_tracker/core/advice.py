@@ -119,6 +119,7 @@ class Recomendacion:
     horizonte_meses: int = 6
     benchmark: str | None = None
     roundtrip_cost: float | None = None
+    assessment: dict[str, str] = field(default_factory=dict)
 
     @property
     def accionable(self) -> bool:

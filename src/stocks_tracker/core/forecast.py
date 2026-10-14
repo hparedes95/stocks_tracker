@@ -48,6 +48,14 @@ def scenarios(prices: pd.DataFrame, *, horizon: int = 63,
     def unavailable(reason):
         return Forecast(last, horizon, "sin datos", reason=reason)
 
+    if 'calendar' in prices.attrs and not prices.attrs['calendar']:
+        return unavailable("No se conoce el calendario bursátil; no se inventan sesiones.")
+    if prices.attrs.get('calendar'):
+        from .trading_calendar import check_history
+        checked = check_history(frame, prices.attrs['calendar'])
+        if checked['reason']:
+            return unavailable(checked['reason'])
+
     if frame["date"].duplicated().any():
         return unavailable("Hay sesiones duplicadas; revisa la serie.")
     if frame["date"].diff().dt.days.dropna().gt(7).any():

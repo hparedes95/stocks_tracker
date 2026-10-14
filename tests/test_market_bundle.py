@@ -42,6 +42,21 @@ def test_fresh_install_and_old_pc_have_identical_market_not_portfolio(warehouses
     assert not mb.state(b)['frozen']
 
 
+def test_validation_protocols_travel_without_private_profile(warehouses):
+    from stocks_tracker.core.investor_profile import DEFAULTS, save
+    from stocks_tracker.core.prediction_plans import prepare
+
+    a, b = warehouses
+    save(a, {**DEFAULTS, 'confirmed': True, 'max_loss_pct': 11})
+    save(b, {**DEFAULTS, 'confirmed': True, 'max_loss_pct': 25})
+    prepare(a)
+    before = a.execute('SELECT * FROM prediction_plans ORDER BY plan_id').fetchdf()
+    mb.import_bundle(b, mb.export_bundle(a))
+    prepare(b)
+    pd.testing.assert_frame_equal(before, b.execute('SELECT * FROM prediction_plans ORDER BY plan_id').fetchdf())
+    assert '25' in b.execute('SELECT preferences FROM investor_preferences').fetchone()[0]
+
+
 def mutate(payload, transform):
     target = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(payload)) as source, zipfile.ZipFile(target, 'w') as out:
@@ -93,3 +108,45 @@ def test_synthetic_cannot_be_imported(warehouses):
     a.execute("UPDATE prices_daily SET source='synthetic'")
     with pytest.raises(ValueError, match='sintético'):
         mb.import_bundle(b, mb.export_bundle(a))
+
+
+def test_automatic_restore_point_includes_incomplete_old_market_not_portfolio(warehouses):
+    from stocks_tracker.core.market_recovery import restore_point
+
+    a, b = warehouses
+    b.execute("INSERT INTO prices_daily(ticker,date,close) VALUES ('OLD','2020-01-01',7)")
+    mb.import_bundle(b, mb.export_bundle(a))
+    point = b.execute('SELECT point_id FROM market_restore_points').fetchone()[0]
+    b.execute("UPDATE positions SET qty=99")
+    restore_point(b, point)
+    assert b.execute('SELECT ticker, close FROM prices_daily').fetchall() == [('OLD', 7.)]
+    assert b.execute('SELECT qty FROM positions').fetchone()[0] == 99
+    assert not mb.state(b)
+    assert b.execute('SELECT COUNT(*) FROM market_restore_points').fetchone()[0] == 2
+
+
+def test_failed_import_rolls_back_automatic_backup_too(warehouses):
+    a, b = warehouses
+    payload = mb.export_bundle(a)
+    def change(files):
+        manifest = json.loads(files['manifest.json'])
+        manifest['as_of'] = '2099-01-01'
+        identity = {k: v for k, v in manifest.items() if k not in ('bundle_id', 'created_at')}
+        manifest['bundle_id'] = mb.digest(json.dumps(identity, sort_keys=True).encode())
+        files['manifest.json'] = json.dumps(manifest).encode()
+    with pytest.raises(ValueError, match='fecha declarada'):
+        mb.import_bundle(b, mutate(payload, change))
+    assert b.execute('SELECT COUNT(*) FROM prices_daily').fetchone()[0] == 0
+    assert b.execute('SELECT COUNT(*) FROM market_restore_points').fetchone()[0] == 0
+
+
+def test_preview_is_read_only_and_restore_history_is_bounded(warehouses):
+    a, b = warehouses
+    payload = mb.export_bundle(a)
+    manifest, _ = mb.inspect_bundle(payload)
+    compared = mb.preview(b, manifest).set_index('tabla')
+    assert compared.loc['prices_daily', 'filas actuales'] == 0
+    assert compared.loc['prices_daily', 'filas de la copia'] == 1
+    for _ in range(4):
+        mb.import_bundle(b, payload)
+    assert b.execute('SELECT COUNT(*) FROM market_restore_points').fetchone()[0] == 3

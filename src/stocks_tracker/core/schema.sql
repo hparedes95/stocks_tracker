@@ -933,3 +933,44 @@ CREATE TABLE IF NOT EXISTS investor_preferences (
   singleton INTEGER PRIMARY KEY,
   preferences VARCHAR
 );
+
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS horizon_sessions INTEGER;
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS calendar_name VARCHAR;
+ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS assessment VARCHAR;
+CREATE TABLE IF NOT EXISTS evaluation_ledger (
+  observation_key VARCHAR PRIMARY KEY,
+  evaluated_at TIMESTAMP,
+  payload VARCHAR
+);
+CREATE TABLE IF NOT EXISTS price_revisions (
+  revision_id VARCHAR PRIMARY KEY,
+  recorded_at TIMESTAMP,
+  ticker VARCHAR,
+  date DATE,
+  old_payload VARCHAR,
+  new_payload VARCHAR
+);
+-- Recuperación local, NO incluida en las copias portables de mercado.
+CREATE TABLE IF NOT EXISTS market_restore_points (
+  point_id VARCHAR PRIMARY KEY,
+  created_at TIMESTAMP,
+  schema_hash VARCHAR,
+  checksum VARCHAR,
+  payload BLOB
+);
+CREATE TABLE IF NOT EXISTS advisor_replay_runs (
+  attempt_id VARCHAR PRIMARY KEY,
+  started_at TIMESTAMP,
+  spec VARCHAR,
+  status VARCHAR,
+  report VARCHAR
+);
+CREATE TABLE IF NOT EXISTS prediction_plans (
+  plan_id VARCHAR PRIMARY KEY,
+  created_at TIMESTAMP,
+  holdout_start DATE,
+  status VARCHAR,
+  protocol VARCHAR,
+  outcome VARCHAR
+);
+ALTER TABLE prediction_plans ADD COLUMN IF NOT EXISTS decided_at TIMESTAMP;

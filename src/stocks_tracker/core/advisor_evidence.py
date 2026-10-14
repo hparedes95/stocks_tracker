@@ -15,12 +15,15 @@ from .investor_profile import load
 from .market_bundle import engine_fingerprint, state
 from .portfolio_risk import returns_in_eur
 from .predictive_validation import validate_models
+from .trading_calendar import calendar_name
 
 
-def apply_gate(conn, recommendations, *, as_of, positions, cash):
+def apply_gate(conn, recommendations, *, as_of, positions, cash, decision_date=None):
     profile = load(conn)
+    from .prediction_plans import lookup
+    engine = engine_fingerprint()
     shared = state(conn)
-    meta = conn.execute("SELECT ticker, currency, country FROM instruments").fetchdf().set_index('ticker')
+    meta = conn.execute("SELECT ticker, currency, country, exchange FROM instruments").fetchdf().set_index('ticker')
     raw = conn.execute("SELECT ticker, date, adj_close, source FROM prices_daily "
                        "WHERE date <= ? ORDER BY ticker, date", [as_of]).fetchdf()
     histories = {t: p.drop(columns='ticker') for t, p in raw.groupby('ticker')}
@@ -39,7 +42,7 @@ def apply_gate(conn, recommendations, *, as_of, positions, cash):
             output.append(rec)
             continue
         reasons = []
-        if (pd.Timestamp(date.today()) - pd.Timestamp(as_of)).days > 7:
+        if (pd.Timestamp(decision_date or date.today()) - pd.Timestamp(as_of)).days > 7:
             reasons.append("La base tiene más de siete días: no permite proponer una compra actual.")
         if shared.get('frozen') and shared.get('engine') != engine_fingerprint():
             reasons.append("La copia pertenece a otra versión del motor; importa una copia compatible.")
@@ -58,16 +61,26 @@ def apply_gate(conn, recommendations, *, as_of, positions, cash):
             returns = eur_returns[ticker].dropna()
             if returns.empty:
                 return pd.DataFrame()
-            return pd.DataFrame({'date': returns.index, 'adj_close': (1 + returns).cumprod().to_numpy(),
-                                 'source': 'derived-eur'})
+            frame = pd.DataFrame({'date': returns.index, 'adj_close': (1 + returns).cumprod().to_numpy(),
+                                  'source': 'derived-eur'})
+            if ticker in meta.index:
+                frame.attrs['calendar'] = calendar_name(meta.loc[ticker, 'country'], meta.loc[ticker, 'exchange'])
+            return frame
         vp, vb = euro_history(rec.ticker, p), euro_history(ref, b)
+        if any(t not in meta.index or not calendar_name(meta.loc[t, 'country'], meta.loc[t, 'exchange'])
+               for t in (rec.ticker, ref)):
+            reasons.append("No se ha identificado el calendario bursátil del valor o de su referencia.")
+        plan_id, plan = lookup(conn, rec.ticker, ref, profile, engine)
         validation = validate_models(vp, benchmark=vb, as_of=as_of,
                          horizon=profile['horizon_months'] * 21, roundtrip_cost=costs,
-                         family_size=max(1, len(meta)))
+                         family_size=max(1, len(meta)), holdout_start=plan[0] if plan else None)
+        if plan and plan[1] == 'refutada':
+            reasons.append('El protocolo ya fue refutado en el periodo reservado; no se reintenta hasta conseguir un acierto.')
         if not validation.qualified:
             reasons.append(validation.reason)
         elif validation.lower_excess is None or validation.lower_excess <= costs:
             reasons.append("La ventaja estimada no supera costes e incertidumbre.")
+        personal_start = len(reasons)
         amount = rec.importe_eur or 0.0
         # Reserva coste de entrada: la mitad del supuesto ida/vuelta.
         if amount * (1 + costs / 2) > available:
@@ -92,6 +105,15 @@ def apply_gate(conn, recommendations, *, as_of, positions, cash):
                 reasons.append(f"No se puede contrastar el riesgo conjunto con {held}.")
         if equity > 0 and cluster / equity * 100 > profile['max_cluster_pct']:
             reasons.append("La exposición a posiciones muy correlacionadas supera tu límite conjunto.")
+        assessment = {
+            'plan_id': plan_id, 'validation_state': validation.status,
+            'datos': f"Corte {as_of}; {len(p)} precios disponibles. Calendario "
+                     f"{vp.attrs.get('calendar') or 'desconocido'}. Cobertura no equivale a verificación independiente.",
+            'evidencia': validation.reason + ' La simulación del asesor completo sigue en investigación.',
+            'encaje': ('Perfil sin confirmar.' if not profile['confirmed'] else
+                       ' · '.join(reasons[personal_start:]) or
+                       'Dentro de los límites comprobados de efectivo y exposición; no son garantías de pérdida máxima.'),
+        }
         earnings = conn.execute("SELECT MIN(report_date) FROM earnings_events WHERE ticker=? "
                                "AND report_date BETWEEN ? AND ?", [rec.ticker, as_of,
                                (pd.Timestamp(as_of) + pd.Timedelta(days=7)).date()]).fetchone()[0]
@@ -105,9 +127,11 @@ def apply_gate(conn, recommendations, *, as_of, positions, cash):
             output.append(replace(rec, veredicto=Veredicto.SIN_OPINION, conviccion=Conviccion.BAJA,
                                   motivos=list(dict.fromkeys(reasons)), importe_eur=None, titulos=None,
                                   stop=None, riesgo_eur=None, limitado_por='evidencia',
+                                  assessment=assessment,
                                   horizonte_meses=profile['horizon_months']))
         else:
             output.append(replace(rec, benchmark=ref, roundtrip_cost=costs,
+                                  assessment=assessment,
                                   horizonte_meses=profile['horizon_months'],
                                   motivos=rec.motivos + [validation.reason,
                                   "Contraste oficial: " + (review['reason'] or "cuentas SEC disponibles; revisar ficha"),

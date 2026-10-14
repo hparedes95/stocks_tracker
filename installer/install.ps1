@@ -220,7 +220,10 @@ Write-Step 2 8 "Descargando el proyecto desde GitHub"
 $temp = Join-Path $env:TEMP ("stockstracker_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
 $zip = Join-Path $temp 'source.zip'
-$url = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"
+$head = Invoke-RestMethod -UseBasicParsing -TimeoutSec 20 `
+    -Uri "https://api.github.com/repos/$Repo/commits/$Branch"
+if ($head.sha -notmatch '^[0-9a-f]{40}$') { throw 'Version remota invalida.' }
+$url = "https://github.com/$Repo/archive/$($head.sha).zip"
 
 try {
     # Las descargas de PowerShell son mucho mas rapidas sin la barra de
@@ -237,127 +240,38 @@ Write-Host "  Descargado ($([math]::Round((Get-Item $zip).Length / 1MB, 1)) MB)"
 
 Write-Step 3 8 "Instalando en $InstallDir"
 
-# Copia de seguridad en un sitio ESTABLE y con nombre, no en una carpeta
-# temporal con nombre aleatorio. Si el proceso se corta entre el borrado y la
-# restauracion  - y el borrado es lo mas destructivo que hace este script -  los
-# datos del usuario tienen que poder recuperarse sin adivinar en que carpeta de
-# %TEMP% quedaron.
-$backup = Join-Path $env:LOCALAPPDATA 'StocksTracker.backup'
-
-if (Test-Path $InstallDir) {
-    if (Test-Path $backup) { Remove-Item $backup -Recurse -Force }
-    New-Item -ItemType Directory -Path $backup -Force | Out-Null
-    foreach ($item in @('data', '.env', 'config')) {
-        $source = Join-Path $InstallDir $item
-        if (Test-Path $source) {
-            Copy-Item $source -Destination $backup -Recurse -Force
-            Write-Host "  Conservando $item"
-            # Reinstalar es tambien la forma de actualizar el programa. Si ya
-            # habia almacen, sus precios se conservan y NO hay que volver a
-            # generar datos de prueba encima.
-            if ($item -eq 'data') { $script:PreservedData = $true }
+# Extraer y verificar ANTES de modificar una instalacion existente.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [IO.Compression.ZipFile]::OpenRead($zip)
+try {
+    $prefix = [IO.Path]::GetFullPath($temp) + [IO.Path]::DirectorySeparatorChar
+    foreach ($entry in $archive.Entries) {
+        $resolved = [IO.Path]::GetFullPath((Join-Path $temp $entry.FullName))
+        if (-not $resolved.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'El ZIP contiene rutas no permitidas.'
         }
     }
-
-    # Salir de la carpeta ANTES de borrarla. Windows no deja borrar el
-    # directorio de trabajo de un proceso: el borrado se lleva por delante todo
-    # el contenido y falla al final, con $ErrorActionPreference='Stop' abortando
-    # el script justo despues de haber vaciado la instalacion. El lanzador se
-    # ejecuta con esta carpeta como directorio actual, asi que pasaba siempre.
-    Set-Location $env:LOCALAPPDATA
-    Remove-Item $InstallDir -Recurse -Force
-} elseif (Test-Path $backup) {
-    # Hay copia pero no instalacion: una actualizacion anterior se corto a
-    # medias. Se recupera en lugar de empezar de cero y perder el universo.
-    Write-Host "  Recuperando datos de una actualizacion interrumpida" -ForegroundColor Yellow
-    $script:PreservedData = $true
-}
-
+} finally { $archive.Dispose() }
 Expand-Archive -Path $zip -DestinationPath $temp -Force
 $extracted = Get-ChildItem $temp -Directory |
     Where-Object { $_.Name -like 'stocks_tracker-*' } |
     Select-Object -First 1
 if (-not $extracted) { Fail "El ZIP descargado no tiene el formato esperado." $null }
+$script:PreservedData = Test-Path (Join-Path $InstallDir 'data')
+$transaction = Join-Path $extracted.FullName 'installer\release_install.py'
+if (-not (Test-Path $transaction)) { Fail "Falta el instalador transaccional." $null }
 
-Move-Item $extracted.FullName $InstallDir
-
-# Marca de version instalada. La usa "Stocks Tracker.bat" para saber si el
-# codigo de la carpeta esta al dia sin tener que reinstalar en cada arranque.
-# Sin esto, el lanzador actualizaba los datos pero nunca el programa, y las
-# correcciones no llegaban nunca por muchas veces que se abriera.
-try {
-    $head = Invoke-RestMethod -UseBasicParsing -TimeoutSec 20 `
-        -Uri "https://api.github.com/repos/$Repo/commits/$Branch"
-    Set-Content -Path (Join-Path $InstallDir '.version') -Value $head.sha -Encoding ASCII
-} catch {
-    Write-Host "  (no se ha podido anotar la version instalada)" -ForegroundColor DarkGray
+# El directorio actual no puede ser el que se va a renombrar en Windows.
+Set-Location $temp
+Write-Step 4 8 "Preparando y comprobando la nueva version sin borrar la anterior"
+& $python.Exe @($python.Prefix) $transaction --source $extracted.FullName --target $InstallDir --sha $head.sha
+if ($LASTEXITCODE -ne 0) {
+    Fail "La actualizacion no se ha completado; se conserva la instalacion anterior." "Cierra el dashboard y revisa el error anterior."
 }
-
-if (Test-Path $backup) {
-    # El almacen y las claves son del usuario: vuelven a su sitio tal cual.
-    foreach ($item in @('data', '.env')) {
-        $source = Join-Path $backup $item
-        if (Test-Path $source) {
-            Copy-Item $source -Destination $InstallDir -Recurse -Force
-        }
-    }
-
-    # La configuracion NO. Sus ficheros vienen con el programa, y devolver los
-    # antiguos encima significa que un cambio de configuracion no llega nunca:
-    # se actualizaria el codigo y se quedaria la configuracion de la primera
-    # instalacion. Es lo que dejaria una instalacion ya existente sin el bloque
-    # `venues`, con el bot diciendo que Kraken no esta configurado y un
-    # fichero delante que dice que si.
-    #
-    # No se borra: si alguna vez se toco a mano, queda al lado para comparar.
-    $configVieja = Join-Path $backup 'config'
-    if (Test-Path $configVieja) {
-        $aparte = Join-Path $InstallDir 'config.anterior'
-        if (Test-Path $aparte) { Remove-Item $aparte -Recurse -Force }
-        Copy-Item $configVieja -Destination $aparte -Recurse -Force
-        Write-Host "  Configuracion actualizada (la anterior, en config.anterior)"
-    }
-
-    # Solo se borra la copia cuando los datos ya estan de vuelta en su sitio.
-    Remove-Item $backup -Recurse -Force
-}
-
-# Fichero de claves. Se crea vacio a partir del ejemplo para que poner una
-# credencial sea abrir un fichero que ya existe y escribir detras del igual.
-# Sin esto hay que saber que hay que copiar `.env.example` a `.env`, que es
-# justo el tipo de paso previo que convierte "pon tus claves" en una consulta.
-$envFile = Join-Path $InstallDir '.env'
-$envEjemplo = Join-Path $InstallDir '.env.example'
-if ((Test-Path $envEjemplo) -and -not (Test-Path $envFile)) {
-    Copy-Item $envEjemplo -Destination $envFile -Force
-    Write-Host "  Creado .env para tus claves (vacio; el programa funciona sin el)"
-}
-Write-Host "  Copiado"
-
-# Detener versiones anteriores antes de los pasos largos de datos y calculo.
-& powershell -NoProfile -ExecutionPolicy Bypass `
-    -File (Join-Path $InstallDir 'scripts\windows\remove-legacy-tasks.ps1')
-if ($LASTEXITCODE -ne 0) { throw 'No se pudieron retirar las tareas antiguas.' }
-
-# ---------------------------------------------------------------------------
-# 4. Entorno
-# ---------------------------------------------------------------------------
-Write-Step 4 8 "Preparando el entorno (esto tarda un par de minutos)"
-
 Set-Location $InstallDir
-& $python.Exe @($python.Prefix) -m venv .venv
 $Py = Join-Path $InstallDir '.venv\Scripts\python.exe'
-if (-not (Test-Path $Py)) { Fail "No se ha podido crear el entorno de Python." $null }
-
-& $Py -m pip install --upgrade pip --quiet
-& $Py -m pip install --require-hashes -r requirements-runtime.lock --quiet
-if ($LASTEXITCODE -eq 0) {
-    & $Py -m pip install -e . --no-deps --quiet
-}
-if ($LASTEXITCODE -ne 0) { Fail "Ha fallado la instalacion de dependencias." $null }
-
-& $Py -m stocks_tracker.core.db --migrate
-Write-Host "  Entorno listo"
+Write-Host "  Entorno listo. La version anterior queda en una carpeta StocksTracker.previous-*."
+Write-Host "  Para restaurarla: python installer/release_install.py --restore '$InstallDir'"
 
 # ---------------------------------------------------------------------------
 # 5. Datos de prueba
@@ -529,9 +443,8 @@ switch ($script:Resultado) {
     }
     default {
         Write-Host "  ATENCION: no se han podido descargar precios reales." -ForegroundColor Yellow
-        Write-Host "  Lo que veas de momento son DATOS DE PRUEBA, inventados." -ForegroundColor Yellow
-        Write-Host "  El programa lo reintentara al abrirlo. El dashboard avisa en rojo"
-        Write-Host "  mientras haya datos inventados."
+        Write-Host "  Consulta la fecha y procedencia antes de usar los resultados." -ForegroundColor Yellow
+        Write-Host "  El programa lo reintentara al abrirlo; no inventa datos de respaldo."
     }
 }
 Write-Host ""

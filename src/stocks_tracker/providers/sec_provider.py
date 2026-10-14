@@ -16,6 +16,8 @@ CONCEPTS = {
     "CashAndCashEquivalentsAtCarryingValue", "OperatingIncomeLoss", "InterestExpense",
     "PaymentsOfDividends", "PaymentsOfDividendsCommonStock", "CommonStockSharesOutstanding",
     "StockBasedCompensation",
+    "ProceedsFromIssuanceOfLongTermDebt", "RepaymentsOfLongTermDebt",
+    "ProceedsFromRepaymentsOfShortTermDebt", "PaymentsOfDividendsPreferredStock",
 }
 
 
@@ -99,7 +101,8 @@ def annual_review(facts: pd.DataFrame, *, as_of) -> dict:
     current = f[f.period_end == end]
     def value(*concepts):
         for concept in concepts:
-            values = current[current.concept == concept]
+            unit = 'shares' if concept == 'CommonStockSharesOutstanding' else 'USD'
+            values = current[(current.concept == concept) & current.unit.eq(unit)]
             if not values.empty:
                 return float(values.iloc[-1]['value'])
         return None
@@ -123,7 +126,7 @@ def annual_review(facts: pd.DataFrame, *, as_of) -> dict:
         warnings.append("El flujo operativo es inferior a la mitad del beneficio anual; revisar conversión a caja.")
     if fcf is not None and dividends is not None and dividends > max(0, fcf):
         warnings.append("Los dividendos anuales superan el flujo de caja libre calculado.")
-    shares = f[f.concept.eq('CommonStockSharesOutstanding')].sort_values('period_end')
+    shares = f[f.concept.eq('CommonStockSharesOutstanding') & f.unit.eq('shares')].sort_values('period_end')
     dilution = None
     if len(shares) >= 2:
         last_shares = shares.iloc[-1]
@@ -139,3 +142,45 @@ def annual_review(facts: pd.DataFrame, *, as_of) -> dict:
             "free_cash_flow": fcf, "margin": income / revenue if revenue and income is not None else None,
             "dilution": dilution, "interest_coverage": coverage, "net_debt": net_debt,
             "warnings": warnings, "facts": current}
+
+
+def annual_cashflows(facts: pd.DataFrame, *, as_of) -> pd.DataFrame:
+    """Últimos cinco ejercicios completos, misma unidad/periodo/documento por fila.
+
+    No sumar trimestres ni asumir cero deuda/preferentes que no se hayan informado.
+    La medida de caja al accionista es aproximada: no modela adquisiciones ni
+    financiación futura y nunca activa una recomendación.
+    """
+    if facts.empty:
+        return pd.DataFrame()
+    f = facts.copy()
+    for col in ('filed', 'period_start', 'period_end'):
+        f[col] = pd.to_datetime(f[col])
+    f = f[(f.filed <= pd.Timestamp(as_of)) & f.form.isin(['10-K', '10-K/A']) & f.unit.eq('USD')]
+    f = f[(f.period_end - f.period_start).dt.days.between(330, 380)]
+    concepts = {'cfo': 'NetCashProvidedByUsedInOperatingActivities',
+                'capex': 'PaymentsToAcquirePropertyPlantAndEquipment',
+                'deuda_emitida': 'ProceedsFromIssuanceOfLongTermDebt',
+                'deuda_amortizada': 'RepaymentsOfLongTermDebt',
+                'deuda_corta_neta': 'ProceedsFromRepaymentsOfShortTermDebt',
+                'dividendos_preferentes': 'PaymentsOfDividendsPreferredStock'}
+    rows = []
+    # No mezclar una cifra revisada con otra de una publicación incompatible.
+    for end, group in f.groupby('period_end', sort=True):
+        cfo = group[group.concept.eq(concepts['cfo'])].sort_values(['filed', 'accession'])
+        if cfo.empty:
+            continue
+        anchor = cfo.iloc[-1]
+        same = group[(group.accession == anchor.accession) & (group.period_start == anchor.period_start)]
+        row = {'inicio': anchor.period_start, 'fin': end, 'publicado': anchor.filed,
+               'unidad': 'USD', 'documento': anchor.source_url}
+        for name, concept in concepts.items():
+            values = same.loc[same.concept.eq(concept), 'value']
+            row[name] = float(values.iloc[-1]) if len(values) == 1 else float('nan')
+            if name not in ('cfo', 'deuda_corta_neta') and row[name] < 0:
+                row[name] = float('nan')
+        row['cfo_menos_capex'] = row['cfo'] - row['capex']
+        row['caja_accionista_aproximada'] = (row['cfo_menos_capex'] + row['deuda_emitida'] -
+                row['deuda_amortizada'] + row['deuda_corta_neta'] - row['dividendos_preferentes'])
+        rows.append(row)
+    return pd.DataFrame(rows).tail(5)

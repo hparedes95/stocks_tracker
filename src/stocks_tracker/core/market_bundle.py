@@ -31,7 +31,7 @@ TABLES = (
     "fundamentals_snapshot", "earnings_events", "macro_series", "indicators_daily",
     "factor_scores", "factor_contributions", "signals", "signal_evidence",
     "breadth_daily", "sector_rotation", "regime_daily", "data_quality",
-    "price_consensus", "prices_quarantine", "scoring_runs", "sec_facts",
+    "price_consensus", "prices_quarantine", "scoring_runs", "sec_facts", "prediction_plans",
 )
 
 
@@ -165,6 +165,8 @@ def import_bundle(conn, data: bytes) -> dict:
             raise ValueError(f"Columnas no compatibles: {name}.")
     conn.execute("BEGIN TRANSACTION")
     try:
+        from .market_recovery import save_point
+        save_point(conn)
         for name, frame in frames.items():
             conn.register("_market_bundle_import", frame)
             conn.execute(f'DELETE FROM "{name}"')
@@ -183,6 +185,14 @@ def import_bundle(conn, data: bytes) -> dict:
         conn.execute("ROLLBACK")
         raise
     return manifest
+
+
+def preview(conn, manifest):
+    """Comparación sin escrituras; el reemplazo incluye también filas eliminadas."""
+    return pd.DataFrame([{'tabla': name,
+                          'filas actuales': conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0],
+                          'filas de la copia': manifest['tables'][name]['rows']}
+                         for name in TABLES])
 
 
 def main():

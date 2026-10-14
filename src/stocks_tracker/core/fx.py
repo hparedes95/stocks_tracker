@@ -70,19 +70,22 @@ def tipos(conn, hasta: object | None = None) -> dict[str, float]:
     esta, no esta: no se rellena con 1,0 ni con el ultimo valor conocido de hace
     un mes.
 
-    `hasta` fija la fecha de referencia; por defecto, la ultima sesion con datos.
+    `hasta` fija la fecha de referencia; por defecto, hoy. Nunca usa fechas futuras.
     """
     if not PARES:
         return {}
 
+    referencia = pd.Timestamp(hasta) if hasta is not None else pd.Timestamp.today()
     marcadores = ", ".join("?" for _ in PARES)
     filas = conn.execute(
         f"""
         SELECT ticker, close, date FROM prices_daily
-        WHERE ticker IN ({marcadores}) AND close IS NOT NULL AND close > 0
+        WHERE ticker IN ({marcadores}) AND close IS NOT NULL AND close > 0 AND date <= ?
+              AND isfinite(close) AND source IS NOT NULL
+              AND lower(trim(source)) NOT IN ('', 'synthetic')
         QUALIFY row_number() OVER (PARTITION BY ticker ORDER BY date DESC) = 1
         """,
-        list(PARES.values()),
+        [*PARES.values(), referencia.date()],
     ).fetchall()
 
     # La referencia es HOY, no la fecha mas nueva de los propios tipos.
@@ -92,7 +95,6 @@ def tipos(conn, hasta: object | None = None) -> dict[str, float]:
     # antiguedad cero, y la cartera se valora con tipos de hace un mes sin que
     # nada lo diga. Justo el caso que importa —el programa lleva dias sin
     # descargar— era el unico que la guarda no veia.
-    referencia = pd.Timestamp(hasta) if hasta is not None else pd.Timestamp.today()
 
     por_ticker = {}
     for ticker, close, fecha in filas:

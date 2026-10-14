@@ -102,6 +102,7 @@ def guardar_recomendaciones(conn, recomendaciones: list[Recomendacion], *, dia: 
             "horizonte_meses": r.horizonte_meses,
             "universe_hash": universe_hash, "git_commit": commit,
             "emitida_at": ahora,
+            "assessment": json.dumps(r.assessment, ensure_ascii=False),
         })
 
     df = pd.DataFrame(filas)
@@ -114,6 +115,10 @@ def guardar_recomendaciones(conn, recomendaciones: list[Recomendacion], *, dia: 
     countries = dict(conn.execute("SELECT ticker, country FROM instruments").fetchall())
     df["benchmark"] = [r.benchmark or BENCHMARKS.get(countries.get(r.ticker), "VT") for r in accionables]
     df["roundtrip_cost"] = [getattr(r, "roundtrip_cost", None) for r in accionables]
+    from .trading_calendar import calendar_name
+    metadata = {t: (c, e) for t, c, e in conn.execute('SELECT ticker,country,exchange FROM instruments').fetchall()}
+    df['horizon_sessions'] = [r.horizonte_meses * 21 for r in accionables]
+    df['calendar_name'] = [calendar_name(*metadata.get(r.ticker, (None, None))) for r in accionables]
     # Registro inmutable de cada cambio, aunque la tarjeta diaria se sustituya.
     for record in df.to_dict("records"):
         payload = json.dumps(record, default=str, sort_keys=True, ensure_ascii=False)

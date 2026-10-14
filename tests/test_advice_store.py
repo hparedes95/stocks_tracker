@@ -76,9 +76,11 @@ def _escenario(conn, *, valor_entonces: float, valor_ahora: float,
     # y precios al vencimiento; no hay relleno artificial a un año.
     for symbol, initial, final in ((ticker, valor_entonces, valor_ahora),
                                   ("^GSPC", indice_entonces, indice_ahora)):
-        conn.execute("INSERT INTO instruments(ticker,currency) VALUES (?,'EUR') ON CONFLICT DO NOTHING", [symbol])
-        _precio(conn, symbol, HACE_UN_ANO + timedelta(days=1), initial)
-        _precio(conn, symbol, (pd.Timestamp(HACE_UN_ANO) + pd.DateOffset(months=6)).date(), final)
+        conn.execute("INSERT INTO instruments(ticker,currency,country) VALUES (?,'EUR','US') ON CONFLICT DO NOTHING", [symbol])
+        from stocks_tracker.core.trading_calendar import dates_for_horizon
+        entry, maturity = dates_for_horizon('XNYS', HACE_UN_ANO, 126)
+        _precio(conn, symbol, entry.date(), initial)
+        _precio(conn, symbol, maturity.date(), final)
     _emitir(conn, ticker, veredicto, valor_entonces)
 
 

@@ -61,9 +61,9 @@ latest_price = prices.iloc[-1]
 with st.expander("Estados oficiales y sensibilidad de valoración"):
     from stocks_tracker.core.db import connect
     from stocks_tracker.core.market_bundle import frozen_market
-    from stocks_tracker.core.valuation_sensitivity import cashflow_sensitivity
+    from stocks_tracker.core.valuation_sensitivity import verified_sensitivity
     from stocks_tracker.ingest.sec_fundamentals import refresh
-    from stocks_tracker.providers.sec_provider import annual_review
+    from stocks_tracker.providers.sec_provider import annual_cashflows, annual_review
     st.caption("SEC/EDGAR gratuito y sin claves. Cobertura parcial de empresas US-GAAP; "
                "ausencia de datos no implica buena salud financiera.")
     if st.button("Consultar cuentas oficiales de este valor", disabled=frozen_market()):
@@ -90,13 +90,23 @@ with st.expander("Estados oficiales y sensibilidad de valoración"):
         cap = fundamentals.get('market_cap') if fundamentals is not None else None
         currency = fundamentals.get('currency') if fundamentals is not None else None
         sector_name = str(instrument.get('gics_sector', '') if instrument is not None else '').lower()
-        if cap and currency == 'USD' and review.get('free_cash_flow') is not None and 'financ' not in sector_name:
-            sensitivity = cashflow_sensitivity(review['free_cash_flow'], float(cap))
-            if not sensitivity.empty:
-                st.dataframe(sensitivity, hide_index=True)
-                st.caption("Sensibilidad hipotética: cinco años de caja y crecimiento terminal del 2 %. "
-                           "No es una tasación ni una señal de compra. CFO menos capex es una aproximación; "
-                           "no normaliza partidas extraordinarias, nueva deuda, dilución ni cambios de capital circulante.")
+        annual = annual_cashflows(official, as_of=latest_price['date'])
+        if not annual.empty:
+            st.dataframe(annual, hide_index=True,
+                         column_config={'documento': st.column_config.LinkColumn('Documento oficial')})
+        valued = verified_sensitivity(annual, cap, currency=currency, sector=sector_name,
+                                      as_of=latest_price['date'])
+        if valued['reason']:
+            st.info(valued['reason'])
+        else:
+            st.metric("Mediana de caja aproximada para el accionista, tres años (USD)",
+                       f"{valued['normalized_cash']:,.0f}")
+            st.dataframe(valued['scenarios'], hide_index=True)
+            st.caption("Investigación, no precio objetivo: CFO − capex + nueva deuda − amortizaciones "
+                       "+ financiación corta neta − dividendos preferentes. Comparamos valor del capital "
+                       "con capitalización; no restamos otra vez deuda neta. Descuento supuesto para "
+                       "el accionista, no WACC. No modela adquisiciones, dilución futura ni impuestos personales. "
+                       "No modifica las recomendaciones del asesor.")
 
 # ---------------------------------------------------------------------------
 # Cabecera

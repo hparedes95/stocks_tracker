@@ -137,10 +137,12 @@ def test_el_instalador_usa_dependencias_runtime_con_hashes():
         assert "--hash=sha256:" in lock.read_text("utf-8")
     installer = (raiz / "installer/install.ps1").read_text("utf-8")
     setup = (raiz / "scripts/windows/stocks.ps1").read_text("utf-8")
-    assert "--require-hashes -r requirements-runtime.lock" in installer
+    helper = (raiz / 'installer/release_install.py').read_text('utf-8')
+    assert 'release_install.py' in installer
+    assert "'--require-hashes', '-r', 'requirements-runtime.lock'" in helper
+    assert "'stocks_tracker.pth'" in helper
     assert "--require-hashes -r requirements-dev.lock" in setup
-    for text in (installer, setup):
-        assert "install -e . --no-deps" in text
+    assert "install -e . --no-deps" in setup
 
 
 def test_el_workflow_no_pide_permisos_de_escritura(workflow):

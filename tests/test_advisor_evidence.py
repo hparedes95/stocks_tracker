@@ -15,7 +15,7 @@ from stocks_tracker.core.predictive_validation import Validation
 def connection():
     c = duckdb.connect(':memory:')
     c.execute(schema_path().read_text(encoding='utf-8'))
-    c.execute("INSERT INTO instruments(ticker,country,currency) VALUES ('AAA','Spain','EUR')")
+    c.execute("INSERT INTO instruments(ticker,country,currency) VALUES ('AAA','Spain','EUR'), ('EWP','US','USD')")
     yield c
     c.close()
 

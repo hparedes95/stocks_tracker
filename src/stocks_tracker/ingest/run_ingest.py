@@ -370,7 +370,8 @@ def ambito_de(full: bool) -> str:
 def ingest_prices(provider_name: str | None = None, full: bool = False,
                   years: int | None = None,
                   universes: list[str] | None = None,
-                  run_id: str | None = None) -> int:
+                  run_id: str | None = None,
+                  tickers_override: list[str] | None = None) -> int:
     """Descarga precios, incremental salvo que se pida backfill completo.
 
     `years` acorta el historico. El minimo util son 2: los indicadores necesitan
@@ -383,7 +384,9 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
     provider = get_price_provider(provider_name)
     run_id = run_id or str(uuid.uuid4())
 
-    tickers = _tickers_to_download(universes)
+    tickers = _tickers_to_download(universes) if tickers_override is None else sorted(set(tickers_override))
+    if tickers_override is not None and (not tickers or len(tickers) > 3):
+        raise ValueError('La ampliación individual admite entre uno y tres instrumentos.')
     today = date.today()
     configured = int(settings.ingest.get("backfill_years", 10))
     backfill_start = today - timedelta(days=365 * int(years or configured))

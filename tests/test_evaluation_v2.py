@@ -82,3 +82,31 @@ def test_distinct_horizons_are_not_deduplicated_together():
                           'entrada': pd.to_datetime(['2025-01-02', '2025-01-02']),
                           'salida': pd.to_datetime(['2025-02-01', '2025-07-01'])})
     assert len(independent_episodes(frame)) == 2
+
+
+def test_first_closed_result_survives_provider_correction(data):
+    from stocks_tracker.core.db import upsert_df
+    from stocks_tracker.core.evaluation import freeze_evaluations
+
+    data.execute("UPDATE recommendations SET emitida_at='2025-01-01 12:00:00'")
+    freeze_evaluations(data, hasta='2025-07-01')
+    corrected = data.execute("SELECT * FROM prices_daily WHERE ticker='AAA' AND date='2025-07-01'").fetchdf()
+    corrected['adj_close'] = 90.
+    upsert_df(data, 'prices_daily', corrected, ['ticker', 'date'])
+    freeze_evaluations(data, hasta='2025-12-31')
+    result = evaluate(data, hasta='2025-12-31')
+    assert len(result) == 1
+    assert result.iloc[0]['retorno'] == pytest.approx(.2)
+    assert data.execute('SELECT COUNT(*) FROM evaluation_ledger').fetchone()[0] == 1
+    assert data.execute('SELECT COUNT(*) FROM price_revisions').fetchone()[0] == 1
+    upsert_df(data, 'prices_daily', corrected, ['ticker', 'date'])
+    assert data.execute('SELECT COUNT(*) FROM price_revisions').fetchone()[0] == 1
+
+
+def test_fx_reference_excludes_future_and_stale_prices(data):
+    from stocks_tracker.core.fx import tipos
+
+    data.execute("INSERT INTO prices_daily(ticker,date,close,source) VALUES "
+                 "('EURUSD=X','2025-01-01',1.1,'ecb'), ('EURUSD=X','2025-02-01',1.2,'ecb')")
+    assert tipos(data, '2025-01-02')['USD'] == 1.1
+    assert tipos(data, '2025-01-20') == {}

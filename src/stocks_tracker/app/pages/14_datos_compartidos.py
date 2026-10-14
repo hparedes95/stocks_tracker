@@ -6,14 +6,16 @@ from stocks_tracker.core.market_bundle import (
     export_bundle,
     import_bundle,
     inspect_bundle,
+    preview,
     state,
     unlock,
 )
+from stocks_tracker.core.market_recovery import restore_point
 
 st.title("Base de mercado compartida")
 st.write("Exporta en el PC con el histórico completo e importa ese mismo archivo en el otro. "
          "La transferencia es manual; no se envía nada a Internet.")
-st.info("Incluye histórico, fundamentales, universo y resultados de análisis. "
+st.info("Incluye histórico, fundamentales, universo, resultados y protocolos de validación del modelo. "
         "NO incluye cartera, efectivo, diario, watchlist, recomendaciones personales ni claves. "
         "Usa las copias solo entre tus equipos y conforme a las condiciones de las fuentes.")
 with connect(read_only=True) as conn:
@@ -27,6 +29,18 @@ else:
     st.warning("Modo local: los datos de este ordenador pueden diferir de los de otro.")
 
 st.subheader("1. Exportar desde el equipo de origen")
+if st.button("Actualizar mercado y preparar copia", disabled=bool(current.get('frozen'))):
+    try:
+        from stocks_tracker.app.research_actions import refresh_research
+        with st.spinner("Descargando, analizando y preparando la copia…"):
+            refresh_research(cash=0, download=True)
+            with connect(read_only=True) as conn:
+                st.session_state['market_export'] = export_bundle(conn)
+        st.cache_data.clear()
+    except Exception as exc:  # noqa: BLE001 — acción explícita de interfaz
+        st.error(f"No se ha preparado una copia actualizada: {exc}")
+if current.get('frozen'):
+    st.caption("Para actualizar, confirma abajo que quieres abandonar la copia congelada.")
 if st.button("Preparar archivo de mercado"):
     try:
         with st.spinner("Preparando y comprobando la copia…"), connect(read_only=True) as conn:
@@ -41,9 +55,19 @@ if st.session_state.get('market_export'):
 
 st.subheader("2. Importar la misma copia en cada PC")
 uploaded = st.file_uploader("Archivo exportado por Stocks Tracker", type=["stmarket"])
+valid_upload = False
+if uploaded is not None:
+    try:
+        incoming, _ = inspect_bundle(uploaded.getvalue())
+        st.info(f"Copia {incoming['bundle_id'][:16]} · sesión {incoming['as_of']} · motor compatible.")
+        with connect(read_only=True) as conn:
+            st.dataframe(preview(conn, incoming), hide_index=True)
+        valid_upload = True
+    except Exception as exc:  # noqa: BLE001 — previsualización sin escrituras
+        st.error(f"Copia no válida: {exc}")
 confirmed = st.checkbox("Entiendo que se sustituirá la base de mercado local, no mi cartera. "
-                        "He exportado la base actual si quiero conservarla.")
-if st.button("Validar e importar", disabled=uploaded is None or not confirmed):
+                        "Se guardará automáticamente una copia local previa (se conservan las tres últimas).")
+if st.button("Validar e importar", disabled=not valid_upload or not confirmed):
     try:
         raw = uploaded.getvalue()
         # Validación antes de abrir la conexión escritora.
@@ -66,3 +90,22 @@ if current.get("frozen"):
                 unlock(conn)
             st.cache_data.clear()
             st.rerun()
+
+with st.expander("Recuperar el mercado anterior a una importación"):
+    with connect(read_only=True) as conn:
+        points = conn.execute('SELECT point_id, created_at FROM market_restore_points ORDER BY created_at DESC').fetchall()
+    if not points:
+        st.caption("Aún no hay copias locales previas a una importación.")
+    else:
+        options = {p[0]: str(p[1]) for p in points}
+        selected = st.selectbox("Copia local", list(options), format_func=lambda key: options[key])
+        accept_restore = st.checkbox("Restaurar solo el mercado. Mi cartera y mi diario no se modificarán.")
+        if st.button("Restaurar mercado", disabled=not accept_restore):
+            try:
+                with connect() as conn:
+                    restore_point(conn, selected)
+                st.cache_data.clear()
+                st.session_state.pop('market_export', None)
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001 — recuperación solicitada
+                st.error(f"No se ha restaurado: {exc}")

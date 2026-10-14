@@ -1,6 +1,7 @@
 """Evaluación temporal, en EUR y sin convertir datos ausentes en aciertos."""
 from __future__ import annotations
 
+import hashlib
 import json
 
 import numpy as np
@@ -8,13 +9,13 @@ import pandas as pd
 
 from . import fx
 
-MODEL_VERSION = "advisor-evidence-v2"
+MODEL_VERSION = "advisor-evidence-v3-sessions"
 BENCHMARKS = {"US": "SPY", "ES": "EWP", "DE": "EWG", "FR": "EWQ", "GB": "EWU",
               "United States": "SPY", "Spain": "EWP", "Germany": "EWG", "France": "EWQ",
               "United Kingdom": "EWU"}
 
 
-def evaluate(conn, *, hasta=None, benchmark=None) -> pd.DataFrame:
+def _calculate(conn, *, hasta=None, benchmark=None) -> pd.DataFrame:
     """Fija la salida al vencimiento; entrada al cierre posterior a la señal.
 
     Se comparan retornos totales ajustados de la misma pareja de sesiones.
@@ -67,7 +68,17 @@ def evaluate(conn, *, hasta=None, benchmark=None) -> pd.DataFrame:
         months = row.get("horizonte_meses", 6)
         if pd.isna(months) or not 1 <= months <= 120:
             continue
-        maturity = start + pd.DateOffset(months=int(months))
+        session_horizon = row.get('horizon_sessions')
+        if pd.notna(session_horizon):
+            from .trading_calendar import dates_for_horizon
+            if not row.get('calendar_name') or pd.isna(row.get('calendar_name')):
+                continue
+            try:
+                expected_entry, maturity = dates_for_horizon(row['calendar_name'], start, int(session_horizon))
+            except ValueError:
+                continue  # Una fila incompatible no invalida las otras recomendaciones.
+        else:
+            maturity = start + pd.DateOffset(months=int(months))
         if maturity > cutoff:
             continue
         asset, bench = series[ticker], series[ref]
@@ -77,6 +88,8 @@ def evaluate(conn, *, hasta=None, benchmark=None) -> pd.DataFrame:
         if entries.empty or exits.empty:
             continue
         entry, end = entries[0], exits[0]
+        if pd.notna(session_horizon) and (entry != expected_entry or end != maturity):
+            continue  # Una cotización ausente no desplaza la ejecución ni el vencimiento.
         pair = [entry, end]
         samples = [asset.loc[pair], bench.loc[pair]]
         if any(s["source"].isna().any() or s["source"].nunique() != 1 or
@@ -121,6 +134,46 @@ def evaluate(conn, *, hasta=None, benchmark=None) -> pd.DataFrame:
                        "model_version": (str(row['model_version']) if pd.notna(row.get('model_version')) else "legacy"),
                        "metodo": "retorno total; cierre siguiente; EUR; costes estimados, sin impuestos"})
     return pd.DataFrame(output)
+
+
+def observation_key(row):
+    fields = ('fecha', 'ticker', 'weights_hash', 'model_version', 'emitida_at', 'benchmark')
+    values = {}
+    for key in fields:
+        value = row.get(key)
+        if value is None or pd.isna(value):
+            values[key] = None
+        elif key in ('fecha', 'emitida_at'):
+            values[key] = pd.Timestamp(value).isoformat()
+        else:
+            values[key] = str(value)
+    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+
+
+def evaluate(conn, *, hasta=None, benchmark=None):
+    """Primera evaluación cerrada inmutable; revisiones de precios no reescriben aciertos."""
+    current = _calculate(conn, hasta=hasta, benchmark=benchmark)
+    cutoff = pd.Timestamp(hasta or pd.Timestamp.today().date())
+    stored = conn.execute('SELECT payload FROM evaluation_ledger ORDER BY evaluated_at').fetchall()
+    result = {observation_key(r): r for r in current.to_dict('records')}
+    for payload, in stored:
+        row = json.loads(payload)
+        if pd.Timestamp(row['salida']) > cutoff or (benchmark and row['benchmark'] != benchmark):
+            continue
+        for field in ('fecha', 'entrada', 'salida', 'vence', 'emitida_at'):
+            if row.get(field) is not None:
+                row[field] = pd.Timestamp(row[field])
+        result[observation_key(row)] = row
+    return pd.DataFrame(result.values())
+
+
+def freeze_evaluations(conn, *, hasta=None):
+    from .timeutils import utcnow
+    frame = _calculate(conn, hasta=hasta)
+    for row in frame.to_dict('records'):
+        conn.execute('INSERT INTO evaluation_ledger VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+                     [observation_key(row), utcnow(), json.dumps(row, default=str, sort_keys=True)])
+    return len(frame)
 
 
 def independent_episodes(frame: pd.DataFrame) -> pd.DataFrame:

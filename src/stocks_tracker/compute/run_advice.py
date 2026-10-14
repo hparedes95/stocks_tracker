@@ -52,7 +52,7 @@ console = Console()
 EXIT_SIN_NADA = 0
 
 
-def _cartera(conn) -> tuple[pd.DataFrame, dict, dict]:
+def _cartera(conn, as_of=None) -> tuple[pd.DataFrame, dict, dict]:
     """Las posiciones abiertas con su peso en euros, y los pesos por sector.
 
     LAS MISMAS CORRECCIONES QUE `data_access.get_positions`, Y NO POR SIMETRIA
@@ -86,7 +86,7 @@ def _cartera(conn) -> tuple[pd.DataFrame, dict, dict]:
 
     posiciones = corporate.ajustar_por_splits(
         posiciones, corporate.factores_de_split(conn, posiciones["ticker"]))
-    tipos = fx.tipos(conn)
+    tipos = fx.tipos(conn, as_of)
     posiciones["valor_eur"] = fx.a_base(
         posiciones["qty"] * posiciones["close"], posiciones["currency"], tipos)
     total = fx.total(posiciones["valor_eur"])
@@ -151,61 +151,50 @@ def _salud(conn) -> pd.DataFrame:
         FROM entonces e
         LEFT JOIN fundamentals_snapshot fh ON fh.ticker = e.ticker
              AND fh.as_of = (SELECT MAX(as_of) FROM fundamentals_snapshot
-                             WHERE ticker = e.ticker)
+                             WHERE ticker = e.ticker AND as_of <= (SELECT date FROM current_session))
         LEFT JOIN indicators_daily ih ON ih.ticker = e.ticker
              AND ih.date = (SELECT date FROM current_session)
         """
     ).fetchdf()
 
 
-def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
-    """Un veredicto por posicion y por candidato, guardando lo accionable.
+def calculate_policy(conn, whash, caja, *, decision_date=None):
+    """Única política del asesor: la app y el replay usan esta misma función."""
+    sesion = conn.execute("SELECT date FROM current_session").fetchdf()
+    if sesion.empty:
+        console.print("[yellow]No hay sesion calculada. Ejecuta el "
+                      "calculo antes de pedir consejo.[/]")
+        return [], pd.DataFrame(), pd.DataFrame(), None, None
+    dia = pd.Timestamp(sesion["date"].iloc[0]).date()
 
-    `caja` es el efectivo declarado. Por defecto CERO, y con cero las compras
-    salen vetadas por falta de tamano: es lo correcto. El programa no habla con
-    tu banco y suponer que hay dinero produciria recomendaciones de compra que
-    no se pueden ejecutar.
-    """
-    migrate()
-    nombre = preset or get_settings().compute.get("weights_preset", "balanced")
-    whash = preset_hash(nombre)
-
-    with connect(read_only=True) as conn:
-        sesion = conn.execute("SELECT date FROM current_session").fetchdf()
-        if sesion.empty:
-            console.print("[yellow]No hay sesion calculada. Ejecuta el "
-                          "calculo antes de pedir consejo.[/]")
-            return EXIT_SIN_NADA
-        dia = pd.Timestamp(sesion["date"].iloc[0]).date()
-
-        posiciones, pesos_sector, pesos_actuales = _cartera(conn)
-        salud = _salud(conn) if not posiciones.empty else pd.DataFrame()
-        ranking = conn.execute(
-            """
-            SELECT f.ticker, f.composite_pctile, f.coverage,
-                   f.value_z, f.growth_z, f.quality_z, f.momentum_z,
-                   f.lowvol_z, f.dividend_z, f.technical_z,
-                   inst.gics_sector, inst.currency, i.close, i.atr_pct,
-                   i.above_sma200, i.rsi14, i.drawdown, i.realized_vol_252,
-                   fu.payout_ratio, fu.net_debt_to_ebitda, fu.trailing_pe
-            FROM factor_scores f
-            JOIN instruments inst ON inst.ticker = f.ticker
-            JOIN indicators_daily i ON i.ticker = f.ticker AND i.date = f.date
-            LEFT JOIN fundamentals_snapshot fu ON fu.ticker = f.ticker
-                 AND fu.as_of = (SELECT MAX(as_of) FROM fundamentals_snapshot
-                                 WHERE ticker = f.ticker)
-            WHERE f.weights_hash = ? AND f.date = ?
-            ORDER BY f.composite DESC LIMIT 60
-            """,
-            [whash, dia],
-        ).fetchdf()
-        cambios = fx.tipos(conn)
-        mercado = conn.execute(
-            "SELECT regime FROM regime_daily WHERE date = ?", [dia]).fetchone()
-        regimen = mercado[0] if mercado and mercado[0] else "neutral"
-        universo = conn.execute(
-            "SELECT universe_hash FROM scoring_runs WHERE weights_hash = ? "
-            "ORDER BY date DESC LIMIT 1", [whash]).fetchone()
+    posiciones, pesos_sector, pesos_actuales = _cartera(conn, dia)
+    salud = _salud(conn) if not posiciones.empty else pd.DataFrame()
+    ranking = conn.execute(
+        """
+        SELECT f.ticker, f.composite_pctile, f.coverage,
+               f.value_z, f.growth_z, f.quality_z, f.momentum_z,
+               f.lowvol_z, f.dividend_z, f.technical_z,
+               inst.gics_sector, inst.currency, i.close, i.atr_pct,
+               i.above_sma200, i.rsi14, i.drawdown, i.realized_vol_252,
+               fu.payout_ratio, fu.net_debt_to_ebitda, fu.trailing_pe
+        FROM factor_scores f
+        JOIN instruments inst ON inst.ticker = f.ticker
+        JOIN indicators_daily i ON i.ticker = f.ticker AND i.date = f.date
+        LEFT JOIN fundamentals_snapshot fu ON fu.ticker = f.ticker
+             AND fu.as_of = (SELECT MAX(as_of) FROM fundamentals_snapshot
+                             WHERE ticker = f.ticker AND as_of <= f.date)
+        WHERE f.weights_hash = ? AND f.date = ?
+        ORDER BY f.composite DESC LIMIT 60
+        """,
+        [whash, dia],
+    ).fetchdf()
+    cambios = fx.tipos(conn, dia)
+    mercado = conn.execute(
+        "SELECT regime FROM regime_daily WHERE date = ?", [dia]).fetchone()
+    regimen = mercado[0] if mercado and mercado[0] else "neutral"
+    universo = conn.execute(
+        "SELECT universe_hash FROM scoring_runs WHERE weights_hash = ? AND date <= ? "
+        "ORDER BY date DESC LIMIT 1", [whash, dia]).fetchone()
 
     valor = fx.total(posiciones["valor_eur"]) if not posiciones.empty else 0.0
     equity = (valor if valor == valor else 0.0) + caja
@@ -230,9 +219,30 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
     )
 
     from ..core.advisor_evidence import apply_gate
+    recomendaciones = apply_gate(conn, recomendaciones, as_of=dia,
+                                  positions=posiciones, cash=caja, decision_date=decision_date)
+    return recomendaciones, posiciones, ranking, dia, universo
+
+
+def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
+    """Un veredicto por posicion y por candidato, guardando lo accionable.
+
+    `caja` es el efectivo declarado. Por defecto CERO, y con cero las compras
+    salen vetadas por falta de tamano: es lo correcto. El programa no habla con
+    tu banco y suponer que hay dinero produciria recomendaciones de compra que
+    no se pueden ejecutar.
+    """
+    migrate()
+    nombre = preset or get_settings().compute.get("weights_preset", "balanced")
+    whash = preset_hash(nombre)
+
+    from ..core.prediction_plans import prepare, record_outcomes
+    with connect() as conn:
+        prepare(conn)
     with connect(read_only=True) as conn:
-        recomendaciones = apply_gate(conn, recomendaciones, as_of=dia,
-                                      positions=posiciones, cash=caja)
+        recomendaciones, posiciones, ranking, dia, universo = calculate_policy(conn, whash, caja)
+    if dia is None:
+        return EXIT_SIN_NADA
 
     precios = {}
     if not posiciones.empty:
@@ -243,6 +253,7 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
                                 strict=False)))
 
     with connect() as conn:
+        record_outcomes(conn, recomendaciones)
         evaluated_at = utcnow()
         # Invalidar la consulta anterior ANTES de escribir. El upsert ya tiene
         # transacción propia: ante un fallo no se mostrarán consejos antiguos.
@@ -259,6 +270,8 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
             conn, recomendaciones, dia=dia, weights_hash=whash,
             precios=precios,
             universe_hash=(universo[0] if universo else ""))
+        from ..core.evaluation import freeze_evaluations
+        freeze_evaluations(conn, hasta=dia)
 
     _informar(recomendaciones, n, dia, nombre)
     return n

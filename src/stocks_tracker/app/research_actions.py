@@ -29,3 +29,10 @@ def refresh_research(*, cash: float, download: bool = False) -> None:
         if result.returncode:
             # No exponemos salida que pudiera contener credenciales.
             raise RuntimeError(f"Falló {step[0]} (código {result.returncode})")
+
+
+def extend_history(ticker):
+    result = subprocess.run([sys.executable, '-m', 'stocks_tracker.ingest.history_extension', ticker],
+                             cwd=project_root(), capture_output=True, text=True, timeout=900)
+    if result.returncode:
+        raise RuntimeError('La ampliación no se completó. Revisa el estado de fuentes; los intentos quedan registrados.')
