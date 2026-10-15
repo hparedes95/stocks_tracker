@@ -974,3 +974,11 @@ CREATE TABLE IF NOT EXISTS prediction_plans (
   outcome VARCHAR
 );
 ALTER TABLE prediction_plans ADD COLUMN IF NOT EXISTS decided_at TIMESTAMP;
+
+-- Private read-only broker snapshot; deliberately excluded from market exports.
+CREATE TABLE IF NOT EXISTS snaptrade_state (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1), account_id VARCHAR,
+  active BOOLEAN DEFAULT FALSE, auto_sync BOOLEAN DEFAULT FALSE,
+  last_attempt TIMESTAMP, last_success TIMESTAMP, error VARCHAR,
+  snapshot VARCHAR, previous_snapshot VARCHAR
+);

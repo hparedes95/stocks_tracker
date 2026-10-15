@@ -1,8 +1,9 @@
 # Stocks Tracker
 
 Aplicación personal de análisis de acciones con fuentes gratuitas. El centro es
-el **asesor**, la investigación de escenarios y tu cartera registrada manualmente.
-No ejecuta órdenes, no conecta con brokers y no instala tareas periódicas ni avisos externos.
+el **asesor**, la investigación de escenarios y tu cartera manual o sincronizada.
+No ejecuta órdenes ni instala tareas periódicas o avisos externos. La conexión
+opcional con eToro mediante SnapTrade Personal es exclusivamente de lectura.
 
 ## Windows
 
@@ -19,12 +20,19 @@ También puedes ejecutar `scripts/windows/stocks.ps1 autostart-off`.
 
 1. **Asesor de acciones**: actualiza los datos o recalcula las recomendaciones.
    Indica el efectivo disponible en euros para dimensionar propuestas; por
-   defecto es cero. Ninguna propuesta modifica tu cartera.
+   defecto es cero. Con SnapTrade activo usa el efectivo consultado. Ninguna
+   propuesta modifica tu cartera.
 2. **Predicción y escenarios**: compara episodios de tendencia similares a 1, 3
    o 6 meses (21, 63 o 126 sesiones). Muestra procedencia, fecha y tamaño de muestra.
 3. **Ficha de valor / Oportunidades**: revisa factores, riesgos y razones.
 4. **Cartera y watchlist**: introduce tus compras reales y revisa concentración.
 5. **Estado de los datos / Validación**: comprueba calidad y evidencia.
+
+Para dejar de cargar CSV, abre **Mi cartera → Conexión SnapTrade** y sigue la
+[configuración de SnapTrade Personal](docs/07-snaptrade-personal.md). Las claves
+se introducen únicamente en la app y se cifran con el usuario de Windows.
+Consulta posiciones y efectivo mientras la app está abierta; no reconstruye
+el historial de operaciones ni garantiza información en tiempo real.
 
 ## Qué significan las estimaciones
 

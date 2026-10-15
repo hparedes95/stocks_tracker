@@ -52,7 +52,7 @@ console = Console()
 EXIT_SIN_NADA = 0
 
 
-def _cartera(conn, as_of=None) -> tuple[pd.DataFrame, dict, dict]:
+def _cartera(conn, as_of=None, *, use_live=True) -> tuple[pd.DataFrame, dict, dict]:
     """Las posiciones abiertas con su peso en euros, y los pesos por sector.
 
     LAS MISMAS CORRECCIONES QUE `data_access.get_positions`, Y NO POR SIMETRIA
@@ -68,7 +68,12 @@ def _cartera(conn, as_of=None) -> tuple[pd.DataFrame, dict, dict]:
     la logica: `corporate.ajustar_por_splits` es la misma funcion en los dos
     sitios, para que no puedan divergir.
     """
-    posiciones = conn.execute(
+    from ..core import snaptrade_portfolio as snap
+    if as_of is None:
+        session = conn.execute('SELECT date FROM current_session').fetchone()
+        as_of = session[0] if session else None
+    external = snap.portfolio(conn, as_of) if use_live else None
+    posiciones = external if external is not None else conn.execute(
         """
         SELECT p.id, p.ticker, p.qty, p.avg_cost,
                COALESCE(inst.currency, p.currency) AS currency,
@@ -84,8 +89,9 @@ def _cartera(conn, as_of=None) -> tuple[pd.DataFrame, dict, dict]:
     if posiciones.empty:
         return posiciones, {}, {}
 
-    posiciones = corporate.ajustar_por_splits(
-        posiciones, corporate.factores_de_split(conn, posiciones["ticker"]))
+    if external is None:
+        posiciones = corporate.ajustar_por_splits(
+            posiciones, corporate.factores_de_split(conn, posiciones["ticker"]))
     tipos = fx.tipos(conn, as_of)
     posiciones["valor_eur"] = fx.a_base(
         posiciones["qty"] * posiciones["close"], posiciones["currency"], tipos)
@@ -102,7 +108,7 @@ def _cartera(conn, as_of=None) -> tuple[pd.DataFrame, dict, dict]:
         .sum().to_dict() if reparte else {}
     )
     pesos_actuales = (
-        dict(zip(posiciones["ticker"], posiciones["peso_pct"], strict=False))
+        posiciones.groupby('ticker')['peso_pct'].sum().to_dict()
         if reparte else {}
     )
     return posiciones, pesos_sector, pesos_actuales
@@ -158,7 +164,7 @@ def _salud(conn) -> pd.DataFrame:
     ).fetchdf()
 
 
-def calculate_policy(conn, whash, caja, *, decision_date=None):
+def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfolio=False):
     """Única política del asesor: la app y el replay usan esta misma función."""
     sesion = conn.execute("SELECT date FROM current_session").fetchdf()
     if sesion.empty:
@@ -167,8 +173,21 @@ def calculate_policy(conn, whash, caja, *, decision_date=None):
         return [], pd.DataFrame(), pd.DataFrame(), None, None
     dia = pd.Timestamp(sesion["date"].iloc[0]).date()
 
-    posiciones, pesos_sector, pesos_actuales = _cartera(conn, dia)
-    salud = _salud(conn) if not posiciones.empty else pd.DataFrame()
+    from ..core import snaptrade_portfolio as snap
+    live = use_live_portfolio and snap.active(conn)
+    if live:
+        issue = snap.readiness(conn)
+        if issue:
+            raise RuntimeError(issue)
+        caja = snap.cash_eur(conn, dia)
+        import math
+        if not math.isfinite(caja) or caja < 0:
+            raise RuntimeError('No se puede valorar el efectivo sincronizado en EUR o existe saldo deudor.')
+    posiciones, pesos_sector, pesos_actuales = _cartera(conn, dia, use_live=use_live_portfolio)
+    if live and not posiciones.empty and not posiciones.supported.all():
+        raise RuntimeError('Hay productos o símbolos de SnapTrade sin correspondencia segura. Revisa Conexión SnapTrade.')
+    # A snapshot does not contain reliable purchase dates. Never compare manual lots.
+    salud = _salud(conn) if not posiciones.empty and not live else pd.DataFrame()
     ranking = conn.execute(
         """
         SELECT f.ticker, f.composite_pctile, f.coverage,
@@ -227,10 +246,8 @@ def calculate_policy(conn, whash, caja, *, decision_date=None):
 def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
     """Un veredicto por posicion y por candidato, guardando lo accionable.
 
-    `caja` es el efectivo declarado. Por defecto CERO, y con cero las compras
-    salen vetadas por falta de tamano: es lo correcto. El programa no habla con
-    tu banco y suponer que hay dinero produciria recomendaciones de compra que
-    no se pueden ejecutar.
+    Sin SnapTrade, `caja` es el efectivo declarado (por defecto cero).
+    Con la conexión activa se utiliza el efectivo leído, no el poder de compra.
     """
     migrate()
     nombre = preset or get_settings().compute.get("weights_preset", "balanced")
@@ -240,7 +257,9 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
     with connect() as conn:
         prepare(conn)
     with connect(read_only=True) as conn:
-        recomendaciones, posiciones, ranking, dia, universo = calculate_policy(conn, whash, caja)
+        from ..core import snaptrade_portfolio as snap
+        captured = snap.state(conn)
+        recomendaciones, posiciones, ranking, dia, universo = calculate_policy(conn, whash, caja, use_live_portfolio=True)
     if dia is None:
         return EXIT_SIN_NADA
 
@@ -253,6 +272,9 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
                                 strict=False)))
 
     with connect() as conn:
+        current = snap.state(conn)
+        if any(current.get(key) != captured.get(key) for key in ('active', 'snapshot', 'error')):
+            raise RuntimeError('La cartera cambió durante el cálculo. Vuelve a recalcular el asesor.')
         record_outcomes(conn, recomendaciones)
         evaluated_at = utcnow()
         # Invalidar la consulta anterior ANTES de escribir. El upsert ya tiene

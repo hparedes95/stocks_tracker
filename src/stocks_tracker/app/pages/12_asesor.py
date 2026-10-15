@@ -62,15 +62,27 @@ with st.expander("Tu horizonte, costes y límites", expanded=not profile['confir
         st.success("Perfil guardado. Recalcula el asesor para aplicarlo.")
 
 
-# La ejecución es explícita: nunca en cada rerun ni en segundo plano.
+# Controles explícitos; la sincronización SnapTrade puede recalcular también.
 
 with st.expander("Actualizar datos y recomendaciones", expanded=True):
-    cash = st.number_input("Efectivo disponible para esta consulta (EUR)",
-                           min_value=0.0, value=0.0, step=100.0)
-    st.caption("No se conecta con tu banco. El efectivo no declarado se considera cero. "
-               "Los botones no compran ni venden; la descarga puede tardar varios minutos.")
+    from stocks_tracker.core import snaptrade_portfolio as snap
+    with connect(read_only=True) as conn:
+        live = snap.active(conn)
+        live_issue = snap.readiness(conn)
+        synced_cash = snap.cash_eur(conn) if live else None
+    if live:
+        cash = float(synced_cash) if pd.notna(synced_cash) and synced_cash >= 0 else 0.0
+        st.metric('Efectivo sincronizado (EUR)', format_money(synced_cash, 'EUR'))
+        st.caption('Cartera y efectivo de SnapTrade, sin sumar los CSV. El asesor aplica sus controles de datos y riesgo. '
+                   'Sin fechas de compra verificadas no evalúa deterioro desde la compra ni rentabilidad realizada.')
+        if live_issue:
+            st.warning(live_issue)
+    else:
+        cash = st.number_input("Efectivo disponible para esta consulta (EUR)",
+                               min_value=0.0, value=0.0, step=100.0)
+        st.caption("El efectivo no declarado se considera cero. Los botones no compran ni venden.")
     download = st.button("Actualizar datos y análisis", type="primary")
-    recalculate = st.button("Recalcular asesor con los datos guardados")
+    recalculate = st.button("Recalcular asesor con los datos guardados", disabled=bool(live_issue))
     if download or recalculate:
         with st.spinner("Preparando el análisis…"):
             try:
@@ -222,9 +234,8 @@ if guardadas.empty:
         "Todavía no hay propuestas accionables guardadas. Usa los botones superiores "
         "para actualizar los datos y recalcular el asesor. Con efectivo cero o "
         "evidencia insuficiente puede no recomendar ninguna compra.\n\n"
-        "Se calculan en un paso aparte y no al abrir esta página, para que "
-        "quede constancia de cada uno: sin esa constancia el marcador de arriba "
-        "no podría llenarse nunca.",
+        "Con SnapTrade activo también se intenta recalcular tras una sincronización "
+        "automática correcta. Cada cálculo queda registrado; no implica ejecutar operaciones.",
         icon=":material/hourglass_empty:",
     )
     st.stop()

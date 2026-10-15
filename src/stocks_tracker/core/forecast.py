@@ -62,7 +62,7 @@ def scenarios(prices: pd.DataFrame, *, horizon: int = 63,
         return unavailable("Hay huecos de más de siete días; no se cuentan como sesiones continuas.")
     if "source" not in frame or frame["source"].isna().any():
         return unavailable("No consta la procedencia de todos los precios.")
-    sources = set(frame["source"].astype(str))
+    sources = set(frame["source"].astype(str).str.strip().str.lower())
     if any(not source.strip() for source in sources):
         return unavailable("No consta la procedencia de todos los precios.")
     if "synthetic" in sources:

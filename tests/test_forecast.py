@@ -101,3 +101,12 @@ def test_unsupported_horizon_is_rejected():
 
 def test_empty_data_is_not_a_prediction():
     assert scenarios(pd.DataFrame()).median is None
+
+
+@pytest.mark.parametrize('source', ['SYNTHETIC', ' synthetic ', 'Synthetic'])
+def test_synthetic_source_cannot_bypass_guard_with_case_or_spaces(source):
+    prices = history()
+    prices['source'] = source
+    result = scenarios(prices, as_of='2026-09-24')
+    assert result.median is None
+    assert 'sintéticos' in result.reason

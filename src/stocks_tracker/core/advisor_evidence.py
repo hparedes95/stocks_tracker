@@ -18,6 +18,13 @@ from .predictive_validation import validate_models
 from .trading_calendar import calendar_name
 
 
+def finite_number(value):
+    try:
+        return value is not None and math.isfinite(value)
+    except (TypeError, ValueError):
+        return False
+
+
 def apply_gate(conn, recommendations, *, as_of, positions, cash, decision_date=None):
     profile = load(conn)
     from .prediction_plans import lookup
@@ -27,16 +34,21 @@ def apply_gate(conn, recommendations, *, as_of, positions, cash, decision_date=N
     raw = conn.execute("SELECT ticker, date, adj_close, source FROM prices_daily "
                        "WHERE date <= ? ORDER BY ticker, date", [as_of]).fetchdf()
     histories = {t: p.drop(columns='ticker') for t, p in raw.groupby('ticker')}
-    values = (positions.groupby('ticker')['valor_eur'].sum(min_count=1).to_dict()
-              if not positions.empty else {})
-    equity = sum(values.values()) + cash
+    invalid_positions = not positions.empty and (
+        positions.ticker.isna().any() or
+        positions.ticker.astype(str).str.strip().eq('').any() or
+        any(not finite_number(v) or v < 0 for v in positions.valor_eur))
+    values = (positions.groupby('ticker')['valor_eur'].sum().to_dict()
+              if not positions.empty and not invalid_positions else {})
+    valid_portfolio = not invalid_positions and finite_number(cash) and cash >= 0
+    equity = sum(values.values()) + cash if valid_portfolio else float('nan')
     tickers = sorted(set(values) | {r.ticker for r in recommendations if r.veredicto in ('comprar', 'ampliar')})
     # Reutilizar una matriz para la correlación y para evaluar en la misma divisa.
     eur_returns = returns_in_eur(conn, tickers + list(set(BENCHMARKS.values()) | {'VT'}), as_of=as_of)
     costs = profile['roundtrip_pct'] / 100
     output = []
     projected = dict(values)
-    available = cash
+    available = cash if valid_portfolio else 0.0
     for rec in recommendations:
         if rec.veredicto not in (Veredicto.COMPRAR, Veredicto.AMPLIAR):
             output.append(rec)
@@ -78,10 +90,14 @@ def apply_gate(conn, recommendations, *, as_of, positions, cash, decision_date=N
             reasons.append('El protocolo ya fue refutado en el periodo reservado; no se reintenta hasta conseguir un acierto.')
         if not validation.qualified:
             reasons.append(validation.reason)
-        elif validation.lower_excess is None or validation.lower_excess <= costs:
+        elif not finite_number(validation.lower_excess) or validation.lower_excess <= costs:
             reasons.append("La ventaja estimada no supera costes e incertidumbre.")
         personal_start = len(reasons)
-        amount = rec.importe_eur or 0.0
+        valid_size = all(finite_number(v) and v > 0 for v in
+                         (rec.importe_eur, rec.titulos, rec.stop))
+        if not valid_size:
+            reasons.append('El importe, los títulos o el stop son inválidos; no se propone una compra.')
+        amount = rec.importe_eur if valid_size else 0.0
         # Reserva coste de entrada: la mitad del supuesto ida/vuelta.
         if amount * (1 + costs / 2) > available:
             reasons.append("El efectivo no cubre el importe propuesto y el coste de entrada estimado.")

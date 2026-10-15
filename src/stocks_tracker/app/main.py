@@ -108,6 +108,8 @@ pages = {
                 icon=":material/science:", url_path="validacion"),
     ],
     "Mi cartera": [
+        st.Page("pages/15_snaptrade.py", title="Conexión SnapTrade",
+                icon=":material/link:", url_path="snaptrade"),
         st.Page("pages/5_watchlist.py", title="Cartera y watchlist",
                 icon=":material/bookmark:", url_path="watchlist"),
         st.Page("pages/11_diario.py", title="Diario de decisiones",
@@ -152,4 +154,8 @@ with st.sidebar:
     # demas que diga la pantalla importa menos.
     render_integrity_badge(estado_page)
 
+from stocks_tracker.app.components.snaptrade_panel import background_sync  # noqa: E402
+
+if not _fallo_esquema:
+    background_sync()
 navigation.run()

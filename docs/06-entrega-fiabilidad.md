@@ -67,7 +67,10 @@ Con la app cerrada, el módulo `installer/release_install.py --restore RUTA` res
 ese conjunto. Antes guarda el estado actual en `StocksTracker.before-restore-*`:
 los movimientos introducidos después de actualizar no desaparecen, pero tampoco
 se fusionan automáticamente con la cartera anterior. Las carpetas de instalación
-retenidas requieren espacio en disco; esta entrega no las elimina automáticamente.
+retenidas requieren espacio en disco. El instalador conserva las dos últimas copias
+anteriores que él mismo identifica como administradas; no borra carpetas heredadas
+sin esa marca. Limpia su propia carpeta staging si la preparación falla y comprueba
+espacio libre antes de preparar y de copiar los datos privados.
 
 ## Límites que permanecen visibles
 
@@ -91,7 +94,8 @@ retenidas requieren espacio en disco; esta entrega no las elimina automáticamen
 - **SEC:** se comprobó un bloqueo HTTP 403 en este entorno. Se conserva como fuente
   opcional con caché y explicación, sin rodear restricciones ni inventar cuentas.
 - Las copias locales de recuperación no sustituyen un respaldo fuera del disco.
-  No hay nube, bróker, Telegram ni órdenes automáticas.
+  No hay Telegram ni órdenes automáticas. La conexión opcional de solo lectura
+  con eToro a través de SnapTrade se documenta en [esta guía](07-snaptrade-personal.md).
 
 ## Criterios y comprobaciones
 

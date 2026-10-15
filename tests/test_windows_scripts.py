@@ -230,7 +230,8 @@ def test_reinstalling_saves_data_keys_and_config_before_deleting():
     src = text("installer/release_install.py")
     assert "'--copy-private', target, stage" in src
     assert src.index("'--copy-private', target, stage") < src.index('target.rename(previous)')
-    assert 'rmtree' not in src
+    assert 'shutil.rmtree(target)' not in src
+    assert "remove_owned_tree(stage, target, 'staging')" in src
     assert 'private_digest(target)' in src
 
 
@@ -637,7 +638,9 @@ def test_the_backup_survives_an_interrupted_update():
     # de esa copia es el unico camino que pierde el almacen para siempre.
     assert 'previous.rename(target)' in src
     assert "'.update.json'" in src and "'.recovery.json'" in src
-    assert 'rmtree' not in src
+    assert 'shutil.rmtree(previous)' not in src
+    assert 'retained[2:]' in src
+    assert src.rindex('retain_backups(target, previous, old_state, state)') > src.index("(target / '.version').write_text")
 
 
 def test_the_launcher_reexecutes_from_temp_before_updating():

@@ -876,6 +876,10 @@ def get_advice(preset: str | None = None) -> pd.DataFrame:
     con que cambie un precio entre una cosa y otra— y el marcador estaria
     puntuando consejos que nadie llego a ver.
     """
+    from ..core import snaptrade_portfolio as snap
+    with connect(read_only=True) as conn:
+        if snap.readiness(conn):
+            return pd.DataFrame()
     return _fetch(
         """
         SELECT r.* FROM recommendations r
@@ -1033,6 +1037,11 @@ def get_positions() -> pd.DataFrame:
     usuario declaro, y la correccion se rehace en cada lectura. Es idempotente
     y se arregla sola si manana el proveedor corrige un split.
     """
+    from ..core import snaptrade_portfolio as snap
+    with connect(read_only=True) as conn:
+        if snap.active(conn):
+            session = conn.execute('SELECT date FROM current_session').fetchone()
+            return snap.portfolio(conn, session[0] if session else None)
     posiciones = _fetch(
         """
         SELECT p.id, p.ticker, p.qty, p.avg_cost,
@@ -1419,6 +1428,10 @@ def get_position_health() -> pd.DataFrame:
     no tiene columnas `_entonces`: salen nulas, y el diagnóstico se queda en lo
     que se puede mirar solo con el presente.
     """
+    from ..core import snaptrade_portfolio as snap
+    with connect(read_only=True) as conn:
+        if snap.active(conn):
+            return pd.DataFrame()
     fund = ", ".join(f"f.{c} AS {c}_entonces" for c in _CAMPOS_FUND)
     ind = ", ".join(f"i.{c} AS {c}_entonces" for c in _CAMPOS_IND)
     entonces = _fetch(

@@ -77,3 +77,35 @@ def test_unknown_currency_does_not_default_to_eur():
 def test_profile_rejects_nonfinite_limits(connection):
     with pytest.raises(ValueError):
         save(connection, {**DEFAULTS, 'max_loss_pct':float('nan')})
+
+
+@pytest.mark.parametrize('bound', [float('nan'), float('inf'), float('-inf')])
+def test_nonfinite_evidence_never_authorizes_purchase(connection, monkeypatch, bound):
+    save(connection, {**DEFAULTS, 'confirmed': True})
+    monkeypatch.setattr(gate, 'validate_models', lambda *a, **k: Validation('test', 30, True, bound))
+    assert run(connection)[0].veredicto == Veredicto.SIN_OPINION
+
+
+def test_one_unpriced_lot_cannot_disappear_from_position_total(connection, monkeypatch):
+    save(connection, {**DEFAULTS, 'confirmed': True})
+    monkeypatch.setattr(gate, 'validate_models', lambda *a, **k: Validation('test', 30, True, .1))
+    positions = pd.DataFrame({'ticker': ['AAA', 'AAA'], 'valor_eur': [100., float('nan')]})
+    result = run(connection, positions=positions)[0]
+    assert result.veredicto == Veredicto.SIN_OPINION
+    assert any('valorar íntegramente' in reason for reason in result.motivos)
+
+
+@pytest.mark.parametrize('field,value', [('importe_eur', float('nan')), ('importe_eur', -100.),
+    ('importe_eur', 0.), ('titulos', float('inf')), ('titulos', -1.), ('stop', float('nan'))])
+def test_invalid_purchase_numbers_are_rejected(connection, monkeypatch, field, value):
+    from dataclasses import replace
+    save(connection, {**DEFAULTS, 'confirmed': True})
+    monkeypatch.setattr(gate, 'validate_models', lambda *a, **k: Validation('test', 30, True, .1))
+    result = run(connection, [replace(proposal(), **{field: value})])[0]
+    assert result.veredicto == Veredicto.SIN_OPINION
+    assert result.importe_eur is None and result.titulos is None
+
+
+@pytest.mark.parametrize('cash', [None, 'invalid', float('nan'), -1])
+def test_invalid_cash_blocks_instead_of_crashing(connection, cash):
+    assert run(connection, cash=cash)[0].veredicto == Veredicto.SIN_OPINION
