@@ -15,6 +15,7 @@ import pandas as pd
 
 from ..providers.snaptrade import Client, SnapTradeError
 from . import fx
+from .broker_symbols import can_value_unmapped, resolve
 
 
 def state(conn):
@@ -156,11 +157,6 @@ def sync(account_id):
     return snapshot
 
 
-VENUES = {'NASDAQ': 'XNAS', 'NMS': 'XNAS', 'NGM': 'XNAS', 'NCM': 'XNAS',
-          'NYSE': 'XNYS', 'NYQ': 'XNYS', 'PCX': 'ARCX', 'BME': 'XMAD', 'MAD': 'XMAD',
-          'GER': 'XETR', 'PAR': 'XPAR', 'LSE': 'XLON'}
-
-
 def portfolio(conn, as_of=None):
     """Return current quantities using local market valuations, without reapplying splits."""
     current = state(conn)
@@ -172,25 +168,47 @@ def portfolio(conn, as_of=None):
     for pos in snapshot['positions']:
         if pos['cash_equivalent'] or pos['qty'] == 0:
             continue
-        venue = VENUES.get(pos['exchange'], pos['exchange'])
-        candidates = metadata[(metadata.ticker == pos['symbol']) & (metadata.currency == pos['listing_currency'])]
-        candidates = candidates[candidates.apply(lambda x, venue=venue: bool(venue) and
-                      (x.mic == venue or VENUES.get(x.exchange, x.exchange) == venue), axis=1)]
-        supported = pos['kind'] in ('stock', 'etf', 'adr') and pos['qty'] > 0 and len(candidates) == 1
-        sector = candidates.iloc[0].gics_sector if supported else None
+        identity = resolve(pos, metadata)
+        mapped = identity.ticker is not None
+        supported = mapped or can_value_unmapped(pos)
+        ticker = identity.ticker or f"SnapTrade:{pos['symbol']}:{pos['id']}"
+        currency = identity.currency if mapped else pos['currency']
+        candidates = metadata[metadata.ticker == ticker]
+        sector = candidates.iloc[0].gics_sector if len(candidates) == 1 else None
+        if identity.asset_class == 'crypto':
+            sector = 'Criptomonedas'
         price = conn.execute('SELECT close FROM indicators_daily WHERE ticker=? AND date=?',
-                             [pos['symbol'], as_of]).fetchone() if supported and as_of else None
-        rows.append({'id': pos['id'], 'ticker': pos['symbol'], 'qty': pos['qty'],
-                     'avg_cost': pos['avg_cost'] if pos['currency'] == pos['listing_currency'] else None,
-                     'currency': pos['listing_currency'], 'gics_sector': sector,
-                     'close': price[0] if price else float('nan'), 'opened_at': None,
+                             [ticker, as_of]).fetchone() if mapped and as_of else None
+        historical = bool(price and price[0] is not None and math.isfinite(price[0]) and price[0] > 0)
+        close, source = (price[0], 'Mercado local') if historical else (float('nan'), 'Sin precio válido')
+        if supported and not historical and pos['price'] is not None:
+            if pos['currency'] == currency:
+                close = pos['price']
+            else:
+                rates = fx.tipos(conn, as_of)
+                euro = fx.a_base(pd.Series([pos['price']]), pd.Series([pos['currency']]), rates).iloc[0]
+                close = euro * (1.0 if currency == 'EUR' else rates.get(currency, float('nan')))
+            if math.isfinite(close):
+                source = 'SnapTrade · ' + snapshot['as_of']
+        reason = identity.reason
+        if supported and not historical:
+            reason = reason or 'Aceptado en cartera; histórico local pendiente. Actualiza datos y análisis.'
+        if supported and not math.isfinite(close):
+            reason += ' Falta un precio o tipo de cambio válido para valorar la posición.'
+        rows.append({'id': pos['id'], 'ticker': ticker, 'broker_symbol': pos['symbol'], 'qty': pos['qty'],
+                     'avg_cost': pos['avg_cost'] if pos['currency'] == currency else None,
+                     'currency': currency, 'gics_sector': sector,
+                     'close': close, 'opened_at': None,
                      'updated_at': timestamp(snapshot['as_of']).tz_localize(None),
-                     'supported': supported})
+                     'supported': supported, 'analysis_supported': mapped, 'reason': reason,
+                     'valuation_source': source, 'asset_class': identity.asset_class})
     frame = pd.DataFrame(rows, columns=['id', 'ticker', 'qty', 'avg_cost', 'currency', 'gics_sector',
-                                       'close', 'opened_at', 'updated_at', 'supported'])
+                                       'close', 'opened_at', 'updated_at', 'supported', 'broker_symbol',
+                                       'analysis_supported', 'reason', 'valuation_source', 'asset_class'])
     if frame.ticker.duplicated().any():
         # Multiple venues/currencies are not silently merged under a single ticker.
         frame.loc[frame.ticker.duplicated(keep=False), 'supported'] = False
+        frame.loc[frame.ticker.duplicated(keep=False), 'reason'] = 'Identidades duplicadas: no se mezclan mercados ni divisas.'
         frame.loc[~frame.supported, 'close'] = float('nan')
     return frame
 

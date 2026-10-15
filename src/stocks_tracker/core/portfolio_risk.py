@@ -36,7 +36,7 @@ def analyse(returns: pd.DataFrame, values: dict[str, float], *, cash=0.0,
     path = pd.concat([pd.Series([1.]), (1 + joint).cumprod().reset_index(drop=True)], ignore_index=True)
     q = joint.quantile(.05)
     result.update({"sessions": len(sample), "correlations": sample.corr(),
-                   "annual_volatility": float(joint.std() * np.sqrt(252)),
+                   "annual_volatility": float(joint.std() * np.sqrt(returns.attrs.get('annual_periods', 252))),
                    "historical_drawdown": float((path / path.cummax() - 1).min()),
                    "mean_worst_5pct_day_eur": float(joint[joint <= q].mean() * total)})
     return result
@@ -47,15 +47,16 @@ def returns_in_eur(conn, tickers: list[str], *, as_of) -> pd.DataFrame:
     from . import fx
     if not tickers:
         return pd.DataFrame()
-    instruments = conn.execute("SELECT ticker, currency FROM instruments").fetchall()
-    currencies = dict(instruments)
+    instruments = conn.execute("SELECT ticker,currency,asset_class,country,exchange FROM instruments").fetchdf()
+    metadata = instruments.set_index('ticker').to_dict('index')
+    currencies = dict(zip(instruments.ticker, instruments.currency, strict=False))
     frame = conn.execute("SELECT ticker, date, close, adj_close, source FROM prices_daily "
                          "WHERE date <= ? ORDER BY ticker, date", [as_of]).fetchdf()
     if frame.empty:
         return pd.DataFrame()
     frame['date'] = pd.to_datetime(frame['date'])
     rates = fx.tipos_en(conn, sorted(frame['date'].unique()))
-    output = {}
+    prices = {}
     for ticker in tickers:
         p = frame[frame.ticker == ticker].copy()
         if (p.empty or p.source.isna().any() or
@@ -79,8 +80,27 @@ def returns_in_eur(conn, tickers: list[str], *, as_of) -> pd.DataFrame:
                        matched.source.astype(str).str.strip().str.lower().isin(['synthetic', '']) |
                        ~np.isfinite(matched.close) | (matched.close <= 0))
             converted[invalid] = np.nan
-        series = pd.Series(converted.to_numpy(), index=p.date)
-        returns = series.pct_change(fill_method=None)
-        returns.loc[p.date.diff().dt.days.to_numpy() > 7] = np.nan
+        prices[ticker] = pd.Series(converted.to_numpy(), index=p.date)
+    crypto = {t for t in prices if metadata[t]['asset_class'] == 'crypto' or t in ('BTC-USD', 'ETH-USD')}
+    securities = set(prices) - crypto
+    grid = None
+    if crypto and securities:
+        from .trading_calendar import calendar_name, sessions
+        calendars = {calendar_name(metadata[t]['country'], metadata[t]['exchange']) for t in securities}
+        if None in calendars:
+            # A missing calendar is not permission to compare a 24h crypto
+            # return with a stock return accumulated over a weekend.
+            prices = {t: p for t, p in prices.items() if t not in crypto}
+        else:
+            for name in sorted(calendars):
+                dates = sessions(name, frame.date.min(), frame.date.max())
+                grid = dates if grid is None else grid.intersection(dates)
+    output = {}
+    for ticker, series in prices.items():
+        sampled = series.reindex(grid) if grid is not None else series
+        returns = sampled.pct_change(fill_method=None)
+        returns.loc[sampled.index.to_series().diff().dt.days.to_numpy() > 7] = np.nan
         output[ticker] = returns
-    return pd.DataFrame(output).sort_index()
+    result = pd.DataFrame(output).sort_index()
+    result.attrs['annual_periods'] = 365 if crypto and not securities else 252
+    return result

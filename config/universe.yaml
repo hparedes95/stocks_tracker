@@ -78,6 +78,14 @@ universes:
       - ABI.BR, KER.PA, DG.PA, CS.PA, EL.PA, SAF.PA, STLAM.MI, MUV2.DE
       - BAYN.DE, BMW.DE, MBG.DE, VOW3.DE, DB1.DE, RWE.DE, ADS.DE, DHL.DE
 
+  CARTERA_INTERNACIONAL:
+    name: "Acciones internacionales de cartera (cotización EE.UU.)"
+    source: manual
+    benchmark: "^GSPC"
+    currency: USD
+    asset_class: equity
+    tickers: [TSM, ASML]
+
   ETF_CORE:
     name: "ETFs de indice y sectoriales"
     source: manual
@@ -91,6 +99,7 @@ universes:
       - XLK, XLF, XLV, XLE, XLI, XLY, XLP, XLU, XLB, XLRE, XLC
       # Renta fija y refugio
       - TLT, IEF, HYG, LQD, GLD
+      - CIBR, ITA
       # Europa
       - VGK, EWP, EZU, EWG, EWQ, EWU
 
@@ -126,7 +135,7 @@ universes:
 # SP500 y NASDAQ100 se solapan con SP100 a proposito: los tickers repetidos se
 # deduplican en `all_active_tickers()`, y mantener SP100 garantiza una base
 # solida aunque la descarga de Wikipedia falle.
-active: [SP500, NASDAQ100, SP100, IBEX35, ESTOXX50, ETF_CORE, INDICES, MACRO]
+active: [SP500, NASDAQ100, SP100, IBEX35, ESTOXX50, CARTERA_INTERNACIONAL, ETF_CORE, INDICES, MACRO]
 
 # Ambito de referencia para la amplitud de mercado y el semaforo de riesgo.
 breadth_scope: SP500

@@ -315,3 +315,114 @@ def test_policy_uses_broker_cash_not_manual_input(payload, conn, monkeypatch):
     run_advice.calculate_policy(conn, 'test-profile', 70)  # historical replay never reads live account
     assert observed['caja'] == 70
     assert observed['equity'] != 350
+
+
+@pytest.mark.parametrize('symbol,kind,currency,exchange,ticker', [
+    ('BTC', 'crypto', 'USD', None, 'BTC-USD'),
+    ('ETH', 'crypto', None, None, 'ETH-USD'),
+    ('TSM', 'adr', 'USD', 'XNYS', 'TSM'),
+    ('ASML', 'stock', 'USD', 'NASDAQ', 'ASML'),
+    ('ASML', 'stock', 'EUR', 'XAMS', 'ASML.AS'),
+    ('CIBR', 'etf', 'USD', 'XNAS', 'CIBR'),
+    ('ITA', 'etf', 'USD', 'BATS', 'ITA'),
+    ('ITA', 'etf', 'USD', 'ARCX', 'ITA'),
+])
+def test_requested_holdings_work_before_local_history_exists(payload, conn, symbol, kind, currency, exchange, ticker):
+    row = payload['positions']['results'][0]
+    row['instrument'].update(symbol=symbol, kind=kind, currency=currency, exchange=exchange)
+    row['currency'] = currency or 'USD'
+    snap.store_snapshot(conn, snap.normalise(payload))
+    snap.enable(conn, True)
+    frame = snap.portfolio(conn)
+    assert frame.supported.all() and frame.analysis_supported.all()
+    assert frame.ticker.tolist() == [ticker]
+    assert frame.qty.tolist() == [2.5]  # no ADR/share or currency ratio applied to quantities
+    assert frame.valuation_source.iloc[0].startswith('SnapTrade')
+    assert 'pendiente' in frame.reason.iloc[0]
+    assert conn.execute('SELECT COUNT(*) FROM prices_daily').fetchone()[0] == 0  # quote is not fabricated history
+
+
+def test_all_six_holdings_count_in_advisor_equity(payload, conn):
+    from stocks_tracker.compute.run_advice import _cartera
+    day = datetime.now(UTC).date()
+    conn.execute("INSERT INTO prices_daily(ticker,date,close,source) VALUES ('EURUSD=X',?,2,'ecb')", [day])
+    positions = []
+    for symbol, kind, market in [('BTC','crypto',None), ('ETH','crypto',None),
+                                ('TSM','adr','XNYS'), ('ASML','stock','XNAS'),
+                                ('CIBR','etf','XNAS'), ('ITA','etf','BATS')]:
+        row = copy.deepcopy(payload['positions']['results'][0])
+        row['instrument'].update(id=symbol, symbol=symbol, kind=kind, exchange=market)
+        positions.append(row)
+    payload['positions']['results'] = positions
+    snap.store_snapshot(conn, snap.normalise(payload))
+    snap.enable(conn, True)
+    frame, sectors, weights = _cartera(conn, day)
+    assert frame.supported.all() and len(frame) == 6
+    assert frame.valor_eur.sum() == 1500
+    assert sum(weights.values()) == pytest.approx(100)
+    assert sectors['Criptomonedas'] == pytest.approx(100 / 3)
+    assert '' not in sectors  # unknown ETF/equity sectors are not one fictitious sector
+    assert conn.execute('SELECT qty FROM positions').fetchone()[0] == 500
+    conn.execute("UPDATE instruments SET asset_class='equity' WHERE ticker='AAPL'")
+    conn.execute("INSERT INTO indicators_daily(ticker,date,close) VALUES ('AAPL',?,200)", [day])
+    from stocks_tracker.compute.run_advice import calculate_policy
+    recs, portfolio, _, _, _ = calculate_policy(conn, 'test', 999999, use_live_portfolio=True)
+    assert len(portfolio) == 6 and portfolio.valor_eur.sum() == 1500
+    assert {r.ticker for r in recs} == set(weights)
+    assert not any(r.veredicto in ('comprar', 'ampliar') for r in recs)
+    assert conn.execute('SELECT COUNT(*) FROM orders').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('market,currency', [(None,'USD'), ('XAMS','USD'), ('XNAS','EUR')])
+def test_ambiguous_asml_is_valued_but_never_uses_other_listing(payload, conn, market, currency):
+    row = payload['positions']['results'][0]
+    row['instrument'].update(symbol='ASML', exchange=market, currency=currency)
+    snap.store_snapshot(conn, snap.normalise(payload))
+    snap.enable(conn, True)
+    frame = snap.portfolio(conn)
+    assert frame.supported.all() and not frame.analysis_supported.any()
+    assert frame.ticker.iloc[0].startswith('SnapTrade:ASML:')
+    assert frame.currency.iloc[0] == 'USD'  # price currency, not an inferred listing currency
+    assert frame.close.iloc[0] == 200
+    assert frame.reason.iloc[0]
+
+
+def test_cross_currency_broker_price_is_converted_without_changing_units(payload, conn):
+    day = datetime.now(UTC).date()
+    conn.execute("INSERT INTO prices_daily(ticker,date,close,source) VALUES ('EURUSD=X',?,2,'ecb')", [day])
+    payload['positions']['results'][0]['instrument'].update(symbol='ASML', exchange='XAMS', currency='EUR')
+    snap.store_snapshot(conn, snap.normalise(payload))
+    snap.enable(conn, True)
+    frame = snap.portfolio(conn, day)
+    assert frame.ticker.iloc[0] == 'ASML.AS' and frame.currency.iloc[0] == 'EUR'
+    assert frame.close.iloc[0] == 100 and frame.qty.iloc[0] == 2.5
+    assert frame.avg_cost.isna().all()
+
+
+@pytest.mark.parametrize('kind,qty', [('cfd',2.5), ('crypto',-2.5)])
+def test_crypto_support_does_not_disguise_cfds_or_shorts(payload, conn, kind, qty):
+    payload['positions']['results'][0]['instrument'].update(symbol='BTC', kind=kind)
+    payload['positions']['results'][0]['units'] = qty
+    snap.store_snapshot(conn, snap.normalise(payload))
+    snap.enable(conn, True)
+    assert not snap.portfolio(conn).supported.any()
+
+
+def test_missing_fx_does_not_turn_broker_usd_into_listing_eur(payload, conn):
+    payload['positions']['results'][0]['instrument'].update(symbol='ASML', exchange='XAMS', currency='EUR')
+    snap.store_snapshot(conn, snap.normalise(payload))
+    snap.enable(conn, True)
+    frame = snap.portfolio(conn)
+    assert frame.supported.all() and frame.close.isna().all()
+    assert 'tipo de cambio' in frame.reason.iloc[0]
+
+
+def test_conflicting_local_currency_is_not_used_for_a_catalogue_listing(payload, conn):
+    conn.execute("INSERT INTO instruments(ticker,currency,exchange) VALUES ('ASML','EUR','NMS')")
+    payload['positions']['results'][0]['instrument'].update(symbol='ASML', exchange='XNAS', currency='USD')
+    snap.store_snapshot(conn, snap.normalise(payload))
+    snap.enable(conn, True)
+    frame = snap.portfolio(conn)
+    assert not frame.analysis_supported.any()
+    assert frame.currency.iloc[0] == 'USD' and frame.close.iloc[0] == 200
+    assert 'contradice' in frame.reason.iloc[0]

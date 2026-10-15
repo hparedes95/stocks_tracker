@@ -38,9 +38,23 @@ def render_snapshot(current):
             frame = snap.portfolio(conn, session[0] if session else None)
         if issue:
             st.warning(issue)
+        if not frame.empty:
+            view = frame[['broker_symbol', 'ticker', 'currency', 'valuation_source', 'reason']].rename(columns={
+                'broker_symbol': 'Símbolo del bróker', 'ticker': 'Serie para análisis',
+                'currency': 'Divisa de valoración', 'valuation_source': 'Origen de valoración', 'reason': 'Estado'})
+            st.write('Cómo se incorpora al asesor:')
+            st.dataframe(view, hide_index=True)
+            if frame.asset_class.eq('crypto').any():
+                st.caption('BTC y ETH cuentan en el valor, los pesos y los avisos de concentración de la cartera. '
+                           'Se utiliza su histórico para el riesgo cuando está disponible; '
+                           'el modelo fundamental de compras de acciones no se aplica a las criptomonedas.')
         if not frame.empty and not frame.supported.all():
-            st.warning('Asesor bloqueado: productos no admitidos o símbolos/mercados sin correspondencia segura: '
-                       + ', '.join(frame.loc[~frame.supported, 'ticker']))
+            st.warning('Asesor bloqueado por estas posiciones: '
+                       + '; '.join(f"{p.broker_symbol}: {p.reason}" for p in frame[~frame.supported].itertuples()))
+        elif not frame.empty and frame.reason.ne('').any():
+            st.info('Las posiciones aceptadas cuentan en la cartera. Si falta histórico o una identidad segura, '
+                    'se indica arriba y no se habilitan compras sin poder comprobar el riesgo conjunto. '
+                    'Usa Actualizar datos y análisis en el Asesor para descargar las nuevas series.')
 
 
 def render_configuration():

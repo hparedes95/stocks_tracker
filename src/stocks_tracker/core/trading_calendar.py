@@ -5,10 +5,13 @@ import pandas as pd
 
 COUNTRIES = {'US': 'XNYS', 'United States': 'XNYS', 'ES': 'XMAD', 'Spain': 'XMAD',
              'DE': 'XETR', 'Germany': 'XETR', 'FR': 'XPAR', 'France': 'XPAR',
-             'GB': 'XLON', 'United Kingdom': 'XLON', 'CA': 'XTSE', 'JP': 'XTKS'}
+             'GB': 'XLON', 'United Kingdom': 'XLON', 'CA': 'XTSE', 'JP': 'XTKS',
+             'NL': 'XAMS', 'Netherlands': 'XAMS'}
 EXCHANGES = {'NASDAQ': 'XNYS', 'NYSE': 'XNYS', 'NMS': 'XNYS', 'NYQ': 'XNYS',
              'NCM': 'XNYS', 'NGM': 'XNYS', 'PCX': 'XNYS', 'BME': 'XMAD',
-             'MAD': 'XMAD', 'LSE': 'XLON', 'GER': 'XETR', 'PAR': 'XPAR'}
+             'MAD': 'XMAD', 'LSE': 'XLON', 'GER': 'XETR', 'PAR': 'XPAR',
+             'BATS': 'XNYS', 'BTS': 'XNYS', 'ARCX': 'XNYS', 'XNAS': 'XNYS',
+             'AMS': 'XAMS', 'XAMS': 'XAMS'}
 
 
 def calendar_name(country=None, exchange=None):

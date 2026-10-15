@@ -103,8 +103,9 @@ def _cartera(conn, as_of=None, *, use_live=True) -> tuple[pd.DataFrame, dict, di
     posiciones["peso_pct"] = (
         posiciones["valor_eur"] / total * 100.0 if reparte else None)
 
+    known_sector = posiciones["gics_sector"].notna() & posiciones["gics_sector"].fillna('').astype(str).str.strip().ne('')
     pesos_sector = (
-        posiciones.groupby(posiciones["gics_sector"].fillna(""))["peso_pct"]
+        posiciones.loc[known_sector].groupby('gics_sector')["peso_pct"]
         .sum().to_dict() if reparte else {}
     )
     pesos_actuales = (
@@ -185,7 +186,9 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
             raise RuntimeError('No se puede valorar el efectivo sincronizado en EUR o existe saldo deudor.')
     posiciones, pesos_sector, pesos_actuales = _cartera(conn, dia, use_live=use_live_portfolio)
     if live and not posiciones.empty and not posiciones.supported.all():
-        raise RuntimeError('Hay productos o símbolos de SnapTrade sin correspondencia segura. Revisa Conexión SnapTrade.')
+        blocked = posiciones[~posiciones.supported]
+        detail = '; '.join(f'{p.broker_symbol}: {p.reason}' for p in blocked.itertuples())
+        raise RuntimeError('No se puede incorporar toda la cartera. ' + detail)
     # A snapshot does not contain reliable purchase dates. Never compare manual lots.
     salud = _salud(conn) if not posiciones.empty and not live else pd.DataFrame()
     ranking = conn.execute(

@@ -169,11 +169,14 @@ def test_la_cripto_no_entra_por_la_descarga_de_acciones(tmp_path, monkeypatch):
             "VALUES ('AAPL', 'Apple', 'equity', TRUE), "
             "('SPY', 'SPDR', 'etf', TRUE), "
             "('BTC/EUR', 'Bitcoin', 'crypto', TRUE), "
-            "('ETH/EUR', 'Ether', 'crypto', TRUE)")
+            "('ETH/EUR', 'Ether', 'crypto', TRUE), "
+            "('BTC-USD', 'Bitcoin USD', 'crypto', TRUE), "
+            "('ETH-USD', 'Ether USD', 'crypto', TRUE)")
 
     tickers = run_ingest._tickers_to_download()
 
     assert "AAPL" in tickers and "SPY" in tickers
+    assert 'BTC-USD' in tickers and 'ETH-USD' in tickers
     assert not [t for t in tickers if "/" in t], (
         "ningun par de Kraken puede llegar al proveedor de acciones"
     )

@@ -313,7 +313,8 @@ def _tickers_to_download(universes: list[str] | None = None) -> list[str]:
             return df["ticker"].tolist()
 
     with connect(read_only=True) as conn:
-        # LA CRIPTO NO ENTRA POR AQUI, Y SE VEIA EN LA SALIDA REAL.
+        # Los pares con barra pertenecen a Kraken; BTC-USD/ETH-USD sí son
+        # símbolos de Yahoo y se necesitan para la cartera de solo lectura.
         #
         # Los pares se llaman 'BTC/EUR' porque asi los conoce Kraken, que es
         # con quien opera el bot. Yahoo los llama 'BTC-EUR', y esta consulta se
@@ -330,7 +331,7 @@ def _tickers_to_download(universes: list[str] | None = None) -> list[str]:
         # precios que el bot usa para operar contra Kraken.
         df = conn.execute(
             "SELECT ticker FROM instruments WHERE is_active "
-            "AND (asset_class IS NULL OR asset_class <> 'crypto') "
+            "AND (asset_class IS NULL OR asset_class <> 'crypto' OR ticker NOT LIKE '%/%') "
             "ORDER BY ticker"
         ).fetchdf()
     if df.empty:

@@ -32,9 +32,9 @@ no contiene estas credenciales ni las posiciones del bróker.
 - Se lee efectivo, nunca poder de compra. La valoración del asesor usa los precios
   y tipos de cambio de la base de mercado; la vista de conexión muestra el precio
   informado por el bróker. Por sus fechas pueden diferir de eToro.
-- La correspondencia exige símbolo, mercado y divisa. Acciones, ETF y ADR largos
-  identificados con seguridad pueden alimentar el asesor. CFD, cortos, criptomonedas,
-  productos desconocidos o símbolos ambiguos bloquean el cálculo; no se ocultan.
+- La correspondencia utiliza símbolo, mercado y divisa. Acciones, ETF, ADR largos,
+  BTC y ETH al contado pueden alimentar la cartera. CFD, cortos y productos
+  desconocidos requieren otro modelo y siguen identificados con su motivo.
 - Una foto de posiciones **no es un libro de movimientos**. No inventa fechas de
   compra, ventas realizadas, dividendos, comisiones ni rentabilidad histórica.
   Las cantidades del bróker ya son actuales: no se reaplican splits históricos.
@@ -73,3 +73,39 @@ igual que el [SDK oficial de Python](https://github.com/passiv/snaptrade-sdks/bl
 La guía de firmas aún muestra el prefijo histórico `/api/v1`; añadirlo solo a la
 firma, cuando la URL actual no lo contiene, produce firmas diferentes. Las
 pruebas verifican esta correspondencia en las cuatro consultas permitidas.
+
+## TSM, ASML, CIBR, ITA, BTC y ETH
+
+El universo incluye TSM y ASML de EE.UU., además de los ETF CIBR e ITA. BTC y ETH
+se asocian con BTC-USD y ETH-USD, que se descargan también cuando el proveedor
+los clasifica como criptomonedas. No se utilizan los pares Kraken con barra.
+
+ASML en Nasdaq/USD se mantiene separado de ASML.AS en Amsterdam/EUR. Las
+cantidades del bróker no se multiplican por ratios de ADR ni por tipos de cambio.
+Si falta el histórico, una cotización válida de SnapTrade permite valorar la
+posición; se muestra el origen y se convierte su divisa sin inventar precios
+históricos. El coste medio se deja vacío si corresponde a otra divisa.
+
+Si uno de estos valores llega sin mercado o con una identidad contradictoria,
+puede incluirse su valoración del bróker, pero queda separado de cualquier serie
+bursátil hasta identificarlo. El asesor conserva los avisos de concentración;
+las compras nuevas exigen poder contrastar también el riesgo con esa posición.
+Una posición sin valorar no se interpreta como valor cero.
+Los sectores desconocidos no se agrupan como si fueran un único sector económico.
+
+BTC y ETH cuentan en el valor total, los pesos, la exposición y la concentración.
+Su modelo de compras no es el de fundamentales de empresas: aceptar la posición
+no acredita una predicción de compra/venta. Para el riesgo histórico mixto, los
+retornos de cripto y bolsa se miden entre los mismos días de mercado (incluyendo
+el movimiento cripto del fin de semana entre viernes y lunes). Los huecos no se
+rellenan. Una cartera exclusivamente cripto usa 365 días para anualizar.
+
+Tras actualizar la app, pulsa **Actualizar datos y análisis** en el Asesor para
+descargar las nuevas series. Una base de mercado congelada conserva su corte:
+actualízala en el equipo de origen y vuelve a compartirla cuando corresponda.
+
+Identidades contrastadas en las fuentes de los emisores:
+[TSM en NYSE](https://investor.tsmc.com/english/dividends/1q26),
+[cotizaciones de ASML](https://investor.asml.com/share-information),
+[CIBR en Nasdaq](https://www.ftportfolios.com/Retail/Etf/EtfSummary.aspx?Ticker=CIBR),
+[ITA en Cboe BZX](https://www.ishares.com/us/products/239502/ishares-us).
