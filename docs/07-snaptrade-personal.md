@@ -109,3 +109,18 @@ Identidades contrastadas en las fuentes de los emisores:
 [cotizaciones de ASML](https://investor.asml.com/share-information),
 [CIBR en Nasdaq](https://www.ftportfolios.com/Retail/Etf/EtfSummary.aspx?Ticker=CIBR),
 [ITA en Cboe BZX](https://www.ishares.com/us/products/239502/ishares-us).
+
+## Análisis parcial cuando una posición está pendiente
+
+Una posición sin correspondencia o sin modelo (por ejemplo, si CIBR llega como
+CFD) ya no interrumpe el cálculo del asesor entero. Se conserva en la cartera y
+recibe su explicación individual como **Sin opinión**; el resto del análisis
+continúa y los diagnósticos se guardan. La pantalla permite recalcular y abre los
+motivos pendientes para que se puedan revisar.
+
+No se sustituye ese producto por el ETF al contado ni se interpreta su importe
+desconocido como cero. Si impide valorar toda la cartera, tampoco se calculan
+pesos sobre el subtotal conocido. Las propuestas de compra personalizadas siguen
+pendientes mientras falte información necesaria para evaluar el conjunto de la
+cartera. Los avisos independientes de otras posiciones no se eliminan por ello.
+Una conexión completa caducada o fallida conserva su control de antigüedad.

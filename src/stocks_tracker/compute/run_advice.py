@@ -185,10 +185,6 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
         if not math.isfinite(caja) or caja < 0:
             raise RuntimeError('No se puede valorar el efectivo sincronizado en EUR o existe saldo deudor.')
     posiciones, pesos_sector, pesos_actuales = _cartera(conn, dia, use_live=use_live_portfolio)
-    if live and not posiciones.empty and not posiciones.supported.all():
-        blocked = posiciones[~posiciones.supported]
-        detail = '; '.join(f'{p.broker_symbol}: {p.reason}' for p in blocked.itertuples())
-        raise RuntimeError('No se puede incorporar toda la cartera. ' + detail)
     # A snapshot does not contain reliable purchase dates. Never compare manual lots.
     salud = _salud(conn) if not posiciones.empty and not live else pd.DataFrame()
     ranking = conn.execute(
@@ -223,7 +219,13 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
     if valor != valor:
         console.print("[yellow]No se puede valorar toda la cartera. "
                       "No se proponen compras nuevas.[/]")
-        ranking = ranking.iloc[:0]
+        if not live:
+            ranking = ranking.iloc[:0]
+    if live and not posiciones.empty:
+        excluded = posiciones.loc[~posiciones.supported | ~posiciones.analysis_supported, 'broker_symbol']
+        # A CFD or an unidentified holding is not the spot ETF in the ranking.
+        # Its own diagnostic is retained while other assets keep being studied.
+        ranking = ranking.loc[~ranking.ticker.isin(excluded)]
 
     # Una recomendación de venta no libera plazas hasta registrarla en cartera.
     recomendaciones = advice_build.de_la_cartera(

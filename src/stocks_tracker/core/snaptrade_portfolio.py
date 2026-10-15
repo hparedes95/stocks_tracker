@@ -221,6 +221,24 @@ def cash_eur(conn, as_of=None):
     return fx.total(fx.a_base(balances.cash, balances.currency, fx.tipos(conn, as_of)))
 
 
+def limitations(frame):
+    """Explain partial coverage without discarding holdings or inventing their value."""
+    if frame is None or frame.empty:
+        return []
+    result = []
+    for row in frame.to_dict('records'):
+        supported = row.get('supported', True)
+        identified = row.get('analysis_supported', True)
+        value = row.get('valor_eur', row.get('close'))
+        unvalued = ('valor_eur' in row or 'close' in row) and (
+            not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0)
+        if not supported or not identified or unvalued:
+            symbol = row.get('broker_symbol') or row.get('ticker', 'Posición')
+            detail = row.get('reason') or 'No se puede identificar o valorar con los datos disponibles.'
+            result.append(f'{symbol}: {detail}')
+    return result
+
+
 def readiness(conn, *, now=None):
     current = state(conn)
     if not current.get('active'):

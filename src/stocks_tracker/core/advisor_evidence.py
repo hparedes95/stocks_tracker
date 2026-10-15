@@ -35,6 +35,7 @@ def apply_gate(conn, recommendations, *, as_of, positions, cash, decision_date=N
                        "WHERE date <= ? ORDER BY ticker, date", [as_of]).fetchdf()
     histories = {t: p.drop(columns='ticker') for t, p in raw.groupby('ticker')}
     invalid_positions = not positions.empty and (
+        ('supported' in positions and not positions.supported.all()) or
         positions.ticker.isna().any() or
         positions.ticker.astype(str).str.strip().eq('').any() or
         any(not finite_number(v) or v < 0 for v in positions.valor_eur))
@@ -49,6 +50,8 @@ def apply_gate(conn, recommendations, *, as_of, positions, cash, decision_date=N
     output = []
     projected = dict(values)
     available = cash if valid_portfolio else 0.0
+    from .snaptrade_portfolio import limitations
+    pending = limitations(positions)
     for rec in recommendations:
         if rec.veredicto not in (Veredicto.COMPRAR, Veredicto.AMPLIAR):
             output.append(rec)
@@ -60,6 +63,9 @@ def apply_gate(conn, recommendations, *, as_of, positions, cash, decision_date=N
             reasons.append("La copia pertenece a otra versión del motor; importa una copia compatible.")
         if not math.isfinite(equity) or equity <= 0:
             reasons.append("No se puede valorar íntegramente la cartera y el efectivo.")
+        if pending:
+            reasons.append('Análisis parcial: ' + ' · '.join(pending) +
+                           ' No se propone una compra personalizada sin comprobar el conjunto de la cartera.')
         if not profile['confirmed']:
             reasons.append("Confirma horizonte, costes y tolerancia a pérdidas en el perfil del asesor.")
         ref = BENCHMARKS.get(meta.loc[rec.ticker, 'country'], 'VT') if rec.ticker in meta.index else 'VT'
@@ -126,7 +132,8 @@ def apply_gate(conn, recommendations, *, as_of, positions, cash, decision_date=N
             'datos': f"Corte {as_of}; {len(p)} precios disponibles. Calendario "
                      f"{vp.attrs.get('calendar') or 'desconocido'}. Cobertura no equivale a verificación independiente.",
             'evidencia': validation.reason + ' La simulación del asesor completo sigue en investigación.',
-            'encaje': ('Perfil sin confirmar.' if not profile['confirmed'] else
+            'encaje': ('Análisis parcial: no se ha podido verificar el encaje conjunto de la cartera.' if pending else
+                       'Perfil sin confirmar.' if not profile['confirmed'] else
                        ' · '.join(reasons[personal_start:]) or
                        'Dentro de los límites comprobados de efectivo y exposición; no son garantías de pérdida máxima.'),
         }

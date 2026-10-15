@@ -42,6 +42,7 @@ def render_snapshot(current):
             view = frame[['broker_symbol', 'ticker', 'currency', 'valuation_source', 'reason']].rename(columns={
                 'broker_symbol': 'Símbolo del bróker', 'ticker': 'Serie para análisis',
                 'currency': 'Divisa de valoración', 'valuation_source': 'Origen de valoración', 'reason': 'Estado'})
+            view.loc[~frame.analysis_supported, 'Serie para análisis'] = 'Sin correspondencia verificada'
             st.write('Cómo se incorpora al asesor:')
             st.dataframe(view, hide_index=True)
             if frame.asset_class.eq('crypto').any():
@@ -49,8 +50,10 @@ def render_snapshot(current):
                            'Se utiliza su histórico para el riesgo cuando está disponible; '
                            'el modelo fundamental de compras de acciones no se aplica a las criptomonedas.')
         if not frame.empty and not frame.supported.all():
-            st.warning('Asesor bloqueado por estas posiciones: '
+            st.warning('Análisis parcial. Posiciones pendientes: '
                        + '; '.join(f"{p.broker_symbol}: {p.reason}" for p in frame[~frame.supported].itertuples()))
+            st.caption('El asesor sigue analizando las demás posiciones. Las compras que requieren comprobar '
+                       'la valoración o el riesgo de toda la cartera quedan pendientes.')
         elif not frame.empty and frame.reason.ne('').any():
             st.info('Las posiciones aceptadas cuentan en la cartera. Si falta histórico o una identidad segura, '
                     'se indica arriba y no se habilitan compras sin poder comprobar el riesgo conjunto. '

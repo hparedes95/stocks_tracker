@@ -99,6 +99,33 @@ def test_el_marcador_vacio_se_explica_en_vez_de_parecer_roto(almacen):
     assert "hacia delante" in texto
 
 
+def test_cibr_pending_position_keeps_partial_advisor_recalculate_enabled(almacen, monkeypatch):
+    from datetime import UTC, datetime
+
+    from stocks_tracker.app import research_actions
+    from stocks_tracker.core import snaptrade_portfolio as snap
+
+    now = datetime.now(UTC).isoformat()
+    snapshot = {'account_id':'test-account', 'as_of':now, 'cash_as_of':now,
+                'balances':[{'currency':'EUR', 'cash':100}], 'positions':[
+                    {'id':'cibr-cfd', 'symbol':'CIBR', 'kind':'cfd', 'listing_currency':'USD',
+                     'exchange':'XNAS', 'qty':1., 'avg_cost':100., 'currency':'USD',
+                     'price':100., 'cash_equivalent':False}]}
+    with db.connect() as conn:
+        snap.store_snapshot(conn, snapshot)
+        snap.enable(conn, True)
+    calls = []
+    monkeypatch.setattr(research_actions, 'refresh_research', lambda **kwargs: calls.append(kwargs))
+    page = _pintar()
+    text = ' '.join(str(w.value) for w in page.warning)
+    assert 'CIBR' in text and 'parcial' in text
+    assert 'Asesor bloqueado' not in text
+    recalculate = next(b for b in page.button if b.label == 'Recalcular asesor con los datos guardados')
+    assert not recalculate.disabled
+    recalculate.click().run()
+    assert not page.exception and calls == [{'cash':100., 'download':False}]
+
+
 def test_una_posicion_deteriorada_recibe_un_veredicto(almacen):
     """Si esto sale como MANTENER, el asesor esta callando con el margen
     cayendo del 24 % al 8 % y la deuda pasando de 0,9x a 5x.

@@ -65,11 +65,15 @@ with st.expander("Tu horizonte, costes y límites", expanded=not profile['confir
 # Controles explícitos; la sincronización SnapTrade puede recalcular también.
 
 with st.expander("Actualizar datos y recomendaciones", expanded=True):
+    from stocks_tracker.compute.run_advice import _cartera
     from stocks_tracker.core import snaptrade_portfolio as snap
+
     with connect(read_only=True) as conn:
         live = snap.active(conn)
         live_issue = snap.readiness(conn)
         synced_cash = snap.cash_eur(conn) if live else None
+        current_positions = _cartera(conn)[0] if live else None
+        partial_issues = snap.limitations(current_positions)
     if live:
         cash = float(synced_cash) if pd.notna(synced_cash) and synced_cash >= 0 else 0.0
         st.metric('Efectivo sincronizado (EUR)', format_money(synced_cash, 'EUR'))
@@ -77,6 +81,10 @@ with st.expander("Actualizar datos y recomendaciones", expanded=True):
                    'Sin fechas de compra verificadas no evalúa deterioro desde la compra ni rentabilidad realizada.')
         if live_issue:
             st.warning(live_issue)
+        if partial_issues:
+            st.warning('Análisis parcial: ' + ' · '.join(partial_issues))
+            st.caption('Puedes recalcular y revisar el resto de valores. No se omiten estas posiciones '
+                       'al comprobar si una compra encaja en el conjunto de tu cartera.')
     else:
         cash = st.number_input("Efectivo disponible para esta consulta (EUR)",
                                min_value=0.0, value=0.0, step=100.0)
@@ -92,7 +100,8 @@ with st.expander("Actualizar datos y recomendaciones", expanded=True):
                          "Las recomendaciones anteriores NO se han actualizado.")
             else:
                 st.cache_data.clear()
-                st.success("Consulta completada. Si faltan datos o efectivo puede no haber propuestas.")
+                st.success("Análisis recalculado. Las limitaciones de cada posición se muestran debajo; "
+                           "si faltan datos o efectivo puede no haber propuestas de compra.")
 
 st.warning("Herramienta experimental: la fuerza de una señal no es una probabilidad "
            "de acertar. El marcador y los estudios históricos no demuestran "
@@ -226,7 +235,7 @@ guardadas = da.get_advice()
 with connect(read_only=True) as conn:
     diagnostics = conn.execute("SELECT ticker AS Valor, reason AS Motivo FROM advisor_diagnostics ORDER BY ticker").fetchdf()
 if not diagnostics.empty:
-    with st.expander("Por qué no se propone operar en otros valores"):
+    with st.expander("Por qué no se propone operar en otros valores", expanded=bool(partial_issues)):
         st.dataframe(diagnostics, hide_index=True)
 
 if guardadas.empty:

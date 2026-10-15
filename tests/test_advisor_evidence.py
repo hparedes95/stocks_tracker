@@ -57,6 +57,19 @@ def test_deterioration_warning_not_silenced_by_lack_of_prediction(connection):
     assert run(connection,[sell])[0] == sell
 
 
+def test_partial_portfolio_blocks_new_buys_even_with_finite_placeholder_value(connection, monkeypatch):
+    save(connection, {**DEFAULTS, 'confirmed': True})
+    monkeypatch.setattr(gate, 'validate_models', lambda *a, **k: Validation('test',30,True,.1))
+    positions = pd.DataFrame([{'ticker':'unresolved', 'broker_symbol':'CIBR', 'valor_eur':100.,
+                              'supported':False, 'analysis_supported':False, 'reason':'Producto CFD sin modelo de margen.'}])
+    result = run(connection, positions=positions)[0]
+    assert result.veredicto == Veredicto.SIN_OPINION and result.importe_eur is None
+    assert any('CIBR' in reason and 'parcial' in reason for reason in result.motivos)
+    assert 'parcial' in result.assessment['encaje']
+    warning = Recomendacion('AAA',Veredicto.REDUCIR,Conviccion.ALTA,motivos=['Aviso independiente de riesgo.'])
+    assert run(connection, [warning], positions=positions)[0] == warning
+
+
 def test_event_and_cash_cost_guards(connection, monkeypatch):
     save(connection, {**DEFAULTS, 'confirmed':True})
     monkeypatch.setattr(gate, 'validate_models', lambda *a, **k: Validation('test',30,True,.1))

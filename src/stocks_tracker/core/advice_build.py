@@ -53,6 +53,14 @@ def de_la_cartera(salud: pd.DataFrame, posiciones: pd.DataFrame,
     fuera: list[Recomendacion] = []
     for _, pos in posiciones.iterrows():
         ticker = str(pos["ticker"])
+        if not pos.get('supported', True) or not pos.get('analysis_supported', True):
+            fuera.append(Recomendacion(
+                str(pos.get('broker_symbol') or ticker), advice.Veredicto.SIN_OPINION, advice.Conviccion.BAJA,
+                motivos=[str(pos.get('reason') or 'No se puede identificar esta posición con seguridad.'),
+                         'Esta limitación afecta a esta posición; el resto del análisis continúa.'],
+                limitado_por='datos de la posición',
+            ))
+            continue
         fila = por_ticker.get(ticker)
         diagnostico = None
         hoy: dict = {}

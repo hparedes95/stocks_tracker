@@ -426,3 +426,47 @@ def test_conflicting_local_currency_is_not_used_for_a_catalogue_listing(payload,
     assert not frame.analysis_supported.any()
     assert frame.currency.iloc[0] == 'USD' and frame.close.iloc[0] == 200
     assert 'contradice' in frame.reason.iloc[0]
+
+
+def test_cibr_cfd_does_not_abort_analysis_of_other_holdings(payload, conn):
+    from stocks_tracker.compute.run_advice import _cartera, calculate_policy
+    day = datetime.now(UTC).date()
+    conn.execute("UPDATE instruments SET asset_class='equity'")
+    conn.execute("INSERT INTO indicators_daily(ticker,date,close) VALUES ('AAPL',?,200)", [day])
+    conn.execute("INSERT INTO prices_daily(ticker,date,close,source) VALUES ('EURUSD=X',?,2,'ecb')", [day])
+    bad = copy.deepcopy(payload['positions']['results'][0])
+    bad['instrument'].update(id='cibr-cfd', symbol='CIBR', kind='cfd')
+    payload['positions']['results'].append(bad)
+    snap.store_snapshot(conn, snap.normalise(payload))
+    snap.enable(conn, True)
+    recs, positions, _, _, _ = calculate_policy(conn, 'test', 0, use_live_portfolio=True)
+    assert {r.ticker for r in recs} == {'AAPL', 'CIBR'}
+    unsupported = next(r for r in recs if r.ticker == 'CIBR')
+    assert not unsupported.accionable and any('cfd' in reason.lower() for reason in unsupported.motivos)
+    assert len(positions) == 2  # the unresolved holding was not removed or valued as zero
+    frame, sectors, weights = _cartera(conn, day)
+    assert frame.valor_eur.isna().sum() == 1
+    assert not sectors and not weights  # no percentages from an incomplete denominator
+    assert conn.execute('SELECT COUNT(*) FROM orders').fetchone()[0] == 0
+
+
+def test_partial_advisor_persists_diagnostics_instead_of_failing(local_db, payload):
+    from stocks_tracker.compute.run_advice import calcular_y_guardar
+    day = datetime.now(UTC).date()
+    broken = copy.deepcopy(payload['positions']['results'][0])
+    broken['instrument'].update(id='cibr-cfd', symbol='CIBR', kind='cfd')
+    payload['positions']['results'].append(broken)
+    with local_db.connect() as c:
+        c.execute("INSERT INTO instruments(ticker,currency,exchange,asset_class) VALUES ('AAPL','USD','NMS','equity')")
+        c.execute("INSERT INTO indicators_daily(ticker,date,close) VALUES ('AAPL',?,200)", [day])
+        c.execute("INSERT INTO prices_daily(ticker,date,close,source) VALUES ('EURUSD=X',?,2,'ecb')", [day])
+        snap.store_snapshot(c, snap.normalise(payload))
+        snap.enable(c, True)
+    assert calcular_y_guardar() == 0
+    with local_db.connect(read_only=True) as c:
+        diagnostics = dict(c.execute('SELECT ticker,reason FROM advisor_diagnostics').fetchall())
+        assert 'AAPL' in diagnostics and 'CIBR' in diagnostics
+        assert 'cfd' in diagnostics['CIBR'].lower()
+        assert c.execute('SELECT COUNT(*) FROM advisor_runs').fetchone()[0] == 1
+        assert len(snap.portfolio(c, day)) == 2
+        assert c.execute('SELECT COUNT(*) FROM orders').fetchone()[0] == 0
