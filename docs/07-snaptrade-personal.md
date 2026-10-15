@@ -67,3 +67,9 @@ Contrato consultado el 15/10/2026:
 [autenticación y claves](https://docs.snaptrade.com/docs/getting-started),
 [firma de peticiones](https://docs.snaptrade.com/docs/request-signatures),
 [especificación oficial de la API](https://docs.snaptrade.com/openapi.yaml).
+
+Corrección de autenticación: la firma utiliza la ruta exacta que se envía,
+igual que el [SDK oficial de Python](https://github.com/passiv/snaptrade-sdks/blob/master/sdks/python/snaptrade_client/request_after_hook.py).
+La guía de firmas aún muestra el prefijo histórico `/api/v1`; añadirlo solo a la
+firma, cuando la URL actual no lo contiene, produce firmas diferentes. Las
+pruebas verifican esta correspondencia en las cuatro consultas permitidas.

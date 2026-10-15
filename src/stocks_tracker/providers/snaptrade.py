@@ -1,6 +1,6 @@
 """SnapTrade Personal: GET allowlist only, no trading or paid refresh calls.
 
-Contract: docs.snaptrade.com/docs/request-signatures and /reference/Account Information.
+Contract: current official SDK request_after_hook.compute_request_signature.
 Personal authentication deliberately omits userId and userSecret.
 """
 from __future__ import annotations
@@ -32,7 +32,9 @@ class Client:
                 r'/accounts/[0-9a-fA-F-]{36}/(?:positions/all|balances)', path):
             raise SnapTradeError('Consulta fuera de la lista permitida de solo lectura.')
         query = urlencode({'clientId': self._id, 'timestamp': int(time.time())})
-        payload = json.dumps({'content': None, 'path': '/api/v1' + path, 'query': query},
+        # The SDK signs the exact resource path. The legacy /api/v1 prefix in
+        # the signing guide is not part of the current API root or URL sent.
+        payload = json.dumps({'content': None, 'path': path, 'query': query},
                              sort_keys=True, separators=(',', ':'))
         signature = base64.b64encode(hmac.new(self._key.encode(), payload.encode(), hashlib.sha256).digest()).decode()
         try:
@@ -41,7 +43,8 @@ class Client:
                                    headers={'Signature': signature, 'Accept': 'application/json'},
                                    timeout=(10, 30), allow_redirects=False, stream=True) as response:
                 if response.status_code != 200:
-                    explanations = {401: 'Credenciales no aceptadas; revisa la clave Personal.',
+                    explanations = {401: 'SnapTrade rechazó la autenticación (HTTP 401). Revisa Client ID y Consumer Key '
+                                         'de la misma clave Personal y comprueba la hora de Windows.',
                                     403: 'Acceso no autorizado; revisa permisos y cuenta Personal.',
                                     429: 'Límite de consultas alcanzado; espera unos minutos.',
                                     503: 'SnapTrade o el bróker no están disponibles temporalmente.'}

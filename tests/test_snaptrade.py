@@ -2,6 +2,7 @@ import base64
 import copy
 import hashlib
 import hmac
+import json
 import os
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -39,7 +40,9 @@ def payload():
             'balances': [{'currency':{'code':'EUR'}, 'cash':100, 'buying_power':1000}]}
 
 
-def test_signature_and_personal_scope(monkeypatch):
+@pytest.mark.parametrize('path', ['/accounts/all', '/authorizations',
+    f'/accounts/{ACCOUNT}/positions/all', f'/accounts/{ACCOUNT}/balances'])
+def test_signature_and_personal_scope(monkeypatch, path):
     monkeypatch.setattr('stocks_tracker.providers.snaptrade.time.time', lambda: 1715123456)
     captured = {}
 
@@ -61,12 +64,15 @@ def test_signature_and_personal_scope(monkeypatch):
 
     key = 'private-test-key'
     client = Client('personal-client', key, session=SimpleNamespace(get=get))
-    assert client.get('/accounts/all') == {'results':[]}
+    assert client.get(path) == {'results':[]}
     parsed = urlsplit(captured['url'])
     assert parsed.netloc == 'api.snaptrade.com'
-    assert parsed.path == '/accounts/all'
+    assert parsed.path == path
     assert parsed.query == 'clientId=personal-client&timestamp=1715123456'
-    expected = b'{"content":null,"path":"/api/v1/accounts/all","query":"clientId=personal-client&timestamp=1715123456"}'
+    # Official SDK request_after_hook.compute_request_signature signs the exact
+    # resource_path sent on the wire, with no invented /api/v1 prefix.
+    expected = json.dumps({'content': None, 'path': parsed.path, 'query': parsed.query},
+                          sort_keys=True, separators=(',', ':')).encode()
     assert captured['headers']['Signature'] == base64.b64encode(hmac.new(key.encode(), expected, hashlib.sha256).digest()).decode()
     assert not captured['allow_redirects']
     assert key not in captured['url']
