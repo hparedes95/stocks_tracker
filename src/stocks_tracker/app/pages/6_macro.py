@@ -80,7 +80,8 @@ with detail_col:
             },
         )
 
-    metrics = st.columns(3)
+    with st.container(key='metric-grid-macro'):
+        metrics = st.columns(3)
     metrics[0].metric("VIX", format_num(latest.get("vix"), 1))
     pctile = latest.get("vix_percentile_1y")
     metrics[1].metric(
@@ -198,7 +199,8 @@ else:
             }
         )
     if kpis:
-        cols = st.columns(min(6, len(kpis)))
+        with st.container(key='metric-grid-thermometers'):
+            cols = st.columns(min(6, len(kpis)))
         for i, item in enumerate(kpis):
             with cols[i % len(cols)]:
                 st.metric(item["label"], item["value"], item["delta"], help=item["help"])

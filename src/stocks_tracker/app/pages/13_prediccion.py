@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-from stocks_tracker.app.components.design import page_header
+from stocks_tracker.app.components.design import page_header, panel
 from stocks_tracker.core.db import connect
 from stocks_tracker.core.forecast import scenarios
 from stocks_tracker.core.market_bundle import state
@@ -22,9 +22,11 @@ if instruments.empty:
     st.info("Descarga datos desde el asesor para empezar a analizar acciones y mercados.")
     st.stop()
 
-ticker = st.selectbox("Acción o índice", instruments["ticker"].tolist())
-horizon = st.selectbox("Horizonte", [21, 63, 126], index=1,
-                       format_func=lambda n: f"{n} sesiones (aprox. {n // 21} meses)")
+with panel('forecast-controls'):
+    controls = st.columns(2)
+    ticker = controls[0].selectbox("Acción o índice", instruments["ticker"].tolist())
+    horizon = controls[1].selectbox("Horizonte", [21, 63, 126], index=1,
+                                   format_func=lambda n: f"{n} sesiones (aprox. {n // 21} meses)")
 with connect(read_only=True) as conn:
     prices = conn.execute(
         "SELECT date, adj_close, source FROM prices_daily WHERE ticker = ? ORDER BY date",

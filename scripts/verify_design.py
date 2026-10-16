@@ -16,6 +16,61 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / 'reports/design-qa'
 URL = 'http://127.0.0.1:8517'
+ROUTES = (
+    ('Asesor de acciones', 'advisor'), ('Predicción y escenarios', 'prediction'),
+    ('Qué se mueve hoy', 'market'), ('Sectores y rotación', 'sectors'),
+    ('Oportunidades', 'opportunities'), ('Ficha de valor', 'security'),
+    ('Macro y riesgo', 'macro'), ('Validación de señales', 'validation'),
+    ('Cartera y watchlist', 'portfolio'), ('Diario de decisiones', 'journal'),
+    ('Conexión SnapTrade', 'snaptrade'), ('Estado de los datos', 'data-status'),
+    ('Base de mercado compartida', 'shared-data'),
+)
+
+
+def set_sidebar(page, *, opened):
+    test_id = 'stExpandSidebarButton' if opened else 'stSidebarCollapseButton'
+    toggle = page.get_by_test_id(test_id)
+    if toggle.is_visible():
+        try:
+            (toggle if opened else toggle.get_by_role('button')).click(timeout=2000)
+        except BrowserTimeout:
+            # Responsive resize can remove the old toggle before the click.
+            target = 'stSidebarCollapseButton' if opened else 'stExpandSidebarButton'
+            expect(page.get_by_test_id(target)).to_be_visible()
+
+
+def check_all_routes(page, mode):
+    checks = []
+    for title, slug in ROUTES:
+        page.set_viewport_size({'width':1366, 'height':900})
+        set_sidebar(page, opened=True)
+        page.get_by_test_id('stPageLink-NavLink').filter(has_text=title).click()
+        heading = page.get_by_role('heading', name=title, exact=True)
+        expect(heading).to_be_visible(timeout=30000)
+        expect(page.get_by_role('button', name='Stop', exact=True)).not_to_be_visible(timeout=30000)
+        expect(page.get_by_test_id('stException')).to_have_count(0)
+        expect(page.get_by_text('VISTA DE DISEÑO', exact=False)).to_be_visible()
+        if slug in ('sectors', 'macro'):
+            expect(page.get_by_test_id('stPlotlyChart').first).to_be_visible()
+        if slug == 'opportunities':
+            assert page.locator('[class*="st-key-panel-opportunity-"]').count() >= 1
+        if slug == 'snaptrade':
+            expect(page.get_by_label('SnapTrade Personal Client ID', exact=True)).to_have_attribute('type', 'password')
+            expect(page.get_by_label('SnapTrade Personal Consumer Key', exact=True)).to_have_attribute('type', 'password')
+        for width, height in ((1366,900), (1920,1080), (390,844)):
+            page.set_viewport_size({'width':width, 'height':height})
+            if width < 640:
+                set_sidebar(page, opened=False)
+            heading.scroll_into_view_if_needed()
+            assert not page.evaluate('document.documentElement.scrollWidth > window.innerWidth'), (title, mode, width)
+            expect(page.get_by_test_id('stException')).to_have_count(0)
+            page.screenshot(path=OUTPUT / f'all-{slug}-{mode.lower()}-{width}.png')
+            checks.append({'page':title, 'theme':mode, 'width':width, 'overflow':False})
+    page.set_viewport_size({'width':1366, 'height':900})
+    set_sidebar(page, opened=True)
+    page.get_by_test_id('stPageLink-NavLink').filter(has_text='Asesor de acciones').click()
+    expect(page.get_by_role('heading', name='Asesor de acciones', exact=True)).to_be_visible()
+    return checks
 
 
 def main():
@@ -25,6 +80,7 @@ def main():
             'scripts/preview_design.py', '--server.port=8517', '--server.address=127.0.0.1',
             '--server.headless=true'], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
         results = []
+        route_results = []
         try:
             for _ in range(60):
                 try:
@@ -116,9 +172,12 @@ def main():
                     page.screenshot(path=OUTPUT / f'portfolio-{mode.lower()}.png', full_page=True)
                     page.get_by_test_id('stPageLink-NavLink').filter(has_text='Asesor de acciones').click()
                     expect(page.get_by_role('heading', name='Asesor de acciones', exact=True)).to_be_visible()
+                    route_results.extend(check_all_routes(page, mode))
                 browser.close()
             (OUTPUT / 'checks.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
+            (OUTPUT / 'routes.json').write_text(json.dumps(route_results, indent=2), encoding='utf-8')
             print(json.dumps(results))
+            print(f'{len(route_results)} route/theme/viewport checks passed')
         finally:
             server.terminate()
             server.wait(timeout=20)

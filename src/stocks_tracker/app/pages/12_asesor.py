@@ -24,7 +24,7 @@ import streamlit as st
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components import health_panel
 from stocks_tracker.app.components.common import render_disclaimer
-from stocks_tracker.app.components.design import page_header
+from stocks_tracker.app.components.design import page_header, panel
 from stocks_tracker.app.components.holding_card import render_holding_card, research_summary
 from stocks_tracker.app.components.theme import format_money
 from stocks_tracker.app.research_actions import refresh_research
@@ -299,7 +299,7 @@ def _tarjeta(fila) -> None:
     """
     veredicto = Veredicto(fila["veredicto"])
     conviccion = Conviccion(fila["conviccion"])
-    with st.container(border=True):
+    with panel(f"recommendation-{fila['ticker']}"):
         st.markdown(
             f"{COLOR[veredicto]} **{fila['ticker']}** — {ETIQUETA[veredicto]}"
             f"  \n:gray[{FUERZA[conviccion]}]"

@@ -119,7 +119,8 @@ currency = (instrument["currency"] if instrument is not None else "USD") or "USD
 st.subheader(f"{ticker} · {name}")
 st.caption(f"{sector} · {currency}" + (f" · {tv_symbol}" if tv_symbol else " · sin equivalencia en TradingView"))
 
-kpi = st.columns(6)
+with st.container(key='metric-grid-value'):
+    kpi = st.columns(6)
 kpi[0].metric("Precio", format_num(latest_price["close"]),
               format_pct(latest_ind.get("ret_1d")))
 kpi[1].metric("1 mes", format_pct(latest_ind.get("roc_1m"), with_sign=False),

@@ -18,7 +18,7 @@ from stocks_tracker.app.components.common import (
     render_reasons,
     sidebar_filters,
 )
-from stocks_tracker.app.components.design import page_header
+from stocks_tracker.app.components.design import page_header, panel
 from stocks_tracker.app.components.theme import (
     format_market_cap,
     format_pct,
@@ -181,7 +181,7 @@ FACTOR_LABELS = {
 
 def _render_card(row: pd.Series) -> None:
     ticker = row["ticker"]
-    with st.container(border=True):
+    with panel(f'opportunity-{ticker}'):
         head_left, head_right = st.columns([2, 1])
         with head_left:
             st.markdown(f"### {ticker}")
@@ -263,11 +263,12 @@ if view_mode == "Tarjetas":
     top_n = st.slider("Candidatos a mostrar", 2, 30, 8, step=2)
     subset = filtered.head(top_n)
     # Dos por fila: con tres, el percentil y los botones se cortan.
-    for start in range(0, len(subset), 2):
-        cols = st.columns(2)
-        for offset, (_, row) in enumerate(subset.iloc[start:start + 2].iterrows()):
-            with cols[offset]:
-                _render_card(row)
+    with st.container(key='opportunities-grid'):
+        for start in range(0, len(subset), 2):
+            cols = st.columns(2)
+            for offset, (_, row) in enumerate(subset.iloc[start:start + 2].iterrows()):
+                with cols[offset]:
+                    _render_card(row)
 
 else:
     table = pd.DataFrame(

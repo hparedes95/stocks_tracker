@@ -72,7 +72,8 @@ st.divider()
 
 info = da.data_freshness()
 
-cols = st.columns(4)
+with st.container(key='metric-grid-freshness'):
+    cols = st.columns(4)
 cols[0].metric(
     "Última cotización",
     info["last_price_date"].strftime("%d/%m/%Y") if info["last_price_date"] else "—",

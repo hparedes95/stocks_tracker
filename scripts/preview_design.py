@@ -16,6 +16,7 @@ from stocks_tracker.core.config import get_settings, project_root
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts.design_fixture import populate  # noqa: E402
 from tests.test_holding_analysis import DAY, seed  # noqa: E402
 
 root = project_root()
@@ -23,12 +24,27 @@ settings = get_settings()
 settings.raw['paths']['warehouse'] = str(root / 'reports/design-preview.duckdb')
 settings.raw.setdefault('ui', {}).setdefault('tradingview', {})['enabled'] = False
 holding_analysis.date = SimpleNamespace(today=lambda: DAY.date())
-db.migrate()
-with db.connect() as conn:
-    if not conn.execute('SELECT count(*) FROM instruments').fetchone()[0]:
-        seed(conn)
-    snap.enable(conn, True, automatic=False)
-    investor_profile.save(conn, {**investor_profile.DEFAULTS, 'confirmed':True})
+@st.cache_resource
+def prepare_preview():
+    from stocks_tracker.compute.run_compute import (
+        compute_breadth,
+        compute_factor_scores,
+        compute_indicators,
+    )
+
+    db.migrate()
+    with db.connect() as conn:
+        if not conn.execute('SELECT count(*) FROM instruments').fetchone()[0]:
+            seed(conn)
+        populate(conn)
+        snap.enable(conn, True, automatic=False)
+        investor_profile.save(conn, {**investor_profile.DEFAULTS, 'confirmed':True})
+    compute_indicators(full=True)
+    compute_factor_scores()
+    compute_breadth()
+
+
+prepare_preview()
 
 original_page = st.Page
 

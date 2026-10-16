@@ -137,7 +137,8 @@ with tab_portfolio:
             # convertidos a euros. `format_money` pone el dolar por defecto, y
             # ensenar "1 759,40 $" sobre una cifra en euros es exactamente el
             # tipo de etiqueta falsa que este arreglo venia a quitar.
-            summary = st.columns(4)
+            with st.container(key='metric-grid-portfolio'):
+                summary = st.columns(4)
             summary[0].metric("Valor actual", format_money(total_value, "EUR"))
             summary[1].metric(
                 "Resultado", format_money(total_pnl, "EUR"),

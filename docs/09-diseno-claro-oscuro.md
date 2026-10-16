@@ -13,6 +13,14 @@ formularios, tablas y diálogos mantienen el tema nativo. Los gráficos Plotly y
 Lightweight Charts usan la paleta compartida y TradingView conserva su atribución
 y adaptación claro/oscuro.
 
+Todas las rutas tienen una orientación breve bajo el título, incluso si aún no
+hay datos. Pestañas, formularios, tablas, cargas de archivos y gráficos comparten
+superficies, bordes y foco de teclado. `panel()` reutiliza el contenedor nativo en
+las tarjetas de oportunidades, propuestas del asesor y controles de escenarios.
+Los grupos de indicadores de la ficha, cartera, macro y estado pueden repartirse
+en varias filas para evitar cifras cortadas. No se recorta la barra de herramientas
+de las tablas ni se ocultan avisos para ganar espacio.
+
 El Asesor es la pantalla piloto: controles desplegables, botones de actualización
 visibles, resumen de posiciones/cobertura/horizonte y tarjetas en dos columnas,
 que se apilan en pantallas estrechas. La cobertura es disponibilidad de datos,
@@ -38,12 +46,17 @@ las credenciales, las valoraciones ni el registro de recomendaciones.
 - Contraste mínimo 4,5:1 del texto normal/secundario sobre las dos superficies.
 - Coincidencia de los colores nativos con la paleta de gráficos.
 - Trabajo visual de CI con navegador real: temas claro/oscuro, persistencia al
-  recargar, navegación y capturas a 1366, 1920 y 390 píxeles.
+  recargar, navegación y capturas de las 13 rutas a 1366, 1920 y 390 píxeles
+  (78 combinaciones). Incluye estados pendientes y contenido de prueba en mercado,
+  sectores, oportunidades, ficha, macro y cartera.
 - Consulta de precios con el ratón, navegación por teclado y exclusión de fechas
   posteriores al cierre validado del informe.
 
 `scripts/preview_design.py` solo prepara una base de datos ficticia y aislada en
 `reports/design-preview.duckdb`, con sincronización y widgets externos desactivados
 y un aviso explícito. No es el arranque normal ni consulta la cuenta del usuario.
+`scripts/design_fixture.py` amplía únicamente esa conexión de prueba; los
+indicadores y rankings de esa base se calculan con el motor normal, sin guardar
+órdenes ni presentar sus datos como cotizaciones reales.
 Las capturas de CI se guardan como artefactos durante siete días. El navegador de
 pruebas no es una dependencia de la instalación Windows.

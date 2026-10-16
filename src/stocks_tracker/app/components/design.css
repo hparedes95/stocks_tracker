@@ -35,6 +35,50 @@ h2, h3 { letter-spacing: -0.018em; }
 [data-testid="stMetricValue"] { color: var(--stx-text-primary); letter-spacing: -.035em; }
 [data-testid="stExpander"] { border-radius: .85rem; }
 [data-testid="stExpander"] summary { min-height: 3rem; }
+[data-testid="stForm"], [class*="st-key-panel-"] {
+    background: var(--stx-surface);
+    border: 1px solid var(--stx-grid);
+    border-radius: 1rem;
+    padding: 1.25rem;
+    min-width: 0;
+}
+[class*="st-key-panel-"] h3 { font-size: 1.5rem; }
+[class*="st-key-panel-opportunity-"] [data-testid="stMetric"] {
+    background: transparent; border: 0; padding: .25rem 0;
+}
+[class*="st-key-panel-opportunity-"] [data-testid="stMetricValue"] { font-size: 1.4rem; }
+[data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+    border-radius: .85rem;
+    /* The native grid owns its canvas and scrolling; never clip its toolbar. */
+    font-variant-numeric: tabular-nums;
+}
+[data-testid="stPlotlyChart"], [data-testid="stVegaLiteChart"] {
+    background: var(--stx-surface);
+    border-radius: .85rem;
+    box-shadow: 0 0 0 1px var(--stx-grid);
+}
+[data-testid="stTabs"] [role="tablist"] {
+    gap: .4rem;
+    border-bottom: 1px solid var(--stx-grid);
+    padding-bottom: .4rem;
+}
+[data-testid="stTabs"] [role="tab"] {
+    min-height: 2.75rem;
+    padding: .45rem .85rem;
+    border-radius: .6rem;
+}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+    background: var(--stx-surface);
+    color: var(--stx-accent);
+}
+.stMain button:focus-visible,
+.stMain [role="tab"]:focus-visible,
+.stMain input:focus-visible,
+.stMain textarea:focus-visible {
+    outline: 2px solid var(--stx-accent); outline-offset: 3px;
+}
+[data-testid="stAlert"] { border-radius: .85rem; }
+[data-testid="stFileUploaderDropzone"] { border-radius: .85rem; }
 [class*="st-key-holding-card-"] {
     background: var(--stx-surface);
     border: 1px solid var(--stx-grid);
@@ -45,6 +89,9 @@ h2, h3 { letter-spacing: -0.018em; }
     background: transparent; border: 0; border-radius: 0; padding: .25rem 0;
 }
 [class*="st-key-holding-card-"] [data-testid="stMetricValue"] { font-size: 1.4rem; }
+[class*="st-key-holding-card-"] [data-testid="stPlotlyChart"] {
+    background: transparent; box-shadow: none;
+}
 [class*="st-key-holding-card-"] h3 { font-size: 1.5rem; letter-spacing: -.03em; }
 [class*="st-key-holding-header-"] { gap: .35rem; }
 [class*="st-key-holding-header-"] p { overflow-wrap: anywhere; }
@@ -74,9 +121,18 @@ h2, h3 { letter-spacing: -0.018em; }
     .st-key-holdings-grid > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
         min-width: min(100%, 28rem); flex: 1 1 28rem;
     }
+    [class*="st-key-metric-grid-"] > [data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+    [class*="st-key-metric-grid-"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        min-width: min(100%, 10.5rem); flex: 1 1 10.5rem;
+    }
+    .st-key-opportunities-grid > [data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+    .st-key-opportunities-grid > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        min-width: min(100%, 28rem); flex: 1 1 28rem;
+    }
 }
 @media (max-width: 640px) {
     .stMainBlockContainer { padding: 4.5rem 1rem 3rem; }
     [class*="st-key-holding-card-"] { padding: .9rem; }
     [data-testid="stMetric"] { padding: .7rem; }
+    [data-testid="stForm"], [class*="st-key-panel-"] { padding: .9rem; }
 }

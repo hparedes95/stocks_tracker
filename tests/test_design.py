@@ -41,12 +41,46 @@ def test_native_theme_and_chart_palette_match_and_have_readable_text(monkeypatch
 
 
 def test_shared_header_escapes_untrusted_section_and_preserves_title(monkeypatch):
-    html, titles = [], []
+    html, titles, captions = [], [], []
     monkeypatch.setattr(design.st, 'html', html.append)
     monkeypatch.setattr(design.st, 'title', titles.append)
+    monkeypatch.setattr(design.st, 'caption', captions.append)
     design.page_header('Asesor de acciones', section='<script>bad</script>')
     assert '<script>' not in html[-1] and '&lt;script&gt;' in html[-1]
     assert titles == ['Asesor de acciones']
+    assert captions == [design.PAGE_DESCRIPTIONS['Asesor de acciones']]
+
+
+def test_every_registered_route_has_a_shared_orientation():
+    import re
+
+    main = (project_root() / 'src/stocks_tracker/app/main.py').read_text(encoding='utf-8')
+    titles = set(re.findall(r'title="([^"]+)"', main)) - {'Stocks Tracker'}
+    assert titles == set(design.PAGE_DESCRIPTIONS)
+    assert len(titles) == 13
+
+
+def test_native_panels_preserve_keys_and_controls(monkeypatch):
+    calls = []
+    monkeypatch.setattr(design.st, 'container', lambda **kwargs: calls.append(kwargs))
+    design.panel('forecast-controls')
+    assert calls == [{'border':True, 'key':'panel-forecast-controls'}]
+
+
+def test_visual_fixture_only_populates_the_supplied_disposable_database():
+    import duckdb
+
+    from scripts.design_fixture import populate
+    from stocks_tracker.core import db
+    from tests.test_holding_analysis import seed
+
+    with duckdb.connect(':memory:') as conn:
+        conn.execute(db.schema_path().read_text(encoding='utf-8'))
+        seed(conn)
+        populate(conn)
+        assert conn.execute('SELECT count(*) FROM instruments').fetchone()[0] == 8
+        assert conn.execute('SELECT count(*) FROM regime_daily').fetchone()[0] == 90
+        assert conn.execute('SELECT count(*) FROM recommendations').fetchone()[0] == 0
 
 
 def test_small_price_chart_does_not_flatten_movements_against_an_invisible_zero():
