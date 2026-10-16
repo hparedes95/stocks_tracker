@@ -45,7 +45,23 @@ h2, h3 { letter-spacing: -0.018em; }
     background: transparent; border: 0; border-radius: 0; padding: .25rem 0;
 }
 [class*="st-key-holding-card-"] [data-testid="stMetricValue"] { font-size: 1.4rem; }
-[class*="st-key-holding-card-"] h3 { font-size: 1.1rem; }
+[class*="st-key-holding-card-"] h3 { font-size: 1.5rem; letter-spacing: -.03em; }
+[class*="st-key-holding-header-"] { gap: .35rem; }
+[class*="st-key-holding-header-"] p { overflow-wrap: anywhere; }
+.stx-chart-range {
+    display: flex; justify-content: space-between; gap: 1rem;
+    color: var(--stx-muted); font-size: .75rem; font-variant-numeric: tabular-nums;
+}
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {
+    border-radius: .55rem;
+}
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover {
+    background: var(--stx-surface);
+}
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:focus-visible,
+[data-testid="stExpander"] summary:focus-visible {
+    outline: 2px solid var(--stx-accent); outline-offset: 3px;
+}
 .stx-position-kind {
     display: inline-block; color: var(--stx-accent); background: var(--stx-plane);
     border-radius: .4rem; padding: .25rem .55rem; font-size: .75rem; margin-bottom: .35rem;

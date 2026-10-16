@@ -57,6 +57,23 @@ def test_small_price_chart_does_not_flatten_movements_against_an_invisible_zero(
     chart = sparkline(pd.Series([100., 101., 102.]))
     assert chart.data[0].fill != 'tozeroy'
     assert chart.layout.yaxis.rangemode == 'normal'
+    assert chart.data[0].hoverinfo == 'skip'
+
+
+def test_price_tooltip_uses_only_supplied_trading_dates():
+    import pandas as pd
+
+    from stocks_tracker.app.components.charts import sparkline
+
+    dates = pd.Series(['2026-10-09', '2026-10-13'], index=[4, 8])
+    values = pd.Series([101.25, 102.75], index=[20, 21])
+    chart = sparkline(values, dates=dates)
+    assert list(pd.to_datetime(chart.data[0].x)) == list(pd.to_datetime(dates))
+    assert list(chart.data[0].y) == [101.25, 102.75]
+    assert 'Precio ajustado' in chart.data[0].hovertemplate
+    assert chart.layout.dragmode is False
+    with pytest.raises(ValueError, match='Cada precio necesita su fecha'):
+        sparkline(values, dates=dates.iloc[:1])
 
 
 def test_all_pages_use_shared_header_or_themed_connection_panel():
@@ -87,4 +104,41 @@ def test_empty_research_summary_and_missing_position_stay_explicit(tmp_path, mon
     assert next(m for m in page.metric if m.label == 'Con lectura de mercado').value == '0 / 0'
     assert any('Pendiente de datos' in m.value for m in page.markdown)
     assert any('Sin histórico' in m.value for m in page.markdown)
+    assert any('Corte del análisis: 2026-10-16' in c.value for c in page.caption)
+    assert any('Fuente: no disponible' in c.value for c in page.caption)
     assert not page.get('plotly_chart')
+
+
+def test_holding_chart_respects_report_cut_and_preserves_all_explanations(tmp_path, monkeypatch):
+    import json
+
+    import pandas as pd
+    from streamlit.testing.v1 import AppTest, app_test
+
+    monkeypatch.setattr(app_test, 'TMP_DIR', SimpleNamespace(name=str(tmp_path)))
+
+    def script():
+        import pandas as pd
+
+        from stocks_tracker.app.components.holding_card import render_holding_card
+        prices = pd.DataFrame({'date':pd.date_range('2026-07-01', periods=70, freq='B'),
+                               'adj_close':range(100, 170)})
+        render_holding_card({'id':'cut-test', 'kind':'cfd', 'symbol':'CIBR', 'ticker':'CIBR',
+            'stance':'Subyacente favorable; vigilar el CFD', 'price_date':'2026-09-30',
+            'source':'test-source', 'cutoff':'2026-10-01',
+            'metrics':{'momentum_3m_pct':1., 'drawdown_pct':-2., 'daily_vol_pct':3.},
+            'reasons':['Tendencia de prueba.', 'RSI de prueba.'],
+            'review_if':['Revisar la exposición.'], 'fundamentals':{}, 'scenario':None,
+            'limitations':['No es rentabilidad neta del contrato.']}, prices=prices)
+
+    page = AppTest.from_function(script, default_timeout=120).run()
+    assert not page.exception
+    chart = json.loads(page.get('plotly_chart')[0].proto.spec)
+    dates = pd.to_datetime(chart['data'][0]['x'])
+    assert len(dates) == 63 and dates.max() == pd.Timestamp('2026-09-30')
+    text = ' '.join(m.value for m in page.markdown)
+    for phrase in ('Tendencia de prueba.', 'RSI de prueba.', 'Revisar la exposición.',
+                   'No es rentabilidad neta del contrato.', 'Subyacente favorable; vigilar el CFD'):
+        assert phrase in text
+    assert any('Fuente: test-source' in c.value for c in page.caption)
+    assert any('Corte del análisis: 2026-10-01' in c.value for c in page.caption)

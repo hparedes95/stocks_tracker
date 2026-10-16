@@ -67,6 +67,8 @@ def main():
                         cards = page.locator('[class*="st-key-holding-card-"]')
                         expect(cards).to_have_count(3)
                         expect(page.get_by_test_id('stException')).to_have_count(0)
+                        expect(cards.first.get_by_role('heading', name='AAPL', exact=True)).to_be_visible()
+                        expect(cards.first.get_by_text('Mantener en vigilancia', exact=True)).to_be_visible()
                         # No horizontal page overflow at any tested viewport.
                         overflow = page.evaluate('document.documentElement.scrollWidth > window.innerWidth')
                         assert not overflow, (mode, width, 'horizontal overflow')
@@ -74,6 +76,18 @@ def main():
                         assert all(box and box['width'] >= 270 for box in boxes), boxes
                         page.screenshot(path=OUTPUT / f'advisor-{mode.lower()}-{width}.png', full_page=True)
                         cards.first.scroll_into_view_if_needed()
+                        if width == 1366:
+                            # Native Plotly hover reads the supplied date/price;
+                            # no synthetic sessions or portfolio P&L labels.
+                            chart = cards.first.get_by_test_id('stPlotlyChart')
+                            chart.scroll_into_view_if_needed()
+                            box = chart.bounding_box()
+                            assert box is not None
+                            page.mouse.move(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
+                            expect(chart.locator('.hoverlayer')).to_contain_text('Precio ajustado')
+                            page.screenshot(path=OUTPUT / f'advisor-{mode.lower()}-tooltip.png')
+                            page.mouse.move(0, 0)
+                            cards.first.scroll_into_view_if_needed()
                         page.screenshot(path=OUTPUT / f'advisor-{mode.lower()}-{width}-cards.png')
                         page.get_by_role('heading', name='Asesor de acciones', exact=True).scroll_into_view_if_needed()
                         results.append({'theme':mode, 'width':width, 'height':height, 'cards':len(boxes), 'overflow':overflow})
@@ -86,6 +100,11 @@ def main():
                             # before the old expand button receives the click.
                             expect(page.get_by_test_id('stPageLink-NavLink').filter(has_text='Predicción y escenarios')).to_be_visible()
                     # Charts and tables on another route must use the same theme.
+                    page.get_by_test_id('stPageLink-NavLink').filter(has_text='Asesor de acciones').focus()
+                    page.keyboard.press('Tab')
+                    prediction_link = page.get_by_test_id('stPageLink-NavLink').filter(has_text='Predicción y escenarios')
+                    expect(prediction_link).to_be_focused()
+                    expect(prediction_link).to_have_css('outline-width', '2px')
                     page.get_by_test_id('stPageLink-NavLink').filter(has_text='Predicción y escenarios').click()
                     expect(page.get_by_role('heading', name='Predicción y escenarios', exact=True)).to_be_visible()
                     expect(page.get_by_test_id('stException')).to_have_count(0)

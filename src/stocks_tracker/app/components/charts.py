@@ -26,28 +26,36 @@ from .theme import (
 )
 
 
-def sparkline(values: pd.Series, height: int = 60, positive: bool | None = None) -> go.Figure:
-    """Mini-gráfico sin ejes, para ir dentro de una tarjeta o una celda."""
+def sparkline(values: pd.Series, height: int = 60, positive: bool | None = None,
+              *, dates: pd.Series | None = None) -> go.Figure:
+    """Mini-gráfico; solo muestra fechas cuando las aporta la serie real."""
     p = palette()
+    if dates is not None and len(dates) != len(values):
+        raise ValueError('Cada precio necesita su fecha; no se inventan sesiones.')
+    timestamps = pd.to_datetime(dates).to_numpy() if dates is not None else None
     if positive is None:
         positive = len(values) > 1 and float(values.iloc[-1]) >= float(values.iloc[0])
     color = STATUS["good"] if positive else STATUS["critical"]
 
     fig = go.Figure(
         go.Scatter(
-            y=values.to_numpy(), mode="lines",
+            x=timestamps, y=values.to_numpy(), mode="lines",
             line=dict(color=color, width=2),
             # A transparent fill-to-zero still forces the axis down to zero
             # and flattens price movements. This is a trend line, not an area.
-            hoverinfo="skip",
+            hoverinfo="skip" if dates is None else None,
+            hovertemplate=(None if dates is None else
+                           '<b>%{x|%d/%m/%Y}</b><br>Precio ajustado: %{y:.2f}<extra></extra>'),
         )
     )
     fig.update_layout(
         height=height, margin=dict(l=0, r=0, t=0, b=0),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         showlegend=False, xaxis=dict(visible=False), yaxis=dict(visible=False, rangemode='normal'),
+        hovermode='closest', dragmode=False,
+        hoverlabel=dict(bgcolor=p['surface'], bordercolor=p['grid'],
+                        font=dict(color=p['text_primary'], family=FONT_FAMILY)),
     )
-    del p
     return fig
 
 

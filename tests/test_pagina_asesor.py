@@ -138,9 +138,10 @@ def test_live_positions_and_cfd_analysis_visible_without_any_actionable_order(al
         assert conn.execute('SELECT count(*) FROM recommendations').fetchone()[0] == 0
     page = _pintar()
     headings = [e.value for e in page.markdown]
-    assert any('AAPL — Mantener en vigilancia' in h for h in headings)
-    assert any('CIBR — Subyacente favorable; vigilar el CFD' in h for h in headings)
-    assert any('ITA — Subyacente débil; revisar el CFD' in h for h in headings)
+    assert {e.value for e in page.subheader} >= {'AAPL', 'CIBR', 'ITA'}
+    assert 'Mantener en vigilancia' in headings
+    assert 'Subyacente favorable; vigilar el CFD' in headings
+    assert 'Subyacente débil; revisar el CFD' in headings
     assert any('no hay propuestas operables' in str(e.value).lower() for e in page.info)
     assert any('CFD · referencia ETF' in str(e.value) for e in page.caption)
     assert sum('Retorno ajustado' in e.label for e in page.metric) == 3
