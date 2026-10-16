@@ -29,6 +29,8 @@ universe = filters["universe"]
 
 last_date = da.last_price_date()
 if last_date is None:
+    st.info('Aún no hay cierres de mercado disponibles. Abre Asesor de acciones y pulsa '
+            '«Actualizar datos y análisis» para descargar los datos y preparar esta pantalla.')
     st.stop()
 
 labels = get_explanations().get("signal_labels", {})

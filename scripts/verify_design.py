@@ -28,6 +28,11 @@ ROUTES = (
 
 
 def set_sidebar(page, *, opened):
+    expect(page.get_by_test_id('stApp')).to_have_attribute('data-test-script-state', 'notRunning', timeout=60000)
+    sidebar = page.get_by_test_id('stSidebar')
+    target_state = 'true' if opened else 'false'
+    if sidebar.get_attribute('aria-expanded') == target_state:
+        return
     test_id = 'stExpandSidebarButton' if opened else 'stSidebarCollapseButton'
     toggle = page.get_by_test_id(test_id)
     if toggle.is_visible():
@@ -37,6 +42,7 @@ def set_sidebar(page, *, opened):
             # Responsive resize can remove the old toggle before the click.
             target = 'stSidebarCollapseButton' if opened else 'stExpandSidebarButton'
             expect(page.get_by_test_id(target)).to_be_visible()
+    expect(sidebar).to_have_attribute('aria-expanded', target_state)
 
 
 def check_all_routes(page, mode):
@@ -47,10 +53,10 @@ def check_all_routes(page, mode):
         page.get_by_test_id('stPageLink-NavLink').filter(has_text=title).click()
         heading = page.get_by_role('heading', name=title, exact=True)
         expect(heading).to_be_visible(timeout=30000)
-        expect(page.get_by_role('button', name='Stop', exact=True)).not_to_be_visible(timeout=30000)
+        expect(page.get_by_test_id('stApp')).to_have_attribute('data-test-script-state', 'notRunning', timeout=60000)
         expect(page.get_by_test_id('stException')).to_have_count(0)
         expect(page.get_by_text('VISTA DE DISEÑO', exact=False)).to_be_visible()
-        if slug in ('sectors', 'macro'):
+        if slug in ('market', 'sectors', 'macro'):
             expect(page.get_by_test_id('stPlotlyChart').first).to_be_visible()
         if slug == 'opportunities':
             try:
@@ -69,7 +75,7 @@ def check_all_routes(page, mode):
             heading.scroll_into_view_if_needed()
             assert not page.evaluate('document.documentElement.scrollWidth > window.innerWidth'), (title, mode, width)
             expect(page.get_by_test_id('stException')).to_have_count(0)
-            page.screenshot(path=OUTPUT / f'all-{slug}-{mode.lower()}-{width}.png')
+            page.screenshot(path=OUTPUT / f'all-{slug}-{mode.lower()}-{width}.png', animations='disabled')
             checks.append({'page':title, 'theme':mode, 'width':width, 'overflow':False})
     page.set_viewport_size({'width':1366, 'height':900})
     set_sidebar(page, opened=True)

@@ -95,6 +95,9 @@ def test_una_instalacion_recien_hecha_no_rompe_ninguna_pagina(pagina, almacen):
         f"{pagina.name} revienta sobre un almacen vacio: "
         f"{prueba.exception[0].message}"
     )
+    if pagina.name == '1_que_se_mueve_hoy.py':
+        assert any('Aún no hay cierres' in m.value and 'Actualizar datos y análisis' in m.value
+                   for m in prueba.info)
 
 
 def _sembrar() -> None:
