@@ -11,10 +11,11 @@ import streamlit as st
 
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components.common import render_disclaimer
+from stocks_tracker.app.components.design import page_header
 from stocks_tracker.core import audit, consistency, integrity, quarantine
 from stocks_tracker.core.db import connect, table_counts
 
-st.title("Estado de los datos")
+page_header("Estado de los datos", section="Sistema")
 
 # ---------------------------------------------------------------------------
 # Panel de integridad

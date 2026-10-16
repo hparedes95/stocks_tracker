@@ -12,6 +12,7 @@ import streamlit as st
 
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components.common import render_disclaimer
+from stocks_tracker.app.components.design import page_header
 from stocks_tracker.app.components.theme import (
     STATUS,
     apply_layout,
@@ -27,7 +28,7 @@ from stocks_tracker.core import lineage
 from stocks_tracker.core.config import get_explanations
 from stocks_tracker.core.db import connect
 
-st.title("Validación de señales")
+page_header("Validación de señales", section="Validación")
 
 st.error(
     "**Esta sección no predice nada.** Sirve para **descartar** señales que se "

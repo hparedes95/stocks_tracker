@@ -58,24 +58,26 @@ DIVERGING_PERFORMANCE = [
 ]
 
 LIGHT = {
-    "surface": "#fcfcfb",
-    "plane": "#f9f9f7",
-    "text_primary": "#0b0b0b",
-    "text_secondary": "#52514e",
-    "muted": "#898781",
-    "grid": "#e1e0d9",
-    "axis": "#c3c2b7",
+    "surface": "#ffffff",
+    "plane": "#f5f6fb",
+    "text_primary": "#172033",
+    "text_secondary": "#47546c",
+    "muted": "#596579",
+    "grid": "#dce1ef",
+    "axis": "#69768e",
+    "accent": "#6345c0",
     "categorical": CATEGORICAL_LIGHT,
 }
 
 DARK = {
-    "surface": "#1a1a19",
-    "plane": "#0d0d0d",
-    "text_primary": "#ffffff",
-    "text_secondary": "#c3c2b7",
-    "muted": "#898781",
-    "grid": "#2c2c2a",
-    "axis": "#383835",
+    "surface": "#1b2132",
+    "plane": "#10131e",
+    "text_primary": "#f3f5fd",
+    "text_secondary": "#c0c9df",
+    "muted": "#a2adc5",
+    "grid": "#313b53",
+    "axis": "#7886a3",
+    "accent": "#b9a9ff",
     "categorical": CATEGORICAL_DARK,
 }
 
@@ -144,7 +146,9 @@ def apply_layout(fig, height: int = 320, showlegend: bool = False, **kwargs):
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family=FONT_FAMILY, size=12, color=p["text_secondary"]),
-        hoverlabel=dict(font_size=12, font_family=FONT_FAMILY),
+        hoverlabel=dict(font_size=12, font_family=FONT_FAMILY,
+                        bgcolor=p['surface'], bordercolor=p['grid'],
+                        font_color=p['text_primary']),
         legend=dict(
             orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
             font=dict(size=11),

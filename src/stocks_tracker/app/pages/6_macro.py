@@ -12,11 +12,12 @@ import streamlit as st
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components import charts, tv_widgets
 from stocks_tracker.app.components.common import render_disclaimer
+from stocks_tracker.app.components.design import page_header
 from stocks_tracker.app.components.theme import format_num, format_pct
 from stocks_tracker.core import sentiment
 from stocks_tracker.core.config import get_fred_series, get_macro_config
 
-st.title("Macro y riesgo")
+page_header("Macro y riesgo", section="Mercado")
 
 regime = da.get_regime()
 has_fred = da.macro_available()

@@ -24,18 +24,19 @@ import streamlit as st
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components import health_panel
 from stocks_tracker.app.components.common import render_disclaimer
+from stocks_tracker.app.components.design import page_header
+from stocks_tracker.app.components.holding_card import render_holding_card, research_summary
 from stocks_tracker.app.components.theme import format_money
 from stocks_tracker.app.research_actions import refresh_research
 from stocks_tracker.core.advice import ETIQUETA, Conviccion, Veredicto
 from stocks_tracker.core.advice_store import resumen_honesto
 from stocks_tracker.core.db import connect
 from stocks_tracker.core.holding_analysis import analyse as analyse_holdings
-from stocks_tracker.core.holding_analysis import fundamental_metrics
 from stocks_tracker.core.investor_profile import load as load_profile
 from stocks_tracker.core.investor_profile import save as save_profile
 from stocks_tracker.core.market_bundle import frozen_market
 
-st.title("Asesor de acciones")
+page_header("Asesor de acciones", section="Análisis y decisiones")
 st.caption(
     "Lo que **tus reglas** implican hoy, no lo que va a hacer el mercado. "
     "Propuestas explicables para tu decisión manual. Consulta también Predicción "
@@ -44,7 +45,7 @@ st.caption(
 
 with connect(read_only=True) as conn:
     profile = load_profile(conn)
-with st.expander("Tu horizonte, costes y límites", expanded=not profile['confirmed']):
+with st.expander("Tu horizonte, costes y límites", expanded=False):
     st.caption("Son supuestos personales, no tarifas verificadas de tu bróker ni garantías de pérdida máxima.")
     months = st.selectbox("Horizonte de la recomendación (meses)", [1, 3, 6],
                            index=[1, 3, 6].index(profile['horizon_months']))
@@ -66,7 +67,7 @@ with st.expander("Tu horizonte, costes y límites", expanded=not profile['confir
 
 # Controles explícitos; la sincronización SnapTrade puede recalcular también.
 
-with st.expander("Actualizar datos y recomendaciones", expanded=True):
+with st.expander("Actualizar datos y recomendaciones", expanded=False):
     from stocks_tracker.compute.run_advice import _cartera
     from stocks_tracker.core import snaptrade_portfolio as snap
 
@@ -91,22 +92,28 @@ with st.expander("Actualizar datos y recomendaciones", expanded=True):
         cash = st.number_input("Efectivo disponible para esta consulta (EUR)",
                                min_value=0.0, value=0.0, step=100.0)
         st.caption("El efectivo no declarado se considera cero. Los botones no compran ni venden.")
-    download = st.button("Actualizar datos y análisis", type="primary")
-    recalculate = st.button("Recalcular asesor con los datos guardados", disabled=bool(live_issue))
-    if frozen_market():
-        st.info('Estás usando una copia de mercado congelada. Estos botones no descargan precios nuevos '
-                'en este modo. Para actualizarlos, confirma que abandonas la copia congelada en Datos compartidos.')
-    if download or recalculate:
-        with st.spinner("Preparando el análisis…"):
-            try:
-                refresh_research(cash=cash, download=download)
-            except Exception as exc:  # noqa: BLE001 — frontera de acción manual en la interfaz
-                st.error(f"No se ha completado el análisis: {exc}. "
-                         "Las recomendaciones anteriores NO se han actualizado.")
-            else:
-                st.cache_data.clear()
-                st.success("Análisis recalculado. Las limitaciones de cada posición se muestran debajo; "
-                           "si faltan datos o efectivo puede no haber propuestas de compra.")
+actions = st.columns(2)
+download = actions[0].button("Actualizar datos y análisis", type="primary", width='stretch')
+recalculate = actions[1].button("Recalcular asesor con los datos guardados", disabled=bool(live_issue), width='stretch')
+if live_issue:
+    st.warning(live_issue)
+if partial_issues:
+    st.warning('Valoración de cartera parcial; los análisis identificados siguen disponibles. '
+               'Consulta Actualizar datos y recomendaciones para ver las posiciones afectadas.')
+if frozen_market():
+    st.info('Estás usando una copia de mercado congelada. Estos botones no descargan precios nuevos '
+            'en este modo. Para actualizarlos, confirma que abandonas la copia congelada en Datos compartidos.')
+if download or recalculate:
+    with st.spinner("Preparando el análisis…"):
+        try:
+            refresh_research(cash=cash, download=download)
+        except Exception as exc:  # noqa: BLE001 — frontera de acción manual en la interfaz
+            st.error(f"No se ha completado el análisis: {exc}. "
+                     "Las recomendaciones anteriores NO se han actualizado.")
+        else:
+            st.cache_data.clear()
+            st.success("Análisis recalculado. Las limitaciones de cada posición se muestran debajo; "
+                       "si faltan datos o efectivo puede no haber propuestas de compra.")
 
 st.subheader('Análisis actual de tus posiciones')
 st.caption('Lectura de mercado independiente de la fecha de compra. Las orientaciones técnicas '
@@ -115,40 +122,15 @@ with connect(read_only=True) as conn:
     holding_reports = analyse_holdings(conn, horizon={1:21, 3:63, 6:126}[profile['horizon_months']])
 if not holding_reports:
     st.info('No hay posiciones abiertas para analizar. Conecta tu cartera o añade tus posiciones.')
-for holding in holding_reports:
-    with st.container(border=True):
-        scope = 'CFD · referencia ETF' if holding['kind'] == 'cfd' else 'Posición al contado'
-        st.markdown(f"### {holding['symbol']} — {holding['stance']}")
-        st.caption(f"{scope} · serie: {holding['ticker'] or 'sin identificar'} · "
-                   f"último cierre: {holding['price_date'] or 'no disponible'} · "
-                   f"fuente: {holding['source'] or 'no disponible'} · corte: {holding['cutoff']}")
-        metrics = holding['metrics']
-        if metrics:
-            cols = st.columns(3)
-            cols[0].metric('Retorno ajustado · 63 sesiones', f"{metrics['momentum_3m_pct']:+.2f} %")
-            cols[1].metric('Caída desde el máximo · hasta 253 cierres', f"{metrics['drawdown_pct']:.2f} %")
-            cols[2].metric('Volatilidad diaria · 60 sesiones', f"{metrics['daily_vol_pct']:.2f} %")
-            st.caption('Medias y retornos usan precios ajustados; no representan tu beneficio ni la rentabilidad neta del contrato.')
-        for reason in holding['reasons']:
-            st.write(reason)
-        fund = holding['fundamentals']
-        if fund:
-            st.write('Fundamentales actuales:', fundamental_metrics(fund))
-            st.caption(f"Fundamentales: {fund['date']} · {fund['source']}. No se reconstruyen los de la compra.")
-        scenario = holding['scenario']
-        if scenario:
-            st.write(f"Escenarios históricos a {scenario['horizon']} sesiones ({scenario['episodes']} episodios): "
-                     f"percentil 10 {scenario['low_pct']:+.1f} %, mediana {scenario['median_pct']:+.1f} %, "
-                     f"percentil 90 {scenario['high_pct']:+.1f} %.")
-            st.caption('Distribución histórica del subyacente, no objetivo de precio, intervalo garantizado ni retorno neto del CFD.')
-        if holding['review_if']:
-            with st.expander(f"Qué revisar en {holding['symbol']}"):
-                for condition in holding['review_if']:
-                    st.write(condition)
-        if holding['limitations']:
-            with st.expander(f"Cobertura y límites de {holding['symbol']}", expanded=not bool(metrics)):
-                for limitation in holding['limitations']:
-                    st.write(limitation)
+if holding_reports:
+    research_summary(holding_reports, horizon=profile['horizon_months'])
+    with st.container(key='holdings-grid'):
+        for start in range(0, len(holding_reports), 2):
+            columns = st.columns(2)
+            for column, holding in zip(columns, holding_reports[start:start + 2], strict=False):
+                with column:
+                    prices = da.get_price_history(holding['ticker'], days=253) if holding['metrics'] else None
+                    render_holding_card(holding, prices=prices)
 
 st.warning("Herramienta experimental: la fuerza de una señal no es una probabilidad "
            "de acertar. El marcador y los estudios históricos no demuestran "

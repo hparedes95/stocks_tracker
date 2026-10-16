@@ -2,13 +2,14 @@
 
 import streamlit as st
 
+from stocks_tracker.app.components.design import page_header
 from stocks_tracker.core.db import connect
 from stocks_tracker.core.forecast import scenarios
 from stocks_tracker.core.market_bundle import state
 from stocks_tracker.core.predictive_validation import validate_models
 from stocks_tracker.core.trading_calendar import calendar_name, check_history
 
-st.title("Predicción y escenarios")
+page_header("Predicción y escenarios", section="Análisis y decisiones")
 st.caption("Explora qué ocurrió después de tendencias similares. "
            "Estimación histórica experimental, todavía sin ventaja predictiva validada.")
 

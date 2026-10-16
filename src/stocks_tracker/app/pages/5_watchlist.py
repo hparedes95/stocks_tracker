@@ -20,12 +20,13 @@ from stocks_tracker.app.components.broker_import import (
     render_manual_table,
 )
 from stocks_tracker.app.components.common import render_disclaimer
+from stocks_tracker.app.components.design import page_header
 from stocks_tracker.app.components.health_panel import render_health_panel
 from stocks_tracker.app.components.stress_panel import render_stress_panel
 from stocks_tracker.app.components.theme import format_money, format_pct
 from stocks_tracker.core import fx
 
-st.title("Cartera y watchlist")
+page_header("Cartera y watchlist", section="Mi cartera")
 
 tab_portfolio, tab_watchlist = st.tabs(["Cartera", "Watchlist"])
 

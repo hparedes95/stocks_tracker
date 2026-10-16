@@ -18,6 +18,7 @@ from stocks_tracker.app.components.common import (
     render_reasons,
     sidebar_filters,
 )
+from stocks_tracker.app.components.design import page_header
 from stocks_tracker.app.components.theme import (
     format_market_cap,
     format_pct,
@@ -28,7 +29,7 @@ from stocks_tracker.core.flags import red_flags
 from stocks_tracker.core.scoring import PRESET_DESCRIPTIONS, preset_label
 from stocks_tracker.core.textutils import as_float, as_text
 
-st.title("Oportunidades")
+page_header("Oportunidades", section="Selección")
 st.caption(
     "Ranking relativo dentro del universo filtrado. Indica que valores cumplen "
     "más criterios ahora mismo, no que vayan a subir."

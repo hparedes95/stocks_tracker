@@ -8,8 +8,9 @@ import streamlit as st
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components import charts, tv_widgets
 from stocks_tracker.app.components.common import render_disclaimer
+from stocks_tracker.app.components.design import page_header
 
-st.title("Sectores y rotación")
+page_header("Sectores y rotación", section="Mercado")
 
 sectors = da.get_sector_performance()
 if sectors.empty:

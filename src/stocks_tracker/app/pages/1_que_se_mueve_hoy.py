@@ -17,11 +17,12 @@ from stocks_tracker.app.components.common import (
     render_disclaimer,
     sidebar_filters,
 )
+from stocks_tracker.app.components.design import page_header
 from stocks_tracker.app.components.theme import STATUS, format_pct
 from stocks_tracker.core.config import get_explanations
 from stocks_tracker.core.narrative import MarketContext, render_market_summary
 
-st.title("Qué se mueve hoy")
+page_header("Qué se mueve hoy", section="Mercado")
 
 filters = sidebar_filters("mueve")
 universe = filters["universe"]

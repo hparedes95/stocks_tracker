@@ -1,6 +1,7 @@
 """Intercambio privado y explícito: no hay nube ni credenciales que configurar."""
 import streamlit as st
 
+from stocks_tracker.app.components.design import page_header
 from stocks_tracker.core.db import connect
 from stocks_tracker.core.market_bundle import (
     export_bundle,
@@ -12,7 +13,7 @@ from stocks_tracker.core.market_bundle import (
 )
 from stocks_tracker.core.market_recovery import restore_point
 
-st.title("Base de mercado compartida")
+page_header("Base de mercado compartida", section="Sistema")
 st.write("Exporta en el PC con el histórico completo e importa ese mismo archivo en el otro. "
          "La transferencia es manual; no se envía nada a Internet.")
 st.info("Incluye histórico, fundamentales, universo, resultados y protocolos de validación del modelo. "

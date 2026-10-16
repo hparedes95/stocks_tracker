@@ -1,0 +1,66 @@
+/* The native theme owns widget, table and dialog colors. These shared rules
+   only add hierarchy and spacing. Never hide toolbars, warnings or focus rings. */
+.stMainBlockContainer {
+    max-width: 1560px;
+    padding: 1.6rem 2.5rem 4rem;
+}
+h1 { letter-spacing: -0.035em; }
+h2, h3 { letter-spacing: -0.018em; }
+.stx-eyebrow {
+    color: var(--stx-accent);
+    font-size: .75rem;
+    font-weight: 650;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    margin: .35rem 0 .1rem;
+}
+.stx-brand { display: flex; align-items: center; gap: .7rem; margin: .4rem 0 1rem; }
+.stx-brand-mark {
+    display: grid; place-items: center;
+    width: 2.5rem; height: 2.5rem;
+    border-radius: .8rem; background: #7655da; color: #fff;
+    font-weight: 750; font-size: 1.35rem;
+}
+.stx-brand strong { display: block; font-size: 1.1rem; letter-spacing: -.03em; }
+.stx-brand span:not(.stx-brand-mark) { display: block; font-size: .8rem; color: var(--stx-muted); }
+[data-testid="stMetric"] {
+    background: var(--stx-surface);
+    border: 1px solid var(--stx-grid);
+    border-radius: .85rem;
+    padding: .85rem 1rem;
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+}
+[data-testid="stMetricLabel"] { color: var(--stx-text-secondary); }
+[data-testid="stMetricValue"] { color: var(--stx-text-primary); letter-spacing: -.035em; }
+[data-testid="stExpander"] { border-radius: .85rem; }
+[data-testid="stExpander"] summary { min-height: 3rem; }
+[class*="st-key-holding-card-"] {
+    background: var(--stx-surface);
+    border: 1px solid var(--stx-grid);
+    border-radius: 1rem;
+    padding: 1.25rem;
+}
+[class*="st-key-holding-card-"] [data-testid="stMetric"] {
+    background: transparent; border: 0; border-radius: 0; padding: .25rem 0;
+}
+[class*="st-key-holding-card-"] [data-testid="stMetricValue"] { font-size: 1.4rem; }
+[class*="st-key-holding-card-"] h3 { font-size: 1.1rem; }
+.stx-position-kind {
+    display: inline-block; color: var(--stx-accent); background: var(--stx-plane);
+    border-radius: .4rem; padding: .25rem .55rem; font-size: .75rem; margin-bottom: .35rem;
+}
+.stx-section-note { color: var(--stx-text-secondary); font-size: .9rem; }
+@media (max-width: 1100px) {
+    .stMainBlockContainer { padding-left: 1.25rem; padding-right: 1.25rem; }
+    /* Keep whole holding cards readable beside the open sidebar. */
+    .st-key-holdings-grid > [data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+    .st-key-holdings-grid > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        min-width: min(100%, 28rem); flex: 1 1 28rem;
+    }
+}
+@media (max-width: 640px) {
+    .stMainBlockContainer { padding: 1.2rem 1rem 3rem; }
+    [class*="st-key-holding-card-"] { padding: .9rem; }
+    [data-testid="stMetric"] { padding: .7rem; }
+}

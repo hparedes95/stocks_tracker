@@ -18,6 +18,7 @@ from stocks_tracker.app.components.common import (
     render_flags,
     render_reasons,
 )
+from stocks_tracker.app.components.design import page_header
 from stocks_tracker.app.components.theme import (
     STATUS,
     format_num,
@@ -27,7 +28,7 @@ from stocks_tracker.core.config import get_explanations
 from stocks_tracker.core.explain import build_reasons
 from stocks_tracker.core.flags import red_flags
 
-st.title("Ficha de valor")
+page_header("Ficha de valor", section="Análisis")
 
 tickers = da.all_tickers()
 if not tickers:

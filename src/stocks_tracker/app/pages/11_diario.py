@@ -14,6 +14,7 @@ import streamlit as st
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app import journal_store as store
 from stocks_tracker.app.components.common import render_disclaimer
+from stocks_tracker.app.components.design import page_header
 from stocks_tracker.core.journal import (
     DESCRIPCION_VEREDICTO,
     ETIQUETA_ACCION,
@@ -24,7 +25,7 @@ from stocks_tracker.core.journal import (
     pendientes,
 )
 
-st.title("Diario de decisiones")
+page_header("Diario de decisiones", section="Mi cartera")
 st.caption(
     "Por qué compraste, **escrito antes de saber si salió bien**. Cuando algo "
     "sale bien, el recuerdo del motivo se reescribe solo para que encaje y se "

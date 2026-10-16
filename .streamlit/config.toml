@@ -1,11 +1,38 @@
-# Solo el color de acento. Deliberadamente NO se fija `base`: asi el dashboard
-# sigue el tema del navegador (claro u oscuro) en lugar de imponer uno.
-#
-# El rojo por defecto de Streamlit pinta de rojo las barras de progreso de las
-# tablas (peso en cartera, percentil del ranking), y en un panel financiero el
-# rojo significa perdida. Un peso del 84% no es una perdida.
+# Both themes stay switchable through the native Settings > Theme menu.
+# No fixed base: preserve the browser's system/light/dark preference.
 [theme]
-primaryColor = "#2a78d6"
+primaryColor = "#7655da"
+font = "sans-serif"
+baseFontSize = 15
+baseRadius = "0.75rem"
+buttonRadius = "0.6rem"
+headingFontSizes = ["2.2rem", "1.5rem", "1.15rem", "1rem", "1rem", "1rem"]
+metricValueFontSize = "1.8rem"
+showWidgetBorder = true
+
+[theme.light]
+backgroundColor = "#f5f6fb"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#172033"
+borderColor = "#dce1ef"
+dataframeHeaderBackgroundColor = "#edf0f8"
+linkColor = "#6345c0"
+
+[theme.light.sidebar]
+backgroundColor = "#eef0f8"
+secondaryBackgroundColor = "#ffffff"
+
+[theme.dark]
+backgroundColor = "#10131e"
+secondaryBackgroundColor = "#1b2132"
+textColor = "#f3f5fd"
+borderColor = "#313b53"
+dataframeHeaderBackgroundColor = "#252e44"
+linkColor = "#b9a9ff"
+
+[theme.dark.sidebar]
+backgroundColor = "#0b0f1b"
+secondaryBackgroundColor = "#181f30"
 
 [server]
 # Nunca 0.0.0.0: Streamlit no tiene autenticacion.

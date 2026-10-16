@@ -24,6 +24,11 @@ from stocks_tracker.app.components.common import (  # noqa: E402
     render_freshness_badge,
     render_integrity_badge,
 )
+from stocks_tracker.app.components.design import (  # noqa: E402
+    appearance_help,
+    apply_design,
+    sidebar_brand,
+)
 
 st.set_page_config(
     page_title="Stocks Tracker",
@@ -31,6 +36,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+apply_design()
 
 
 @st.cache_resource
@@ -122,7 +128,7 @@ pages = {
     ],
 }
 
-navigation = st.navigation(pages)
+navigation = st.navigation(pages, position='hidden')
 
 # Antes que nada: si los precios no son reales, hay que decirlo antes de que
 # el usuario lea una sola cifra.
@@ -138,7 +144,12 @@ if _fallo_esquema:
     )
 
 with st.sidebar:
-    st.markdown("### Stocks Tracker")
+    sidebar_brand()
+    appearance_help()
+    for section, entries in pages.items():
+        st.caption(section)
+        for entry in entries:
+            st.page_link(entry, icon=entry.icon, width='stretch')
     from stocks_tracker.core.db import connect
     from stocks_tracker.core.market_bundle import engine_fingerprint, state
     with connect(read_only=True) as conn:

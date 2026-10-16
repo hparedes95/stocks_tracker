@@ -11,6 +11,8 @@ from stocks_tracker.core import snaptrade_portfolio as snap
 from stocks_tracker.core.db import connect
 from stocks_tracker.providers.snaptrade import Client, SnapTradeError
 
+from .design import page_header
+
 
 def render_snapshot(current):
     if not current.get('snapshot'):
@@ -61,7 +63,7 @@ def render_snapshot(current):
 
 
 def render_configuration():
-    st.title('Conexión SnapTrade')
+    page_header('Conexión SnapTrade', section='Mi cartera')
     st.write('eToro → SnapTrade Personal → Stocks Tracker. Solo lectura; nunca envía órdenes.')
     st.caption('Sin suscripción nueva ni llamadas de refresco de pago. Configura la clave Personal, no una clave Commercial. '
                'Las condiciones y disponibilidad dependen de SnapTrade.')
