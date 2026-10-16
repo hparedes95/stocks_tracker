@@ -31,18 +31,23 @@ def set_sidebar(page, *, opened):
     expect(page.get_by_test_id('stApp')).to_have_attribute('data-test-script-state', 'notRunning', timeout=60000)
     sidebar = page.get_by_test_id('stSidebar')
     target_state = 'true' if opened else 'false'
-    if sidebar.get_attribute('aria-expanded') == target_state:
-        return
-    test_id = 'stExpandSidebarButton' if opened else 'stSidebarCollapseButton'
-    toggle = page.get_by_test_id(test_id)
-    if toggle.is_visible():
+    for attempt in range(3):
+        if sidebar.get_attribute('aria-expanded') == target_state:
+            return
         try:
-            (toggle if opened else toggle.get_by_role('button')).click(timeout=2000)
-        except BrowserTimeout:
-            # Responsive resize can remove the old toggle before the click.
-            target = 'stSidebarCollapseButton' if opened else 'stExpandSidebarButton'
-            expect(page.get_by_test_id(target)).to_be_visible()
-    expect(sidebar).to_have_attribute('aria-expanded', target_state)
+            if opened:
+                page.get_by_test_id('stExpandSidebarButton').click(timeout=3000)
+            else:
+                # On desktop the native collapse control is rendered on hover.
+                # A responsive resize can briefly retain that desktop behavior.
+                sidebar.hover(timeout=3000)
+                page.get_by_test_id('stSidebarCollapseButton').get_by_role('button').click(timeout=3000)
+            expect(sidebar).to_have_attribute('aria-expanded', target_state, timeout=3000)
+            return
+        except (BrowserTimeout, AssertionError):
+            if attempt == 2:
+                page.screenshot(path=OUTPUT / 'sidebar-state-failure.png')
+                raise
 
 
 def check_all_routes(page, mode):
