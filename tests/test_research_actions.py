@@ -7,7 +7,7 @@ import pytest
 from stocks_tracker.app import research_actions as actions
 
 
-@pytest.mark.parametrize("download, count", [(False, 2), (True, 4)])
+@pytest.mark.parametrize("download, count", [(False, 2), (True, 5)])
 def test_manual_update_uses_only_research_modules(monkeypatch, download, count):
     run = Mock(return_value=SimpleNamespace(returncode=0))
     monkeypatch.setattr(actions.subprocess, "run", run)
@@ -15,6 +15,8 @@ def test_manual_update_uses_only_research_modules(monkeypatch, download, count):
     assert run.call_count == count
     calls = [call.args[0] for call in run.call_args_list]
     assert calls[-1][-2:] == ["--caja", "1500"]
+    if download:
+        assert calls[0][-1] == 'stocks_tracker.ingest.holding_refresh'
     assert all("trading" not in " ".join(call) for call in calls)
     assert all(call.kwargs["timeout"] == 900 for call in run.call_args_list)
 

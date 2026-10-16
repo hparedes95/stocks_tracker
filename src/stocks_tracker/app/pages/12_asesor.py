@@ -10,9 +10,8 @@ dinero hoy; lo que no tienes puede esperar a mañana. Poner las compras arriba
 —que es lo que apetece leer— es como se acaba con una cartera llena de aciertos
 viejos sin vender.
 
-Y el marcador va ARRIBA DEL TODO, antes que ningún consejo. Es lo único que
-distingue a un asesor de un adivino, y ponerlo al final sería esconderlo justo
-cuando todavía no dice nada bueno.
+El análisis actual se muestra aunque no haya propuestas operables. El marcador
+evalúa solo las propuestas guardadas, nunca estas lecturas técnicas al vuelo.
 """
 
 from __future__ import annotations
@@ -30,8 +29,10 @@ from stocks_tracker.app.research_actions import refresh_research
 from stocks_tracker.core.advice import ETIQUETA, Conviccion, Veredicto
 from stocks_tracker.core.advice_store import resumen_honesto
 from stocks_tracker.core.db import connect
+from stocks_tracker.core.holding_analysis import analyse as analyse_holdings
 from stocks_tracker.core.investor_profile import load as load_profile
 from stocks_tracker.core.investor_profile import save as save_profile
+from stocks_tracker.core.market_bundle import frozen_market
 
 st.title("Asesor de acciones")
 st.caption(
@@ -82,15 +83,18 @@ with st.expander("Actualizar datos y recomendaciones", expanded=True):
         if live_issue:
             st.warning(live_issue)
         if partial_issues:
-            st.warning('Análisis parcial: ' + ' · '.join(partial_issues))
-            st.caption('Puedes recalcular y revisar el resto de valores. No se omiten estas posiciones '
-                       'al comprobar si una compra encaja en el conjunto de tu cartera.')
+            st.warning('Valoración de cartera parcial: ' + ' · '.join(partial_issues))
+            st.caption('Esto limita el cálculo de pesos e importes, no el análisis de los subyacentes '
+                       'identificados que aparece debajo. Ninguna posición se elimina del control de riesgo.')
     else:
         cash = st.number_input("Efectivo disponible para esta consulta (EUR)",
                                min_value=0.0, value=0.0, step=100.0)
         st.caption("El efectivo no declarado se considera cero. Los botones no compran ni venden.")
     download = st.button("Actualizar datos y análisis", type="primary")
     recalculate = st.button("Recalcular asesor con los datos guardados", disabled=bool(live_issue))
+    if frozen_market():
+        st.info('Estás usando una copia de mercado congelada. Estos botones no descargan precios nuevos '
+                'en este modo. Para actualizarlos, confirma que abandonas la copia congelada en Datos compartidos.')
     if download or recalculate:
         with st.spinner("Preparando el análisis…"):
             try:
@@ -102,6 +106,50 @@ with st.expander("Actualizar datos y recomendaciones", expanded=True):
                 st.cache_data.clear()
                 st.success("Análisis recalculado. Las limitaciones de cada posición se muestran debajo; "
                            "si faltan datos o efectivo puede no haber propuestas de compra.")
+
+st.subheader('Análisis actual de tus posiciones')
+st.caption('Lectura de mercado independiente de la fecha de compra. Las orientaciones técnicas '
+           'no son órdenes ni una ventaja predictiva validada. Los importes operables se evalúan por separado.')
+with connect(read_only=True) as conn:
+    holding_reports = analyse_holdings(conn, horizon={1:21, 3:63, 6:126}[profile['horizon_months']])
+if not holding_reports:
+    st.info('No hay posiciones abiertas para analizar. Conecta tu cartera o añade tus posiciones.')
+for holding in holding_reports:
+    with st.container(border=True):
+        scope = 'CFD · referencia ETF' if holding['kind'] == 'cfd' else 'Posición al contado'
+        st.markdown(f"### {holding['symbol']} — {holding['stance']}")
+        st.caption(f"{scope} · serie: {holding['ticker'] or 'sin identificar'} · "
+                   f"último cierre: {holding['price_date'] or 'no disponible'} · "
+                   f"fuente: {holding['source'] or 'no disponible'} · corte: {holding['cutoff']}")
+        metrics = holding['metrics']
+        if metrics:
+            cols = st.columns(3)
+            cols[0].metric('Retorno ajustado · 63 sesiones', f"{metrics['momentum_3m_pct']:+.2f} %")
+            cols[1].metric('Caída desde el máximo · hasta 253 cierres', f"{metrics['drawdown_pct']:.2f} %")
+            cols[2].metric('Volatilidad diaria · 60 sesiones', f"{metrics['daily_vol_pct']:.2f} %")
+            st.caption('Medias y retornos usan precios ajustados; no representan tu beneficio ni la rentabilidad neta del contrato.')
+        for reason in holding['reasons']:
+            st.write(reason)
+        fund = holding['fundamentals']
+        if fund:
+            labels = {'trailing_pe':'PER (veces)', 'profit_margin':'Margen neto (%)',
+                      'revenue_growth_yoy':'Crecimiento de ingresos (%)', 'net_debt_to_ebitda':'Deuda neta / EBITDA (veces)'}
+            st.write('Fundamentales actuales:', {labels[k]: round(fund[k], 2) for k in labels if k in fund})
+            st.caption(f"Fundamentales: {fund['date']} · {fund['source']}. No se reconstruyen los de la compra.")
+        scenario = holding['scenario']
+        if scenario:
+            st.write(f"Escenarios históricos a {scenario['horizon']} sesiones ({scenario['episodes']} episodios): "
+                     f"percentil 10 {scenario['low_pct']:+.1f} %, mediana {scenario['median_pct']:+.1f} %, "
+                     f"percentil 90 {scenario['high_pct']:+.1f} %.")
+            st.caption('Distribución histórica del subyacente, no objetivo de precio, intervalo garantizado ni retorno neto del CFD.')
+        if holding['review_if']:
+            with st.expander(f"Qué revisar en {holding['symbol']}"):
+                for condition in holding['review_if']:
+                    st.write(condition)
+        if holding['limitations']:
+            with st.expander(f"Cobertura y límites de {holding['symbol']}", expanded=not bool(metrics)):
+                for limitation in holding['limitations']:
+                    st.write(limitation)
 
 st.warning("Herramienta experimental: la fuerza de una señal no es una probabilidad "
            "de acertar. El marcador y los estudios históricos no demuestran "
@@ -240,9 +288,9 @@ if not diagnostics.empty:
 
 if guardadas.empty:
     st.info(
-        "Todavía no hay propuestas accionables guardadas. Usa los botones superiores "
-        "para actualizar los datos y recalcular el asesor. Con efectivo cero o "
-        "evidencia insuficiente puede no recomendar ninguna compra.\n\n"
+        "No hay propuestas operables guardadas. El análisis actual de tus posiciones aparece arriba; "
+        "no depende de que se autorice una compra. Los controles de evidencia, efectivo y riesgo "
+        "pueden impedir proponer importes.\n\n"
         "Con SnapTrade activo también se intenta recalcular tras una sincronización "
         "automática correcta. Cada cálculo queda registrado; no implica ejecutar operaciones.",
         icon=":material/hourglass_empty:",

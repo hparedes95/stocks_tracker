@@ -15,6 +15,7 @@ def refresh_research(*, cash: float, download: bool = False) -> None:
     from stocks_tracker.core.market_bundle import frozen_market
     frozen = frozen_market()
     if download and not frozen:
+        steps.append(["stocks_tracker.ingest.holding_refresh"])
         steps.append(["stocks_tracker.ingest.run_ingest", "--what", "all"])
     if not frozen:
         steps.append(["stocks_tracker.compute.run_compute"])

@@ -126,6 +126,29 @@ def test_cibr_pending_position_keeps_partial_advisor_recalculate_enabled(almacen
     assert not page.exception and calls == [{'cash':100., 'download':False}]
 
 
+def test_live_positions_and_cfd_analysis_visible_without_any_actionable_order(almacen, monkeypatch):
+    from types import SimpleNamespace
+
+    from test_holding_analysis import DAY, seed
+
+    from stocks_tracker.core import holding_analysis
+
+    monkeypatch.setattr(holding_analysis, 'date', SimpleNamespace(today=lambda: DAY.date()))
+    with db.connect() as conn:
+        seed(conn)
+        assert conn.execute('SELECT count(*) FROM recommendations').fetchone()[0] == 0
+    page = _pintar()
+    headings = [e.value for e in page.markdown]
+    assert any('AAPL — Mantener en vigilancia' in h for h in headings)
+    assert any('CIBR — Subyacente favorable; vigilar el CFD' in h for h in headings)
+    assert any('ITA — Subyacente débil; revisar el CFD' in h for h in headings)
+    assert any('no hay propuestas operables' in str(e.value).lower() for e in page.info)
+    assert any('CFD · referencia ETF' in str(e.value) for e in page.caption)
+    assert sum('Retorno ajustado' in e.label for e in page.metric) == 3
+    with db.connect(read_only=True) as conn:
+        assert conn.execute('SELECT count(*) FROM recommendations').fetchone()[0] == 0
+
+
 def test_una_posicion_deteriorada_recibe_un_veredicto(almacen):
     """Si esto sale como MANTENER, el asesor esta callando con el margen
     cayendo del 24 % al 8 % y la deuda pasando de 0,9x a 5x.

@@ -86,3 +86,29 @@ def can_value_unmapped(pos):
     """Only known requested spot instruments; quote value never implies model coverage."""
     return (pos['qty'] > 0 and pos['kind'] in ('stock', 'adr', 'etf') and
             text(pos['symbol']) in {entry[0] for entry in LISTINGS})
+
+
+def research_target(pos, metadata: pd.DataFrame) -> Resolution:
+    """Research identity, NEVER an identity for valuing a derivative contract.
+
+    For the two confirmed ETF CFDs, study an explicitly labelled USD ETF
+    reference even when the broker reports the contract's OTC venue. This
+    establishes neither the contract multiplier nor its financing/margin.
+    Other ambiguous products still need an exact listing identity.
+    """
+    if pos.get('kind') != 'cfd':
+        return resolve(pos, metadata)
+    symbol = text(pos.get('symbol'))
+    if symbol not in ('CIBR', 'ITA'):
+        return Resolution(None, None, None, 'Subyacente del CFD sin correspondencia verificada.')
+    currency = text(pos.get('listing_currency')) or text(pos.get('currency'))
+    if currency != 'USD':
+        return Resolution(None, None, None, 'La divisa del CFD no permite identificar la referencia USD.')
+    local = metadata[metadata.ticker == symbol]
+    markets = next(entry[2] for entry in LISTINGS if entry[0] == symbol)
+    if len(local) == 1:
+        row = local.iloc[0]
+        market = venue(row.mic) or venue(row.exchange)
+        if text(row.currency) not in ('', 'USD') or market and market not in markets:
+            return Resolution(None, None, None, 'La ficha local contradice la referencia ETF verificada.')
+    return Resolution(symbol, 'USD', 'etf', 'Referencia ETF del CFD; no es la valoración del contrato.')

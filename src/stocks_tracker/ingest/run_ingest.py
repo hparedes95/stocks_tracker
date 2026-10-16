@@ -566,17 +566,22 @@ def ingest_fundamentals(provider_name: str | None = None, all_tickers: bool = Fa
     run_id = run_id or str(uuid.uuid4())
 
     tickers = [t for t in _tickers_to_download() if not t.startswith("^")]
+    # A portfolio review must not wait for the ticker's weekly universe shard.
+    from ..core.holding_analysis import holdings
+    with connect(read_only=True) as conn:
+        held = {p['ticker'] for p in holdings(conn) if p['ticker'] and p['asset_class'] in ('equity', 'stock', 'adr')}
     shards = int(settings.ingest.get("fundamentals_shard_count", 7))
     if not all_tickers and shards > 1:
         today_shard = date.today().toordinal() % shards
         # hash() de Python aleatoriza las cadenas en cada proceso: con el, el
         # reparto en turnos cambiaria cada noche y habria tickers que nunca se
         # refrescarian. Hace falta un hash estable.
-        tickers = [t for t in tickers if _stable_shard(t, shards) == today_shard]
+        tickers = [t for t in tickers if t in held or _stable_shard(t, shards) == today_shard]
         console.print(f"[cyan]Fundamentales:[/] turno {today_shard + 1}/{shards} ({len(tickers)} tickers)")
     else:
         console.print(f"[cyan]Fundamentales:[/] universo completo ({len(tickers)} tickers)")
 
+    tickers = sorted(held) + [t for t in tickers if t not in held]
     if not tickers:
         return 0
 
