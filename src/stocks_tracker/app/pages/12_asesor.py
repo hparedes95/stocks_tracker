@@ -290,7 +290,7 @@ if guardadas.empty:
     st.info(
         "No hay propuestas operables guardadas. El análisis actual de tus posiciones aparece arriba; "
         "no depende de que se autorice una compra. Los controles de evidencia, efectivo y riesgo "
-        "pueden impedir proponer importes.\n\n"
+        "pueden impedir proponer importes. Usa los botones superiores para actualizar los datos o recalcular.\n\n"
         "Con SnapTrade activo también se intenta recalcular tras una sincronización "
         "automática correcta. Cada cálculo queda registrado; no implica ejecutar operaciones.",
         icon=":material/hourglass_empty:",
