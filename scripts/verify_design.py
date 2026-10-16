@@ -43,7 +43,7 @@ def main():
                 expect(page.get_by_role('heading', name='Asesor de acciones', exact=True)).to_be_visible(timeout=60000)
                 expect(page.get_by_text('VISTA DE DISEÑO', exact=False)).to_be_visible()
                 page.screenshot(path=OUTPUT / 'initial.png', full_page=True)
-                for mode in ('Light', 'Dark'):
+                for mode in ('Dark', 'Light'):
                     # Real native theme switch, not injected CSS/localStorage.
                     page.get_by_test_id('stMainMenuButton').click()
                     page.screenshot(path=OUTPUT / 'native-theme-menu.png')
@@ -79,7 +79,12 @@ def main():
                         results.append({'theme':mode, 'width':width, 'height':height, 'cards':len(boxes), 'overflow':overflow})
                     page.set_viewport_size({'width':1366, 'height':900})
                     if page.get_by_test_id('stExpandSidebarButton').is_visible():
-                        page.get_by_test_id('stExpandSidebarButton').click()
+                        try:
+                            page.get_by_test_id('stExpandSidebarButton').click(timeout=2000)
+                        except BrowserTimeout:
+                            # Conversely, desktop resize can reopen the sidebar
+                            # before the old expand button receives the click.
+                            expect(page.get_by_role('link', name='Predicción y escenarios', exact=True)).to_be_visible()
                     # Charts and tables on another route must use the same theme.
                     page.get_by_role('link', name='Predicción y escenarios', exact=True).click()
                     expect(page.get_by_role('heading', name='Predicción y escenarios', exact=True)).to_be_visible()
