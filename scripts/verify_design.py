@@ -53,7 +53,12 @@ def check_all_routes(page, mode):
         if slug in ('sectors', 'macro'):
             expect(page.get_by_test_id('stPlotlyChart').first).to_be_visible()
         if slug == 'opportunities':
-            assert page.locator('[class*="st-key-panel-opportunity-"]').count() >= 1
+            try:
+                expect(page.locator('[class*="st-key-panel-opportunity-"]').first).to_be_visible(timeout=30000)
+            except AssertionError:
+                page.screenshot(path=OUTPUT / f'failure-{slug}-{mode.lower()}.png')
+                print(page.locator('.stMain').inner_text()[:10000])
+                raise
         if slug == 'snaptrade':
             expect(page.get_by_label('SnapTrade Personal Client ID', exact=True)).to_have_attribute('type', 'password')
             expect(page.get_by_label('SnapTrade Personal Consumer Key', exact=True)).to_have_attribute('type', 'password')
