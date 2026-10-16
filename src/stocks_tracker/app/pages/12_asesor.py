@@ -30,6 +30,7 @@ from stocks_tracker.core.advice import ETIQUETA, Conviccion, Veredicto
 from stocks_tracker.core.advice_store import resumen_honesto
 from stocks_tracker.core.db import connect
 from stocks_tracker.core.holding_analysis import analyse as analyse_holdings
+from stocks_tracker.core.holding_analysis import fundamental_metrics
 from stocks_tracker.core.investor_profile import load as load_profile
 from stocks_tracker.core.investor_profile import save as save_profile
 from stocks_tracker.core.market_bundle import frozen_market
@@ -132,9 +133,7 @@ for holding in holding_reports:
             st.write(reason)
         fund = holding['fundamentals']
         if fund:
-            labels = {'trailing_pe':'PER (veces)', 'profit_margin':'Margen neto (%)',
-                      'revenue_growth_yoy':'Crecimiento de ingresos (%)', 'net_debt_to_ebitda':'Deuda neta / EBITDA (veces)'}
-            st.write('Fundamentales actuales:', {labels[k]: round(fund[k], 2) for k in labels if k in fund})
+            st.write('Fundamentales actuales:', fundamental_metrics(fund))
             st.caption(f"Fundamentales: {fund['date']} · {fund['source']}. No se reconstruyen los de la compra.")
         scenario = holding['scenario']
         if scenario:

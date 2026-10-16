@@ -129,9 +129,8 @@ def test_cibr_pending_position_keeps_partial_advisor_recalculate_enabled(almacen
 def test_live_positions_and_cfd_analysis_visible_without_any_actionable_order(almacen, monkeypatch):
     from types import SimpleNamespace
 
-    from test_holding_analysis import DAY, seed
-
     from stocks_tracker.core import holding_analysis
+    from tests.test_holding_analysis import DAY, seed
 
     monkeypatch.setattr(holding_analysis, 'date', SimpleNamespace(today=lambda: DAY.date()))
     with db.connect() as conn:

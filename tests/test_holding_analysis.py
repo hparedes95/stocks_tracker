@@ -10,10 +10,17 @@ import pytest
 
 from stocks_tracker.core import db
 from stocks_tracker.core import snaptrade_portfolio as snap
-from stocks_tracker.core.holding_analysis import analyse, holdings
+from stocks_tracker.core.holding_analysis import analyse, fundamental_metrics, holdings
 from stocks_tracker.core.trading_calendar import sessions
 
 DAY = pd.Timestamp('2026-10-15')
+
+
+def test_fundamental_display_never_confuses_fractions_percentages_and_multiples():
+    assert fundamental_metrics({'trailing_pe':25., 'profit_margin':.25,
+                                'revenue_growth_yoy':-.1, 'net_debt_to_ebitda':2.5}) == {
+        'PER (veces)':25., 'Margen neto (%)':25., 'Crecimiento de ingresos (%)':-10.,
+        'Deuda neta / EBITDA (veces)':2.5}
 
 
 def seed(conn):

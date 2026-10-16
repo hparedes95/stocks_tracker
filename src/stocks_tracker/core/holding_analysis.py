@@ -20,6 +20,15 @@ from .indicators import rsi
 from .trading_calendar import calendar_name, check_history
 
 
+def fundamental_metrics(fund):
+    """Warehouse margins/growth are fractions; P/E and leverage are multiples."""
+    fields = (('trailing_pe', 'PER (veces)', 1),
+              ('profit_margin', 'Margen neto (%)', 100),
+              ('revenue_growth_yoy', 'Crecimiento de ingresos (%)', 100),
+              ('net_debt_to_ebitda', 'Deuda neta / EBITDA (veces)', 1))
+    return {label: round(fund[key] * scale, 2) for key, label, scale in fields if key in fund}
+
+
 def holdings(conn):
     """One row per actual position; never merge CFD and spot quantities."""
     if snap.active(conn):
