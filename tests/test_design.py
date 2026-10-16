@@ -49,6 +49,16 @@ def test_shared_header_escapes_untrusted_section_and_preserves_title(monkeypatch
     assert titles == ['Asesor de acciones']
 
 
+def test_small_price_chart_does_not_flatten_movements_against_an_invisible_zero():
+    import pandas as pd
+
+    from stocks_tracker.app.components.charts import sparkline
+
+    chart = sparkline(pd.Series([100., 101., 102.]))
+    assert chart.data[0].fill != 'tozeroy'
+    assert chart.layout.yaxis.rangemode == 'normal'
+
+
 def test_all_pages_use_shared_header_or_themed_connection_panel():
     pages = Path(project_root() / 'src/stocks_tracker/app/pages')
     for path in pages.glob('*.py'):

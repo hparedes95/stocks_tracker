@@ -37,14 +37,15 @@ def sparkline(values: pd.Series, height: int = 60, positive: bool | None = None)
         go.Scatter(
             y=values.to_numpy(), mode="lines",
             line=dict(color=color, width=2),
-            fill="tozeroy", fillcolor="rgba(0,0,0,0)",
+            # A transparent fill-to-zero still forces the axis down to zero
+            # and flattens price movements. This is a trend line, not an area.
             hoverinfo="skip",
         )
     )
     fig.update_layout(
         height=height, margin=dict(l=0, r=0, t=0, b=0),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        showlegend=False, xaxis=dict(visible=False), yaxis=dict(visible=False),
+        showlegend=False, xaxis=dict(visible=False), yaxis=dict(visible=False, rangemode='normal'),
     )
     del p
     return fig

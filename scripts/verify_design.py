@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from urllib.request import urlopen
 
+from playwright.sync_api import TimeoutError as BrowserTimeout
 from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,7 +58,12 @@ def main():
                     for width, height in ((1366,900), (1920,1080), (390,844)):
                         page.set_viewport_size({'width':width, 'height':height})
                         if width < 640 and page.get_by_test_id('stSidebarCollapseButton').is_visible():
-                            page.get_by_test_id('stSidebarCollapseButton').get_by_role('button').click()
+                            try:
+                                page.get_by_test_id('stSidebarCollapseButton').get_by_role('button').click(timeout=2000)
+                            except BrowserTimeout:
+                                # Streamlit can collapse automatically during
+                                # resize while the old control still exists.
+                                expect(page.get_by_test_id('stExpandSidebarButton')).to_be_visible()
                         cards = page.locator('[class*="st-key-holding-card-"]')
                         expect(cards).to_have_count(3)
                         expect(page.get_by_test_id('stException')).to_have_count(0)
@@ -79,6 +85,11 @@ def main():
                     expect(page.get_by_role('heading', name='Predicción y escenarios', exact=True)).to_be_visible()
                     expect(page.get_by_test_id('stException')).to_have_count(0)
                     page.screenshot(path=OUTPUT / f'prediction-{mode.lower()}.png', full_page=True)
+                    page.get_by_role('link', name='Cartera y watchlist', exact=True).click()
+                    expect(page.get_by_role('heading', name='Cartera y watchlist', exact=True)).to_be_visible()
+                    expect(page.get_by_test_id('stException')).to_have_count(0)
+                    expect(page.get_by_test_id('stDataFrame').first).to_be_visible()
+                    page.screenshot(path=OUTPUT / f'portfolio-{mode.lower()}.png', full_page=True)
                     page.get_by_role('link', name='Asesor de acciones', exact=True).click()
                     expect(page.get_by_role('heading', name='Asesor de acciones', exact=True)).to_be_visible()
                 browser.close()

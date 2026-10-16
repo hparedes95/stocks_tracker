@@ -36,13 +36,16 @@ def render_holding_card(holding, *, prices=None):
                 window = prices.loc[pd.to_datetime(prices.date) <= pd.Timestamp(holding['price_date'])].tail(63)
                 if not window.empty:
                     st.plotly_chart(sparkline(window.adj_close, height=90),
-                                    width='stretch', key=f'holding-chart-{key}',
+                                    width='stretch', height=100, key=f'holding-chart-{key}',
                                     config={'displayModeBar':False})
                     st.caption('Evolución ajustada · últimos 63 cierres · no es tu rentabilidad')
             cols = st.columns(3)
-            cols[0].metric('Retorno ajustado · 63 sesiones', f"{metrics['momentum_3m_pct']:+.2f} %")
-            cols[1].metric('Caída desde el máximo · hasta 253 cierres', f"{metrics['drawdown_pct']:.2f} %")
-            cols[2].metric('Volatilidad diaria · 60 sesiones', f"{metrics['daily_vol_pct']:.2f} %")
+            cols[0].metric('Retorno ajustado', f"{metrics['momentum_3m_pct']:+.2f} %",
+                           help='Variación del precio ajustado en 63 sesiones, no tu beneficio personal.')
+            cols[1].metric('Caída desde máximo', f"{metrics['drawdown_pct']:.2f} %",
+                           help='Distancia al máximo de la ventana de hasta 253 cierres ajustados.')
+            cols[2].metric('Volatilidad diaria', f"{metrics['daily_vol_pct']:.2f} %",
+                           help='Desviación de los retornos diarios de las últimas 60 sesiones.')
             st.caption('Medias y retornos usan precios ajustados; no representan tu beneficio ni la rentabilidad neta del contrato.')
         if holding['reasons']:
             st.write(holding['reasons'][-1])
