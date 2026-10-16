@@ -84,18 +84,18 @@ def main():
                         except BrowserTimeout:
                             # Conversely, desktop resize can reopen the sidebar
                             # before the old expand button receives the click.
-                            expect(page.get_by_role('link', name='Predicción y escenarios', exact=True)).to_be_visible()
+                            expect(page.get_by_test_id('stPageLink-NavLink').filter(has_text='Predicción y escenarios')).to_be_visible()
                     # Charts and tables on another route must use the same theme.
-                    page.get_by_role('link', name='Predicción y escenarios', exact=True).click()
+                    page.get_by_test_id('stPageLink-NavLink').filter(has_text='Predicción y escenarios').click()
                     expect(page.get_by_role('heading', name='Predicción y escenarios', exact=True)).to_be_visible()
                     expect(page.get_by_test_id('stException')).to_have_count(0)
                     page.screenshot(path=OUTPUT / f'prediction-{mode.lower()}.png', full_page=True)
-                    page.get_by_role('link', name='Cartera y watchlist', exact=True).click()
+                    page.get_by_test_id('stPageLink-NavLink').filter(has_text='Cartera y watchlist').click()
                     expect(page.get_by_role('heading', name='Cartera y watchlist', exact=True)).to_be_visible()
                     expect(page.get_by_test_id('stException')).to_have_count(0)
                     expect(page.get_by_test_id('stDataFrame').first).to_be_visible()
                     page.screenshot(path=OUTPUT / f'portfolio-{mode.lower()}.png', full_page=True)
-                    page.get_by_role('link', name='Asesor de acciones', exact=True).click()
+                    page.get_by_test_id('stPageLink-NavLink').filter(has_text='Asesor de acciones').click()
                     expect(page.get_by_role('heading', name='Asesor de acciones', exact=True)).to_be_visible()
                 browser.close()
             (OUTPUT / 'checks.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
