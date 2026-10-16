@@ -49,11 +49,11 @@ def main():
                     page.get_by_test_id(f'stMainMenuItem-theme-{mode}').click()
                     page.get_by_role('heading', name='Asesor de acciones', exact=True).wait_for()
                     expected_color = 'rgb(16, 19, 30)' if mode == 'Dark' else 'rgb(245, 246, 251)'
-                    expect(page.get_by_test_id('stAppViewContainer')).to_have_css('background-color', expected_color)
+                    expect(page.get_by_test_id('stApp')).to_have_css('background-color', expected_color)
                     # The theme must survive a full browser reload.
                     page.reload()
                     expect(page.get_by_role('heading', name='Asesor de acciones', exact=True)).to_be_visible(timeout=60000)
-                    expect(page.get_by_test_id('stAppViewContainer')).to_have_css('background-color', expected_color)
+                    expect(page.get_by_test_id('stApp')).to_have_css('background-color', expected_color)
                     for width, height in ((1366,900), (1920,1080), (390,844)):
                         page.set_viewport_size({'width':width, 'height':height})
                         if width < 640 and page.get_by_test_id('stSidebarCollapseButton').is_visible():
@@ -67,6 +67,9 @@ def main():
                         boxes = [card.bounding_box() for card in cards.all()]
                         assert all(box and box['width'] >= 270 for box in boxes), boxes
                         page.screenshot(path=OUTPUT / f'advisor-{mode.lower()}-{width}.png', full_page=True)
+                        cards.first.scroll_into_view_if_needed()
+                        page.screenshot(path=OUTPUT / f'advisor-{mode.lower()}-{width}-cards.png')
+                        page.get_by_role('heading', name='Asesor de acciones', exact=True).scroll_into_view_if_needed()
                         results.append({'theme':mode, 'width':width, 'height':height, 'cards':len(boxes), 'overflow':overflow})
                     page.set_viewport_size({'width':1366, 'height':900})
                     if page.get_by_test_id('stExpandSidebarButton').is_visible():

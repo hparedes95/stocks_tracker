@@ -2,7 +2,7 @@
    only add hierarchy and spacing. Never hide toolbars, warnings or focus rings. */
 .stMainBlockContainer {
     max-width: 1560px;
-    padding: 1.6rem 2.5rem 4rem;
+    padding: 4.5rem 2.5rem 4rem;
 }
 h1 { letter-spacing: -0.035em; }
 h2, h3 { letter-spacing: -0.018em; }
@@ -60,7 +60,7 @@ h2, h3 { letter-spacing: -0.018em; }
     }
 }
 @media (max-width: 640px) {
-    .stMainBlockContainer { padding: 1.2rem 1rem 3rem; }
+    .stMainBlockContainer { padding: 4.5rem 1rem 3rem; }
     [class*="st-key-holding-card-"] { padding: .9rem; }
     [data-testid="stMetric"] { padding: .7rem; }
 }
