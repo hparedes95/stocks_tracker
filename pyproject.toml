@@ -4,7 +4,11 @@ version = "0.1.0"
 description = "Analisis de acciones, escenarios de mercado y asesor de cartera"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "streamlit>=1.40",
+    # Streamlit 1.64 limita Pillow a <13. La corrección de seguridad requiere
+    # una versión que admita Pillow 13, sin saltarse el resolvedor.
+    "streamlit>=1.66.1",
+    "pillow>=13.0.0",
+    "certifi>=2026.10.19",
     "pandas>=2.2",
     "numpy>=2.0",
     "duckdb>=1.1",
