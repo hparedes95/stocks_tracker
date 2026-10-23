@@ -219,6 +219,10 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
     if valor != valor:
         console.print("[yellow]No se puede valorar toda la cartera. "
                       "No se proponen compras nuevas.[/]")
+        from ..core.portfolio_valuation import issues
+        for item in issues(posiciones, cambios).to_dict('records'):
+            console.print(f"  {item['Símbolo']}: {item['Motivo']} "
+                          f"{item['Qué falta resolver']}", markup=False)
         if not live:
             ranking = ranking.iloc[:0]
     if live and not posiciones.empty:

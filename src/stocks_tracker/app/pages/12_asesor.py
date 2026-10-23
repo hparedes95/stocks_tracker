@@ -27,6 +27,7 @@ from stocks_tracker.app.components.common import render_disclaimer
 from stocks_tracker.app.components.design import page_header, panel
 from stocks_tracker.app.components.holding_card import render_holding_card, research_summary
 from stocks_tracker.app.components.theme import format_money
+from stocks_tracker.app.components.valuation_panel import render_valuation_issues
 from stocks_tracker.app.research_actions import refresh_research
 from stocks_tracker.core.advice import ETIQUETA, Conviccion, Veredicto
 from stocks_tracker.core.advice_store import resumen_honesto
@@ -75,7 +76,10 @@ with st.expander("Actualizar datos y recomendaciones", expanded=False):
         live = snap.active(conn)
         live_issue = snap.readiness(conn)
         synced_cash = snap.cash_eur(conn) if live else None
-        current_positions = _cartera(conn)[0] if live else None
+        current_positions = _cartera(conn)[0]
+        from stocks_tracker.core import fx
+        session = conn.execute('SELECT date FROM current_session').fetchone()
+        valuation_rates = fx.tipos(conn, session[0] if session else None)
         partial_issues = snap.limitations(current_positions)
     if live:
         cash = float(synced_cash) if pd.notna(synced_cash) and synced_cash >= 0 else 0.0
@@ -100,6 +104,7 @@ if live_issue:
 if partial_issues:
     st.warning('Valoración de cartera parcial; los análisis identificados siguen disponibles. '
                'Consulta Actualizar datos y recomendaciones para ver las posiciones afectadas.')
+render_valuation_issues(current_positions, valuation_rates)
 if frozen_market():
     st.info('Estás usando una copia de mercado congelada. Estos botones no descargan precios nuevos '
             'en este modo. Para actualizarlos, confirma que abandonas la copia congelada en Datos compartidos.')

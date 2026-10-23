@@ -89,7 +89,7 @@ def render_freshness_badge() -> None:
     elif info["is_stale"]:
         st.warning(f"{detail}. Conviene actualizar.", icon=":material/schedule:")
     elif info["failures"]:
-        st.caption(f":orange[{detail} · {info['failures']} descargas fallidas]")
+        st.caption(f":orange[{detail} · {info['failures']} descargas fallidas acumuladas en el registro]")
     else:
         st.caption(f":grey[{detail}]")
 

@@ -185,7 +185,7 @@ def con_indices(hasta: date) -> None:
         ]), keys=["ticker", "date"])
 
 
-def test_un_festivo_no_dispara_una_descarga_en_cada_arranque(almacen):
+def test_un_festivo_no_dispara_una_descarga_en_cada_arranque(almacen, monkeypatch):
     """SIN ESTO EL ARREGLO SERIA PEOR QUE EL FALLO.
 
     Si el miercoles fue festivo, no hay cierre del miercoles y no lo va a haber
@@ -208,6 +208,7 @@ def test_un_festivo_no_dispara_una_descarga_en_cada_arranque(almacen):
     Lo que este test protege es lo que dice su nombre: que no descargue en cada
     arranque. Una vez si; en bucle no.
     """
+    monkeypatch.setattr(run_ingest, 'horas_locales', lambda: pd.Timedelta(hours=2))
     sembrar(ultimo_precio=MARTES,
             # 20:30 UTC = 22:30 en Madrid: se intento antes de que el cierre
             # estuviera disponible a las 23:00. Usar 21:30 hacia que el test
@@ -224,7 +225,7 @@ def test_un_festivo_no_dispara_una_descarga_en_cada_arranque(almacen):
         conn.execute(
             "INSERT INTO ingest_log VALUES ('r2', ?, ?, 'prices', 'all', "
             "'OK', 0, 0, '')",
-            [pd.Timestamp("2026-08-20 20:05"), pd.Timestamp("2026-08-20 20:05")],
+            [pd.Timestamp("2026-08-20 18:05"), pd.Timestamp("2026-08-20 18:05")],
         )
 
     segunda, motivo, atrasado = run_ingest.needs_update(
@@ -841,10 +842,12 @@ def test_un_festivo_estadounidense_no_dispara_un_bucle_de_descargas(almacen):
     Se habria cambiado una ceguera por un bucle contra una API gratuita que
     bloquea por abuso.
     """
-    sembrar(ultimo_precio=MIERCOLES, ultima_descarga=datetime(2026, 8, 19, 21, 30))
-    con_los_siete_indices(hasta_us=MIERCOLES, hasta_eu=JUEVES)
+    sembrar(ultimo_precio=date(2026, 7, 2), ultima_descarga=datetime(2026, 7, 2, 21, 30))
+    con_los_siete_indices(hasta_us=date(2026, 7, 2), hasta_eu=date(2026, 7, 3))
+    with db.connect() as conn:
+        conn.execute("UPDATE instruments SET country='US' WHERE ticker='AAA'")
 
-    hace_falta, motivo, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
+    hace_falta, motivo, _ = run_ingest.needs_update(ahora=datetime(2026, 7, 3, 23, 30))
 
     assert not hace_falta, (
         f"tres indices europeos hacen que se baje el universo entero: {motivo}"
@@ -862,7 +865,7 @@ def test_un_festivo_europeo_si_pide_descarga(almacen):
     assert hace_falta
 
 
-def test_la_pantalla_y_el_lanzador_dicen_lo_mismo_en_un_festivo(almacen):
+def test_la_pantalla_y_el_lanzador_dicen_lo_mismo_en_un_festivo(almacen, monkeypatch):
     """Dos partes del programa contestando cosas distintas a la misma pregunta
     es lo que hace que el usuario deje de creerse las dos.
 
@@ -871,10 +874,13 @@ def test_la_pantalla_y_el_lanzador_dicen_lo_mismo_en_un_festivo(almacen):
     """
     from stocks_tracker.app import data_access as da
 
-    sembrar(ultimo_precio=MIERCOLES, ultima_descarga=datetime(2026, 8, 19, 21, 30))
-    con_los_siete_indices(hasta_us=MIERCOLES, hasta_eu=JUEVES)
+    sembrar(ultimo_precio=date(2026, 7, 2), ultima_descarga=datetime(2026, 7, 2, 21, 30))
+    con_los_siete_indices(hasta_us=date(2026, 7, 2), hasta_eu=date(2026, 7, 3))
+    with db.connect() as conn:
+        conn.execute("UPDATE instruments SET country='US' WHERE ticker='AAA'")
+    monkeypatch.setattr(run_ingest, 'ultima_sesion_cerrada', lambda *args: date(2026, 7, 3))
 
-    hace_falta, _, _ = run_ingest.needs_update(ahora=datetime(2026, 8, 20, 23, 30))
+    hace_falta, _, _ = run_ingest.needs_update(ahora=datetime(2026, 7, 3, 23, 30))
 
     assert not hace_falta
     assert da.sesiones_sin_descargar() == 0, (
@@ -957,7 +963,7 @@ def test_los_indices_parados_donde_las_acciones_no_certifican_nada(almacen):
     assert "02/09" in motivo and "31/08" in motivo
 
 
-def test_un_indice_por_delante_si_certifica_el_festivo(almacen):
+def test_un_indice_por_delante_no_certifica_un_festivo_sin_calendario(almacen):
     """El contrapeso, y por que basta UN indice.
 
     En un festivo estadounidense los mercados europeos cotizan igual. Una sola
@@ -975,7 +981,7 @@ def test_un_indice_por_delante_si_certifica_el_festivo(almacen):
     hace_falta, motivo, _ = run_ingest.needs_update(
         ahora=datetime(2026, 8, 20, 23, 30))
 
-    assert not hace_falta, motivo
+    assert hace_falta, motivo
 
 
 def test_ir_por_detras_del_calendario_no_se_pinta_en_verde(almacen):
@@ -994,9 +1000,9 @@ def test_ir_por_detras_del_calendario_no_se_pinta_en_verde(almacen):
     hace_falta, motivo, atrasado = run_ingest.needs_update(
         ahora=datetime(2026, 9, 3, 9, 49))
 
-    assert not hace_falta, "ya se miro despues del cierre: bajar otra vez no arregla"
+    assert hace_falta, "un intento antiguo no puede impedir reintentos mientras falten cierres"
     assert atrasado, "pero se va por detras, y eso hay que decirlo"
-    assert "2 sesiones por detras" in motivo
+    assert '02/09' in motivo and '31/08' in motivo
     assert "al dia" not in motivo
 
 
@@ -1013,6 +1019,42 @@ def test_al_dia_de_verdad_sigue_saliendo_al_dia(almacen):
     assert not hace_falta
     assert not atrasado
     assert "al dia" in motivo
+
+
+def test_reproduce_october_23_missing_close_despite_recent_other_tasks(almacen, monkeypatch):
+    monkeypatch.setattr(run_ingest, 'horas_locales', lambda: pd.Timedelta(hours=2))
+    sembrar(date(2026, 10, 21), datetime(2026, 10, 22, 15))
+    con_indices(date(2026, 10, 21))
+    with db.connect() as conn:
+        conn.execute("UPDATE instruments SET country='US' WHERE ticker='AAA'")
+        conn.execute("INSERT INTO ingest_log VALUES ('funds', '2026-10-23 11:50', '2026-10-23 11:50', "
+                     "'fundamentals','all','OK',1,1,'')")
+    result = run_ingest.needs_update(ahora=datetime(2026, 10, 23, 13, 55))
+    assert result.hace_falta and result.atrasado
+    assert '22/10' in result.motivo and '21/10' in result.motivo
+    assert 'XNYS' in result.motivo
+
+
+def test_failed_price_attempt_has_bounded_backoff_not_permanent_freshness(almacen, monkeypatch):
+    monkeypatch.setattr(run_ingest, 'horas_locales', lambda: pd.Timedelta(hours=2))
+    sembrar(date(2026, 10, 21), datetime(2026, 10, 22, 15))
+    with db.connect() as conn:
+        conn.execute("UPDATE instruments SET country='US' WHERE ticker='AAA'")
+        conn.execute("INSERT INTO ingest_log VALUES ('failed', '2026-10-23 11:50', '2026-10-23 11:50', "
+                     "'prices','all','RATE_LIMITED',0,1,'safe')")
+    first = run_ingest.needs_update(ahora=datetime(2026, 10, 23, 13, 55))
+    assert not first.hace_falta and first.atrasado
+    assert 'reintentar' in first.motivo and 'al dia' not in first.motivo
+    later = run_ingest.needs_update(ahora=datetime(2026, 10, 23, 14, 21))
+    assert later.hace_falta and later.atrasado
+
+
+def test_unknown_calendar_cannot_certify_a_holiday_from_missing_indices(almacen):
+    sembrar(date(2026, 10, 21), datetime(2026, 10, 22, 22))
+    con_indices(date(2026, 10, 21))
+    result = run_ingest.needs_update(ahora=datetime(2026, 10, 23, 13, 55))
+    assert result.hace_falta
+    assert 'no verificado' in result.motivo
 
 
 def test_el_atraso_se_cuenta_en_sesiones_y_no_en_dias():

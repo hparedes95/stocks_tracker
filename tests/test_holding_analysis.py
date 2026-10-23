@@ -148,11 +148,11 @@ def test_refresh_prioritises_only_identified_holdings(conn, monkeypatch):
     monkeypatch.setattr(holding_refresh, 'frozen_market', lambda: False)
     monkeypatch.setattr(holding_refresh, 'ingest_prices', lambda **kw: calls.append(kw['tickers_override']))
     holding_refresh.refresh()
-    assert calls == [['AAPL'], ['CIBR'], ['ITA']]
+    assert calls == [['EURUSD=X'], ['AAPL'], ['CIBR'], ['ITA']]
     monkeypatch.setattr(holding_refresh, 'frozen_market', lambda: True)
     with pytest.raises(ValueError, match='congelada'):
         holding_refresh.refresh()
-    assert len(calls) == 3
+    assert len(calls) == 4
 
 
 def test_held_stock_fundamentals_do_not_wait_for_universe_weekly_shard(conn, monkeypatch):
@@ -205,6 +205,6 @@ def test_one_unavailable_download_does_not_block_other_holdings(conn, monkeypatc
     monkeypatch.setattr(holding_refresh, 'frozen_market', lambda: False)
     monkeypatch.setattr(holding_refresh, 'ingest_prices', ingest)
     holding_refresh.refresh()
-    assert calls == ['AAPL', 'CIBR', 'ITA']
+    assert calls == ['EURUSD=X', 'AAPL', 'CIBR', 'ITA']
     assert conn.execute("SELECT target,status,error FROM ingest_log WHERE task='holding_prices'").fetchall() == [
         ('CIBR', 'FAILED', 'ProviderError')]

@@ -18,6 +18,28 @@ def calendar_name(country=None, exchange=None):
     return EXCHANGES.get(exchange) or COUNTRIES.get(country)
 
 
+def latest_expected_session(conn, cutoff):
+    """Use the majority equity/ETF market, never missing prices as a holiday oracle.
+
+    Unknown or mixed identities fall back conservatively to the caller's cutoff.
+    No network request or configuration is required.
+    """
+    rows = conn.execute("SELECT country, exchange FROM instruments "
+                        "WHERE asset_class IN ('equity','etf') AND is_active").fetchall()
+    names = [calendar_name(country, exchange) for country, exchange in rows]
+    known = [name for name in names if name]
+    if known:
+        winner = max(set(known), key=known.count)
+        if known.count(winner) * 2 > len(names):
+            try:
+                dates = sessions(winner, pd.Timestamp(cutoff) - pd.Timedelta(days=31), cutoff)
+                if len(dates):
+                    return dates[-1].date(), winner
+            except (ValueError, KeyError, ImportError):
+                pass  # An unavailable calendar must not certify freshness.
+    return cutoff, None
+
+
 @lru_cache(maxsize=64)
 def _calendar(name, first_year, last_year):
     import exchange_calendars as xcals

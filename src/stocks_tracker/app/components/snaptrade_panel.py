@@ -12,6 +12,7 @@ from stocks_tracker.core.db import connect
 from stocks_tracker.providers.snaptrade import Client, SnapTradeError
 
 from .design import page_header
+from .valuation_panel import render_valuation_issues
 
 
 def render_snapshot(current):
@@ -40,6 +41,10 @@ def render_snapshot(current):
             frame = snap.portfolio(conn, session[0] if session else None)
         if issue:
             st.warning(issue)
+        from stocks_tracker.core import fx
+        with connect(read_only=True) as conn:
+            rates = fx.tipos(conn, session[0] if session else None)
+        render_valuation_issues(frame, rates)
         if not frame.empty:
             view = frame[['broker_symbol', 'ticker', 'currency', 'valuation_source', 'reason']].rename(columns={
                 'broker_symbol': 'Símbolo del bróker', 'ticker': 'Serie para análisis',

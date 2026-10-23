@@ -152,9 +152,13 @@ def sesiones_sin_descargar() -> int:
         # reiniciar, mientras el lanzador decia "al dia" con razon. Dos partes
         # del programa contestando cosas distintas a la misma pregunta es lo que
         # hace que el usuario deje de creerse las dos.
-        llego = sesiones.ultima_de_los_indices(conn)
-    tope = run_ingest.ultima_sesion_cerrada()
-    return sesiones.sesiones_de_mercado(completa, min(llego, tope) if llego else tope)
+        from ..core.trading_calendar import latest_expected_session, sessions
+        tope, market_calendar = latest_expected_session(conn, run_ingest.ultima_sesion_cerrada())
+    if completa is not None and market_calendar:
+        if completa >= tope:
+            return 0
+        return len(sessions(market_calendar, pd.Timestamp(completa) + pd.Timedelta(days=1), tope))
+    return sesiones.sesiones_de_mercado(completa, tope)
 
 
 def sesiones_a_medias() -> list[tuple]:

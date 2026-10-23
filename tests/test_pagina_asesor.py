@@ -145,6 +145,10 @@ def test_live_positions_and_cfd_analysis_visible_without_any_actionable_order(al
     assert any('no hay propuestas operables' in str(e.value).lower() for e in page.info)
     assert any('CFD · referencia ETF' in str(e.value) for e in page.caption)
     assert sum('Retorno ajustado' in e.label for e in page.metric) == 3
+    blocked = [d.value for d in page.dataframe if 'Motivo' in d.value.columns
+               and 'Símbolo' in d.value.columns]
+    assert blocked and {'CIBR', 'ITA'}.issubset(set(blocked[0]['Símbolo']))
+    assert all('cfd' in reason.lower() for reason in blocked[0].set_index('Símbolo').loc[['CIBR','ITA'], 'Motivo'])
     with db.connect(read_only=True) as conn:
         assert conn.execute('SELECT count(*) FROM recommendations').fetchone()[0] == 0
 
