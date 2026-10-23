@@ -220,11 +220,12 @@ def test_un_festivo_no_dispara_una_descarga_en_cada_arranque(almacen, monkeypatc
         ahora=datetime(2026, 8, 20, 20, 0))
     assert primera, "sin datos posteriores al cierre, hay que ir a mirar"
 
-    # Se descarga y no viene nada: era festivo. Queda constancia.
+    # Se intenta el universo completo sin datos nuevos. No prueba un festivo;
+    # solo activa la pausa corta para no insistir contra la fuente gratuita.
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO ingest_log VALUES ('r2', ?, ?, 'prices', 'all', "
-            "'OK', 0, 0, '')",
+            "INSERT INTO ingest_log VALUES ('r2', ?, ?, 'market_prices_attempt', 'all', "
+            "'STARTED', 0, 0, '')",
             [pd.Timestamp("2026-08-20 18:05"), pd.Timestamp("2026-08-20 18:05")],
         )
 
@@ -237,7 +238,8 @@ def test_un_festivo_no_dispara_una_descarga_en_cada_arranque(almacen, monkeypatc
     )
 
 
-def test_los_indices_por_delante_de_las_acciones_piden_descarga(almacen):
+@pytest.mark.parametrize('offset', [0, 2])
+def test_los_indices_por_delante_de_las_acciones_piden_descarga(almacen, monkeypatch, offset):
     """EL FALLO QUE COSTO TRES DIAS, EN UNA LINEA.
 
     El instalador descarga QUINCE indices y tarda segundos. Eso ponia
@@ -248,6 +250,7 @@ def test_los_indices_por_delante_de_las_acciones_piden_descarga(almacen):
 
     `last_run` no distingue QUE se descargo. Los indices si.
     """
+    monkeypatch.setattr(run_ingest, 'horas_locales', lambda: pd.Timedelta(hours=offset))
     sembrar(ultimo_precio=MARTES,
             # Descarga de hace un minuto: la guarda vieja decia "al dia".
             ultima_descarga=datetime(2026, 8, 20, 17, 55))
@@ -1042,11 +1045,54 @@ def test_failed_price_attempt_has_bounded_backoff_not_permanent_freshness(almace
         conn.execute("UPDATE instruments SET country='US' WHERE ticker='AAA'")
         conn.execute("INSERT INTO ingest_log VALUES ('failed', '2026-10-23 11:50', '2026-10-23 11:50', "
                      "'prices','all','RATE_LIMITED',0,1,'safe')")
+        conn.execute("INSERT INTO ingest_log VALUES ('failed', '2026-10-23 11:50', '2026-10-23 11:50', "
+                     "'market_prices_attempt','all','STARTED',0,0,'')")
     first = run_ingest.needs_update(ahora=datetime(2026, 10, 23, 13, 55))
     assert not first.hace_falta and first.atrasado
     assert 'reintentar' in first.motivo and 'al dia' not in first.motivo
     later = run_ingest.needs_update(ahora=datetime(2026, 10, 23, 14, 21))
     assert later.hace_falta and later.atrasado
+
+
+@pytest.mark.parametrize('scope,asset,expected', [
+    ({}, 'equity', 1),
+    ({}, 'etf', 1),
+    ({'universes': ['indices']}, 'index', 0),
+    ({}, 'index', 0),
+    ({'tickers_override': ['AAA']}, 'equity', 0),
+    ({'tickers_override': ['AAA']}, 'fx', 0),
+    ({'universes': ['sp500']}, 'equity', 0),
+])
+def test_only_whole_market_price_attempts_defer_retries(almacen, monkeypatch, scope, asset, expected):
+    sembrar(MARTES, datetime(2026, 8, 19, 15))
+    with db.connect() as conn:
+        conn.execute('UPDATE instruments SET asset_class=?', [asset])
+    monkeypatch.setattr(run_ingest, '_tickers_to_download', lambda universes=None: ['AAA'])
+
+    class EmptyProvider:
+        def fetch_ohlcv(self, *args):
+            # Attempt must already be recorded, even if the provider returns
+            # no rows or raises before it can report an outcome.
+            with db.connect(read_only=True) as conn:
+                assert conn.execute("SELECT COUNT(*) FROM ingest_log "
+                                    "WHERE task='market_prices_attempt' AND status='STARTED'").fetchone()[0] == expected
+            return pd.DataFrame()
+
+    monkeypatch.setattr(run_ingest, 'get_price_provider', lambda name=None: EmptyProvider())
+    assert run_ingest.ingest_prices(**scope) == 0
+    with db.connect(read_only=True) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM ingest_log WHERE task='prices' AND status='FAILED'").fetchone()[0] == 1
+
+
+def test_no_download_means_no_market_attempt_marker(almacen, monkeypatch):
+    from datetime import timedelta
+
+    monkeypatch.setattr(run_ingest, '_tickers_to_download', lambda universes=None: ['AAA'])
+    monkeypatch.setattr(run_ingest, '_last_dates', lambda: {'AAA': date.today() + timedelta(days=1)})
+    monkeypatch.setattr(run_ingest, 'get_price_provider', lambda name=None: object())
+    assert run_ingest.ingest_prices() == 0
+    with db.connect(read_only=True) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM ingest_log WHERE task='market_prices_attempt'").fetchone()[0] == 0
 
 
 def test_unknown_calendar_cannot_certify_a_holiday_from_missing_indices(almacen):

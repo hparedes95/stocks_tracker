@@ -6,11 +6,13 @@ que reúne la mayoría de acciones y ETF identificados. Usa la dependencia local
 `exchange_calendars`, sin claves ni servicios nuevos. Si no puede identificar un
 calendario mayoritario, lo indica y no deduce festivos de la ausencia de precios.
 
-Los intentos de precios, incluidos fallos y límites de peticiones, tienen una
-pausa de 30 minutos entre comprobaciones automáticas para proteger las fuentes
+Los intentos identificados del universo completo, incluso si después fallan o
+agotan el límite de peticiones, tienen una pausa de 30 minutos entre
+comprobaciones automáticas para proteger las fuentes
 gratuitas. La pausa no significa que los datos estén al día ni programa una tarea:
 el siguiente arranque puede reintentarlo al vencer. Las tareas de fundamentales
-no reinician esa pausa. La actualización explícita del Asesor sigue disponible.
+no reinician esa pausa, ni tampoco descargar solo índices, divisas o posiciones
+individuales. La actualización explícita del Asesor sigue disponible.
 Las copias de mercado congeladas conservan su comportamiento: no se descargan
 datos hasta que el usuario decida abandonar la copia.
 Si tras descargar y calcular continúa faltando una sesión completa, la acción

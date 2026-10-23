@@ -407,6 +407,14 @@ def ingest_prices(provider_name: str | None = None, full: bool = False,
         console.print("[green]Precios ya al dia.[/]")
         return 0
 
+    # Only an actual whole-market request can defer the next whole-market
+    # retry. A holding, FX pair or index-only bootstrap must not suppress it.
+    # STARTED records intent before network I/O, never successful coverage.
+    if tickers_override is None and not universes:
+        with connect() as conn:
+            if _con_ohlc(conn).intersection(tickers):
+                _log(conn, run_id, "market_prices_attempt", "all", "STARTED")
+
     total = 0
     revisiones_totales = 0
     problemas: list = []
@@ -749,8 +757,8 @@ def needs_update(max_age_hours: float | None = None,
             tope = ultima_sesion_cerrada(momento)
             expected, market_calendar = latest_expected_session(conn, tope)
             last_price_attempt = conn.execute(
-                "SELECT MAX(finished_at) FROM ingest_log WHERE task IN ('prices','holding_prices') "
-                "AND status IN ('OK','PARTIAL','FAILED','RATE_LIMITED')"
+                "SELECT MAX(finished_at) FROM ingest_log WHERE task='market_prices_attempt' "
+                "AND status='STARTED'"
             ).fetchone()[0]
             last_run = conn.execute(
                 "SELECT MAX(finished_at) FROM ingest_log WHERE status IN ('OK','PARTIAL')"
