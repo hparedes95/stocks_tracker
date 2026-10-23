@@ -30,9 +30,11 @@ ROUTES = (
 def set_sidebar(page, *, opened):
     expect(page.get_by_test_id('stApp')).to_have_attribute('data-test-script-state', 'notRunning', timeout=60000)
     sidebar = page.get_by_test_id('stSidebar')
-    target_state = 'true' if opened else 'false'
+    # Streamlit 1.66 exposes sidebar state as data-collapsed. aria-expanded
+    # now belongs to the native toggle buttons, not the sidebar container.
+    target_state = 'false' if opened else 'true'
     for attempt in range(3):
-        if sidebar.get_attribute('aria-expanded') == target_state:
+        if sidebar.get_attribute('data-collapsed') == target_state:
             return
         try:
             if opened:
@@ -42,7 +44,7 @@ def set_sidebar(page, *, opened):
                 # A responsive resize can briefly retain that desktop behavior.
                 sidebar.hover(timeout=3000)
                 page.get_by_test_id('stSidebarCollapseButton').get_by_role('button').click(timeout=3000)
-            expect(sidebar).to_have_attribute('aria-expanded', target_state, timeout=3000)
+            expect(sidebar).to_have_attribute('data-collapsed', target_state, timeout=3000)
             return
         except (BrowserTimeout, AssertionError):
             if attempt == 2:
