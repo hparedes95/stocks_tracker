@@ -29,7 +29,7 @@ jobs:
         run: uv run --extra dev --with playwright==1.58.0 --locked python scripts/verify_design.py
       - name: Visual captures (fictional data only)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stocks-tracker-design-qa
           path: reports/design-qa/
