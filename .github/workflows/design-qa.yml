@@ -10,7 +10,9 @@ permissions:
 jobs:
   design:
     name: Light and dark · responsive UI
-    runs-on: ubuntu-latest
+    # Playwright 1.58 is pinned below and supports Ubuntu 24.04, not 26.04.
+    # Do not let a moving runner image disable the browser checks.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
