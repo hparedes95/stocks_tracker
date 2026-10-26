@@ -86,6 +86,20 @@ def _pintar() -> AppTest:
     return prueba
 
 
+def test_saving_profile_applies_new_horizon_in_the_same_render(almacen, monkeypatch):
+    from stocks_tracker.app import runtime_reads
+
+    seen = []
+    monkeypatch.setattr(runtime_reads, 'get_holding_analysis',
+                        lambda *, horizon: seen.append(horizon) or [])
+    page = _pintar()
+    horizon = next(s for s in page.selectbox if s.label == 'Horizonte de la recomendación (meses)')
+    horizon.set_value(1)
+    next(b for b in page.button if b.label == 'Guardar perfil del asesor').click().run()
+    assert not page.exception
+    assert seen[-1] == 21
+
+
 def test_el_marcador_vacio_se_explica_en_vez_de_parecer_roto(almacen):
     """LO PRIMERO QUE VA A VER EL USUARIO, y va a durar meses.
 

@@ -190,15 +190,6 @@ def test_watchlist_and_positions_do_not_multiply(warehouse_with_presets):
     assert len(_uncached(da.get_positions)()) == 1
 
 
-def test_alert_context_does_not_multiply(warehouse_with_presets):
-    """Sin el filtro, la misma regla generaria una alerta por estilo."""
-    from stocks_tracker.alerts import evaluate as ev
-
-    snapshot = ev._load_context()["snapshot"]
-    assert len(snapshot) == 2
-    assert sorted(snapshot["ticker"]) == ["AAA", "BBB"]
-
-
 def test_preset_weights_all_sum_to_one():
     cfg = get_factor_config()
     for name in preset_names():

@@ -131,6 +131,9 @@ def analyse(conn, *, as_of=None, horizon=126):
     """Dated, read-only reports. Missing data on one holding cannot hide others."""
     cutoff = pd.Timestamp(as_of or date.today()).normalize()
     result = []
+    # Varios lotes/contratos pueden referirse al mismo subyacente. Reutilizar
+    # solo las observaciones de esta lectura, nunca cantidades ni opiniones.
+    markets, technicals, funds, forecasts, unsafe_history = {}, {}, {}, {}, {}
     account_issue = snap.readiness(conn) if snap.active(conn) else ''
     for pos in holdings(conn):
         report = {**pos, 'cutoff': str(cutoff.date()), 'price_date': None, 'source': None,
@@ -146,17 +149,23 @@ def analyse(conn, *, as_of=None, horizon=126):
         if not pos['ticker']:
             report['limitations'].append(pos['identity_note'] or 'No se identifica el instrumento con seguridad.')
             continue
-        prices = _market(conn, pos['ticker'], cutoff)
+        ticker = pos['ticker']
+        if ticker not in markets:
+            markets[ticker] = _market(conn, ticker, cutoff)
+            technicals[ticker] = _technical(markets[ticker], cutoff)
+            unsafe_history[ticker] = (markets[ticker].quarantined.any() or
+                                     any('synthetic' in str(s).lower() for s in markets[ticker].source))
+        prices = markets[ticker]
         if not prices.empty:
             report.update(price_date=str(pd.Timestamp(prices.date.iloc[-1]).date()),
                           source=str(prices.source.iloc[-1] or 'sin fuente'))
-        metrics, issue = _technical(prices, cutoff)
+        metrics, issue = technicals[ticker]
         if issue:
             report['limitations'].append(issue)
             continue
         if not prices.attrs.get('calendar'):
             report['limitations'].append('Calendario bursátil no identificado: continuidad comprobada solo por huecos de fechas.')
-        report['metrics'] = metrics
+        report['metrics'] = metrics.copy()
         report['stance'], report['reasons'] = _opinion(metrics, short=pos['qty'] < 0)
         if pos['kind'] == 'cfd':
             report['stance'] = {
@@ -172,8 +181,10 @@ def analyse(conn, *, as_of=None, horizon=126):
         if account_issue:
             report['stance'] = 'Lectura de mercado; cartera sin sincronizar'
         if pos['asset_class'] in ('equity', 'stock', 'adr'):
-            fund = conn.execute('SELECT * FROM fundamentals_snapshot WHERE ticker=? AND as_of<=? '
-                                'ORDER BY as_of DESC LIMIT 1', [pos['ticker'], cutoff.date()]).fetchdf()
+            if ticker not in funds:
+                funds[ticker] = conn.execute('SELECT * FROM fundamentals_snapshot WHERE ticker=? AND as_of<=? '
+                                            'ORDER BY as_of DESC LIMIT 1', [ticker, cutoff.date()]).fetchdf()
+            fund = funds[ticker]
             if not fund.empty:
                 f = fund.iloc[0]
                 source = str(f.source or '').strip()
@@ -195,10 +206,12 @@ def analyse(conn, *, as_of=None, horizon=126):
             report['limitations'].append('Análisis de precios; no se aplican márgenes o deuda de empresa a un ETF o una criptomoneda.')
         # A quarantined bar anywhere in the longer series invalidates scenarios,
         # without invalidating an otherwise clean recent technical window.
-        if prices.quarantined.any() or any('synthetic' in str(s).lower() for s in prices.source):
+        if unsafe_history[ticker]:
             report['limitations'].append('Escenarios omitidos: hay precios en cuarentena o sintéticos en el histórico largo.')
         else:
-            forecast = scenarios(prices, horizon=horizon, as_of=cutoff)
+            if ticker not in forecasts:
+                forecasts[ticker] = scenarios(prices, horizon=horizon, as_of=cutoff)
+            forecast = forecasts[ticker]
             if forecast.reason:
                 report['limitations'].append('Escenarios: ' + forecast.reason)
             else:

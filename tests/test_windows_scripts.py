@@ -326,7 +326,7 @@ def test_synthetic_warning_says_the_data_is_not_real():
     los precios no coinciden con el mercado."""
     common = (project_root() / "src/stocks_tracker/app/components/common.py").read_text("utf-8")
     banner = common[common.index("def render_data_origin_banner"):]
-    banner = banner[:banner.index("def render_pending_alerts_badge")]
+    banner = banner[:banner.index("def render_integrity_badge")]
 
     for word in ("INVENTADOS", "no sirven para decidir", "ingest"):
         assert word in banner, f"El aviso no menciona '{word}'"

@@ -67,6 +67,30 @@ def test_actual_live_holdings_get_analysis_without_dates_or_saved_orders(conn):
     assert not book.loc[book.broker_symbol.isin(['CIBR', 'ITA']), 'supported'].any()
 
 
+def test_repeated_underlying_is_read_once_without_merging_contracts(conn, monkeypatch):
+    from unittest.mock import patch
+
+    from stocks_tracker.core import holding_analysis as module
+
+    base = holdings(conn)[0]
+    positions = [base, {**base, 'id': 'short', 'qty': -1},
+                 {**base, 'id': 'cfd', 'kind': 'cfd', 'qty': 3}]
+    expected = []
+    for position in positions:
+        monkeypatch.setattr(module, 'holdings', lambda c, p=position: [p])
+        expected.extend(analyse(conn, as_of=DAY))
+    monkeypatch.setattr(module, 'holdings', lambda c: positions)
+    with patch.object(module, '_market', wraps=module._market) as market, \
+            patch.object(module, 'scenarios', wraps=module.scenarios) as scenarios:
+        actual = analyse(conn, as_of=DAY)
+        assert actual == expected
+        assert market.call_count == scenarios.call_count == 1
+    assert len({r['id'] for r in actual}) == 3
+    assert len({r['stance'] for r in actual}) == 3
+    actual[0]['metrics'].clear()
+    assert actual[1]['metrics']
+
+
 @pytest.mark.parametrize('mutation, expected', [
     ("DELETE FROM prices_daily WHERE ticker='CIBR'", 'No hay histórico'),
     ("UPDATE prices_daily SET source='synthetic' WHERE ticker='CIBR'", 'sintética'),

@@ -12,6 +12,7 @@ import streamlit as st
 from stocks_tracker.app import data_access as da
 from stocks_tracker.app.components.common import render_disclaimer
 from stocks_tracker.app.components.design import page_header
+from stocks_tracker.app.runtime_reads import get_integrity
 from stocks_tracker.core import audit, consistency, integrity, quarantine
 from stocks_tracker.core.db import connect, table_counts
 
@@ -25,8 +26,7 @@ page_header("Estado de los datos", section="Sistema")
 # que recorrerlas todas. Aqui estan las ocho en una lista.
 st.subheader("Integridad del sistema")
 
-with connect(read_only=True) as _conn:
-    _puntos = integrity.revisar(_conn)
+_puntos = get_integrity()
 
 _veredicto = integrity.veredicto(_puntos)
 _pendientes = integrity.pendientes(_puntos)

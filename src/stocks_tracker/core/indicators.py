@@ -200,14 +200,28 @@ def drawdown(series: pd.Series) -> pd.Series:
 
 
 def max_drawdown(series: pd.Series, window: int = SESSIONS_YEAR) -> pd.Series:
-    """Peor caida dentro de una ventana movil. Valor negativo."""
-    def _mdd(values: np.ndarray) -> float:
-        peak = np.maximum.accumulate(values)
-        return float(np.min(values / peak - 1.0))
+    """Peor caída en cada ventana completa, sin callbacks Python por sesión.
 
-    # Media ventana daria una caida maxima medida sobre medio periodo:
-    # siempre menor que la real, que es el error que tranquiliza.
-    return series.rolling(window=window, min_periods=window).apply(_mdd, raw=True)
+    Bloques acotados: vectorizar todo el histórico de una vez multiplicaría la
+    memoria por 252. Cada ventana mantiene su propio máximo y nunca mira futuro.
+    """
+    if not isinstance(window, (int, np.integer)) or window <= 0:
+        raise ValueError("window must be a positive integer")
+    values = series.to_numpy(dtype=float, na_value=np.nan, copy=True)
+    # pandas rolling considera también los infinitos como observaciones ausentes.
+    values[~np.isfinite(values)] = np.nan
+    result = np.full(len(values), np.nan)
+    if len(values) >= window:
+        windows = np.lib.stride_tricks.sliding_window_view(values, window)
+        block_size = max(1, 1_048_576 // window)
+        for start in range(0, len(windows), block_size):
+            block = windows[start:start + block_size]
+            peaks = np.maximum.accumulate(block, axis=1)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                np.divide(block, peaks, out=peaks)
+                peaks -= 1.0
+            result[start + window - 1:start + window - 1 + len(block)] = peaks.min(axis=1)
+    return pd.Series(result, index=series.index, name=series.name)
 
 
 def consecutive_true(flags: pd.Series) -> pd.Series:

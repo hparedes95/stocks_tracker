@@ -989,30 +989,6 @@ def remove_from_watchlist(ticker: str) -> None:
 
 
 # --------------------------------------------------------------------------
-# Alertas
-# --------------------------------------------------------------------------
-@st.cache_data(ttl=60, show_spinner=False)
-def get_alerts(days: int = 30, only_pending: bool = False) -> pd.DataFrame:
-    clause = " AND NOT acknowledged" if only_pending else ""
-    return _fetch(
-        f"""
-        SELECT a.*, inst.name, inst.gics_sector
-        FROM alerts a
-        LEFT JOIN instruments inst ON inst.ticker = a.ticker
-        WHERE a.triggered_at >= (CURRENT_TIMESTAMP - INTERVAL (?) DAY) {clause}
-        ORDER BY a.triggered_at DESC
-        """,
-        [days],
-    )
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def count_pending_alerts() -> int:
-    df = _fetch("SELECT COUNT(*) AS n FROM alerts WHERE NOT acknowledged")
-    return int(df.iloc[0]["n"]) if not df.empty else 0
-
-
-# --------------------------------------------------------------------------
 # Cartera
 # --------------------------------------------------------------------------
 @st.cache_data(ttl=60, show_spinner=False)

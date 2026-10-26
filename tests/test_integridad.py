@@ -266,8 +266,10 @@ def test_el_dashboard_actualiza_el_esquema_al_arrancar():
 
     src = (project_root() / "src/stocks_tracker/app/main.py").read_text("utf-8")
 
-    assert "migrate()" in src, "el dashboard ya no pone al dia el esquema"
-    assert "_actualizar_esquema" in src
+    assert "from stocks_tracker.app.runtime_reads import prepare_schema" in src
+    assert src.index("prepare_schema()") < src.index("navigation.run()")
+    # La nueva frontera cachea solo el éxito. Su llamada real a migrate y el
+    # reintento tras bloqueo se ejercitan en test_runtime_optimization.
     # Y no puede tumbar el arranque: DuckDB admite un solo escritor, asi que
     # abrir el dashboard mientras corre la ingesta tiene que seguir funcionando.
     assert "except Exception" in src

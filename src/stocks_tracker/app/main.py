@@ -39,41 +39,14 @@ st.set_page_config(
 apply_design()
 
 
-@st.cache_resource
-def _actualizar_esquema() -> str:
-    """Pone al dia las tablas al arrancar el dashboard.
+from stocks_tracker.app.runtime_reads import prepare_schema  # noqa: E402
 
-    Hasta ahora el esquema solo se actualizaba al ingerir o al calcular. Un
-    usuario que actualiza el programa y abre el dashboard ANTES de descargar
-    nada se encontraba un "Catalog Error: Table with name X does not exist" en
-    la cara: la version nueva del codigo consulta una tabla que su almacen,
-    creado con la version anterior, todavia no tiene.
-
-    Se vio en el propio almacen de desarrollo con `price_consensus`, y es un
-    fallo que llega a cualquier instalacion ya existente en cuanto se anade una
-    tabla. Migrar aqui lo resuelve para todas de una vez.
-
-    Es seguro: el esquema entero son `CREATE TABLE IF NOT EXISTS` y
-    `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, asi que ejecutarlo mil veces
-    deja lo mismo que ejecutarlo una.
-
-    Si falla no se para el dashboard. El motivo tipico es que la ingesta este
-    corriendo en ese momento —DuckDB admite un solo escritor— y en ese caso el
-    esquema ya lo esta actualizando ella.
-
-    `cache_resource` y no `cache_data`: se ejecuta una vez por proceso, no una
-    vez por sesion de navegador.
-    """
-    from stocks_tracker.core.db import migrate
-
-    try:
-        migrate()
-    except Exception as exc:  # noqa: BLE001
-        return f"{type(exc).__name__}: {exc}"
-    return ""
-
-
-_fallo_esquema = _actualizar_esquema()
+try:
+    prepare_schema()
+except Exception as exc:  # noqa: BLE001 — frontera de arranque, reintento posterior
+    _fallo_esquema = type(exc).__name__
+else:
+    _fallo_esquema = ""
 
 # Cinta de cotizaciones: pulso permanente, fuera de la navegacion para que
 # aparezca en todas las paginas.

@@ -29,10 +29,10 @@ from stocks_tracker.app.components.holding_card import render_holding_card, rese
 from stocks_tracker.app.components.theme import format_money
 from stocks_tracker.app.components.valuation_panel import render_valuation_issues
 from stocks_tracker.app.research_actions import refresh_research
+from stocks_tracker.app.runtime_reads import get_holding_analysis
 from stocks_tracker.core.advice import ETIQUETA, Conviccion, Veredicto
 from stocks_tracker.core.advice_store import resumen_honesto
 from stocks_tracker.core.db import connect
-from stocks_tracker.core.holding_analysis import analyse as analyse_holdings
 from stocks_tracker.core.investor_profile import load as load_profile
 from stocks_tracker.core.investor_profile import save as save_profile
 from stocks_tracker.core.market_bundle import frozen_market
@@ -62,6 +62,7 @@ with st.expander("Tu horizonte, costes y límites", expanded=False):
             save_profile(conn, {'horizon_months': months, 'roundtrip_pct': cost_pct,
                                'max_loss_pct': loss_pct, 'max_cluster_pct': cluster_pct,
                                'confirmed': confirm_profile})
+            profile = load_profile(conn)
         st.cache_data.clear()
         st.success("Perfil guardado. Recalcula el asesor para aplicarlo.")
 
@@ -123,8 +124,7 @@ if download or recalculate:
 st.subheader('Análisis actual de tus posiciones')
 st.caption('Lectura de mercado independiente de la fecha de compra. Las orientaciones técnicas '
            'no son órdenes ni una ventaja predictiva validada. Los importes operables se evalúan por separado.')
-with connect(read_only=True) as conn:
-    holding_reports = analyse_holdings(conn, horizon={1:21, 3:63, 6:126}[profile['horizon_months']])
+holding_reports = get_holding_analysis(horizon={1:21, 3:63, 6:126}[profile['horizon_months']])
 if not holding_reports:
     st.info('No hay posiciones abiertas para analizar. Conecta tu cartera o añade tus posiciones.')
 if holding_reports:
