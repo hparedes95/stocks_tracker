@@ -383,10 +383,12 @@ exchange-calendars==4.13.2 \
     --hash=sha256:a9459425dd64142cd54fbc639847403c7e0c33d60fbc326c94fc1d6bd127f002 \
     --hash=sha256:fc5a2ad0d61b5c3a6539a3061cd4cbb55c59f4a903455cec7926e4b798919996
     # via stocks-tracker
-filelock==4.0.1 \
-    --hash=sha256:481a321a27bef441e23c53371c6abc8d7d16e26b97090074ba44f7538a3fd55a \
-    --hash=sha256:fdefc3f3e87716d855ae2b732c1cfd521dd99799ef2b4d00e8c0d4dcdc7cc94b
-    # via cachecontrol
+filelock==4.2.1 \
+    --hash=sha256:7be2662e9e826b9bba28afc0f843a123280d799a2ea44bb5d35ccec67905ae44 \
+    --hash=sha256:c4c937ccac2a813cee448e662a56366cfb374c0f8702e75f295c412cc1c5d5a3
+    # via
+    #   cachecontrol
+    #   stocks-tracker
 fredapi==0.5.2 \
     --hash=sha256:405ca048abed4207d93dbc9b7ee8c46d6b473483650323e2f1c094af83d4b247 \
     --hash=sha256:961817ec8d70e58886ff7302d3dda908614ad99f77831a59833c4fc3f6150155

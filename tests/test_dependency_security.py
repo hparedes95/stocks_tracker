@@ -43,6 +43,19 @@ def test_running_environment_uses_patched_dependencies(name, floor):
     assert Version(version(name)) >= Version(floor)
 
 
+def test_auditor_filelock_is_patched_without_adding_it_to_runtime():
+    project = tomllib.loads((ROOT / 'pyproject.toml').read_text(encoding='utf-8'))
+    dev = {r.name: r.specifier for r in map(Requirement, project['project']['optional-dependencies']['dev'])}
+    assert Version('4.2.1') in dev['filelock']
+    assert Version('4.0.1') not in dev['filelock']
+    packages = tomllib.loads((ROOT / 'uv.lock').read_text(encoding='utf-8'))['package']
+    locked = next(p['version'] for p in packages if p['name'] == 'filelock')
+    assert Version(locked) >= Version('4.2.1')
+    assert f'filelock=={locked} ' in (ROOT / 'requirements-dev.lock').read_text(encoding='utf-8')
+    assert 'filelock==' not in (ROOT / 'requirements-runtime.lock').read_text(encoding='utf-8')
+    assert Version(version('filelock')) >= Version('4.2.1')
+
+
 def test_updated_ca_bundle_loads_without_disabling_tls_checks():
     context = ssl.create_default_context(cafile=certifi.where())
     assert context.verify_mode == ssl.CERT_REQUIRED

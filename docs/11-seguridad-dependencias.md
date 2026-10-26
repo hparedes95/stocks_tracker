@@ -20,3 +20,15 @@ Referencias de los mantenedores:
 
 - https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2
 - https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html
+
+## Revisión del 26/10/2026
+
+La auditoría detectó tres avisos conocidos en `filelock 4.0.1`:
+`CVE-2026-112940`, `CVE-2026-112913` y `CVE-2026-112907`. Se actualiza a
+`4.2.1` y se fija ese mínimo en el extra de desarrollo. Llega a través del
+auditor y no forma parte de `requirements-runtime.lock` ni de la instalación
+normal del `.bat`. No se amplía el paquete que recibe el usuario.
+
+Referencias del mantenedor: [versión corregida](https://github.com/tox-dev/filelock/releases/tag/4.2.1),
+[aviso POSIX](https://github.com/tox-dev/filelock/security/advisories/GHSA-v4x8-3wr5-3wq8),
+[aviso Windows](https://github.com/tox-dev/filelock/security/advisories/GHSA-9vhv-jxww-xfm5).

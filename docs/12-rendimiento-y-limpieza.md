@@ -56,7 +56,8 @@ por el asesor. El código retirado sigue recuperable en el historial Git.
 No se eliminan tablas antiguas, cartera, credenciales, CSV, históricos ni copias
 de seguridad. Tampoco se borran instalaciones del usuario para simular ahorro
 de espacio. Los temporales de pytest y las coberturas auxiliares quedan fuera
-del repositorio. No se añaden dependencias ni se cambian las versiones bloqueadas.
+del repositorio. No se añaden dependencias de ejecución; se corrige `filelock`
+del entorno de desarrollo según la auditoría, sin modificar el paquete del `.bat`.
 
 ## Verificación y actualización
 
