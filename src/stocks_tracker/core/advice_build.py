@@ -91,13 +91,21 @@ def de_la_cartera(salud: pd.DataFrame, posiciones: pd.DataFrame,
     return fuera
 
 
+def candidate_rows(ranking, held, limite=25):
+    """Owned assets first, plus a bounded discovery list, without duplicates."""
+    unique = ranking.drop_duplicates("ticker")
+    return pd.concat([unique[unique.ticker.isin(held)],
+                      unique[~unique.ticker.isin(held)].head(limite)])
+
+
 def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
                       regimen: str = "neutral", n_posiciones: int = 0,
                       pesos_actuales: dict[str, float] | None = None,
                       pesos_sector: dict[str, float] | None = None,
                       avisos_fiscales: dict[str, str] | None = None,
                       tipos_cambio: dict[str, float] | None = None,
-                      limite: int = 25) -> list[Recomendacion]:
+                      limite: int = 25, review=None, entry_cost: float = 0.0,
+                      held_tickers=None) -> list[Recomendacion]:
     """Un veredicto por candidato del ranking.
 
     `limite` no es paginacion: es que una lista larga no se lee. Con
@@ -114,7 +122,10 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
     tipos_cambio = tipos_cambio or {}
 
     fuera: list[Recomendacion] = []
-    for _, fila in ranking.drop_duplicates("ticker").head(limite).iterrows():
+    held = set(pesos_actuales) if held_tickers is None else set(held_tickers)
+    # Never lose an owned asset behind the top-25 discovery limit.
+    selected = candidate_rows(ranking, held, limite)
+    for _, fila in selected.iterrows():
         ticker = str(fila["ticker"])
         precio = as_float(fila.get("close"))
         atr_pct = as_float(fila.get("atr_pct"))
@@ -160,20 +171,23 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
             cobertura=as_float(fila.get("coverage")),
             banderas=red_flags(fila),
             precio=precio, atr14=atr14,
-            equity=equity, caja=caja, regimen=regimen,
+            equity=equity, caja=caja / (1 + entry_cost), regimen=regimen,
             n_posiciones=n_posiciones,
-            peso_actual_pct=pesos_actuales.get(ticker),
+            peso_actual_pct=pesos_actuales.get(ticker, 0.0 if ticker in held else None),
             peso_sector_pct=pesos_sector.get(str(fila.get("gics_sector") or "")),
             motivos_ranking=_motivos_del_ranking(fila),
             aviso_fiscal=avisos_fiscales.get(ticker, ""),
             tipo_cambio=cambio,
         )
+        if review is not None:
+            propuesta = review(propuesta)
         fuera.append(propuesta)
         if propuesta.veredicto in (advice.Veredicto.COMPRAR, advice.Veredicto.AMPLIAR):
             importe = propuesta.importe_eur or 0.0
-            caja = max(0.0, caja - importe)
-            if ticker not in pesos_actuales:
+            caja = max(0.0, caja - importe * (1 + entry_cost))
+            if ticker not in held:
                 n_posiciones += 1
+                held.add(ticker)
             peso = importe / equity * 100 if equity > 0 else 0.0
             pesos_actuales[ticker] = pesos_actuales.get(ticker, 0.0) + peso
             sector = str(fila.get("gics_sector") or "")

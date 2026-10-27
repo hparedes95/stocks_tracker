@@ -9,6 +9,7 @@ from stocks_tracker.core.advice import Conviccion, Recomendacion, Veredicto
 from stocks_tracker.core.db import schema_path
 from stocks_tracker.core.investor_profile import DEFAULTS, save
 from stocks_tracker.core.predictive_validation import Validation
+from stocks_tracker.core.trading_calendar import sessions
 
 
 @pytest.fixture
@@ -16,6 +17,11 @@ def connection():
     c = duckdb.connect(':memory:')
     c.execute(schema_path().read_text(encoding='utf-8'))
     c.execute("INSERT INTO instruments(ticker,country,currency) VALUES ('AAA','Spain','EUR'), ('EWP','US','USD')")
+    days = sessions('XMAD', date.today() - timedelta(days=450), date.today())[-260:]
+    prices = pd.DataFrame({'ticker': 'AAA', 'date': days, 'adj_close': range(100, 100 + len(days)),
+                           'close': range(100, 100 + len(days)), 'source': 'fixture'})
+    from stocks_tracker.core.db import upsert_df
+    upsert_df(c, 'prices_daily', prices, keys=['ticker', 'date'])
     yield c
     c.close()
 
@@ -94,7 +100,7 @@ def test_profile_rejects_nonfinite_limits(connection):
 
 @pytest.mark.parametrize('bound', [float('nan'), float('inf'), float('-inf')])
 def test_nonfinite_evidence_never_authorizes_purchase(connection, monkeypatch, bound):
-    save(connection, {**DEFAULTS, 'confirmed': True})
+    save(connection, {**DEFAULTS, 'confirmed': True, 'recommendation_mode': 'validated'})
     monkeypatch.setattr(gate, 'validate_models', lambda *a, **k: Validation('test', 30, True, bound))
     assert run(connection)[0].veredicto == Veredicto.SIN_OPINION
 
@@ -122,3 +128,27 @@ def test_invalid_purchase_numbers_are_rejected(connection, monkeypatch, field, v
 @pytest.mark.parametrize('cash', [None, 'invalid', float('nan'), -1])
 def test_invalid_cash_blocks_instead_of_crashing(connection, cash):
     assert run(connection, cash=cash)[0].veredicto == Veredicto.SIN_OPINION
+
+
+def test_rules_can_recommend_without_waiting_years_but_do_not_claim_validation(connection):
+    save(connection, {**DEFAULTS, 'confirmed': True})
+    rec = run(connection)[0]
+    assert rec.veredicto == Veredicto.COMPRAR
+    assert rec.conviccion == Conviccion.BAJA
+    assert rec.assessment['decision_basis'] == 'rules'
+    assert 'sin ventaja predictiva demostrada' in rec.assessment['evidencia']
+    assert connection.execute('SELECT COUNT(*) FROM orders').fetchone()[0] == 0
+    save(connection, {**DEFAULTS, 'confirmed': True, 'recommendation_mode': 'validated'})
+    assert run(connection)[0].veredicto == Veredicto.SIN_OPINION
+
+
+@pytest.mark.parametrize('mutation', [
+    "DELETE FROM prices_daily",
+    "UPDATE prices_daily SET source='synthetic'",
+    "UPDATE prices_daily SET adj_close=-1",
+    "INSERT INTO prices_quarantine(ticker,date) SELECT ticker,MAX(date) FROM prices_daily GROUP BY ticker",
+])
+def test_rules_never_bypass_price_quality(connection, mutation):
+    save(connection, {**DEFAULTS, 'confirmed': True})
+    connection.execute(mutation)
+    assert run(connection)[0].veredicto == Veredicto.SIN_OPINION

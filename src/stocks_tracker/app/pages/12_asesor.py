@@ -37,6 +37,183 @@ from stocks_tracker.core.investor_profile import load as load_profile
 from stocks_tracker.core.investor_profile import save as save_profile
 from stocks_tracker.core.market_bundle import frozen_market
 
+
+def _render_saved_recommendations():
+    COLOR = {
+        Veredicto.VENDER: "🔴", Veredicto.REDUCIR: "🟠", Veredicto.COMPRAR: "🟢",
+        Veredicto.AMPLIAR: "🟢", Veredicto.MANTENER: "⚪", Veredicto.VETADA: "⛔",
+        Veredicto.SIN_OPINION: "❔",
+    }
+    FUERZA = {Conviccion.ALTA: "coincidencia alta con las reglas",
+              Conviccion.MEDIA: "coincidencia media con las reglas",
+              Conviccion.BAJA: "coincidencia baja con las reglas"}
+
+    st.divider()
+
+    # ===========================================================================
+    # 2. Los consejos GUARDADOS de la ultima sesion
+    # ===========================================================================
+    # La pantalla LEE lo que escribio `run_advice`; no vuelve a calcular.
+    #
+    # Si recalculara al vuelo y el marcador puntuara lo guardado, los dos podrian
+    # separarse —basta con que cambie un precio entre una cosa y otra— y el marcador
+    # estaria puntuando consejos que nadie llego a ver. Que lo que se ve y lo que se
+    # puntua sean lo mismo no es un detalle: es la condicion para que el marcador
+    # signifique algo.
+    guardadas = da.get_advice()
+
+    with connect(read_only=True) as conn:
+        diagnostics = conn.execute("SELECT ticker AS Valor, reason AS Motivo FROM advisor_diagnostics ORDER BY ticker").fetchdf()
+    if not diagnostics.empty:
+        with st.expander("Por qué no se propone operar en otros valores", expanded=guardadas.empty or bool(partial_issues)):
+            st.dataframe(diagnostics, hide_index=True)
+
+    if guardadas.empty:
+        st.info(
+            "No hay propuestas operables guardadas. El análisis actual de tus posiciones aparece arriba; "
+            "no depende de que se autorice una compra. Los controles de evidencia, efectivo y riesgo "
+            "pueden impedir proponer importes. Usa los botones superiores para actualizar los datos o recalcular.\n\n"
+            "Con SnapTrade activo también se intenta recalcular tras una sincronización "
+            "automática correcta. Cada cálculo queda registrado; no implica ejecutar operaciones.",
+            icon=":material/hourglass_empty:",
+        )
+        return
+
+
+    st.caption(f"Recomendaciones guardadas con fecha {pd.to_datetime(guardadas['fecha']).max():%d/%m/%Y}.")
+    st.info("Son propuestas, no operaciones realizadas. Revisa fecha, precios y efectivo "
+            "antes de decidir. El historial anterior se conserva, pero no se presenta como actual.")
+
+    def _lista(campo: str, fila) -> list[str]:
+        try:
+            return json.loads(fila[campo] or "[]")
+        except (TypeError, ValueError):
+            return []
+
+
+    def _tarjeta(fila) -> None:
+        """Una recomendación entera: veredicto, porqué, y qué la desmentiría.
+
+        Las tres cosas juntas y siempre. Un consejo sin motivos no se puede
+        discutir, y uno sin condición de error no se puede revisar dentro de seis
+        meses: es lo que separa una afirmación comprobable de un horóscopo.
+        """
+        veredicto = Veredicto(fila["veredicto"])
+        conviccion = Conviccion(fila["conviccion"])
+        with panel(f"recommendation-{fila['ticker']}"):
+            st.markdown(
+                f"{COLOR[veredicto]} **{fila['ticker']}** — {ETIQUETA[veredicto]}"
+                f"  \n:gray[{FUERZA[conviccion]}]"
+            )
+            for motivo in _lista("motivos", fila):
+                st.markdown(f"- {motivo}")
+            try:
+                assessment = json.loads(fila.get('assessment') or '{}')
+            except (TypeError, ValueError):
+                assessment = {}
+            with st.expander("Datos, evidencia y encaje personal"):
+                for name, title in (('datos', 'Calidad del dato'), ('evidencia', 'Evidencia predictiva'), ('encaje', 'Encaje personal')):
+                    st.write(f"{title}: {assessment.get(name, 'Sin evaluación separada registrada; revisa los motivos y los datos de la posición.')}")
+                st.caption(f"Versión: {fila.get('model_version', 'heredada')} · "
+                           f"Sesión: {fila['fecha']} · emisión: {fila.get('emitida_at', 'no registrada')}.")
+
+            if fila["importe_eur"] and fila["importe_eur"] > 0:
+                cols = st.columns(3)
+                cols[0].metric("Importe", format_money(fila["importe_eur"], "EUR"))
+                cols[1].metric("Stop", f"{fila['stop']:.2f}" if fila["stop"] else "—")
+                cols[2].metric("Pérdida estimada al stop",
+                               format_money(fila["riesgo_eur"], "EUR")
+                               if fila["riesgo_eur"] else "—")
+            elif fila["titulos"]:
+                st.metric("Títulos a soltar", f"{fila['titulos']:.4f}")
+
+            if fila["aviso_fiscal"]:
+                st.warning(fila["aviso_fiscal"], icon=":material/gavel:")
+
+            desmiente = _lista("desmentiria", fila)
+            if desmiente:
+                with st.expander("Qué haría que esto fuera un error"):
+                    for d in desmiente:
+                        st.markdown(f"- {d}")
+
+
+    cartera = set(da.get_positions()["ticker"]) if not da.get_positions().empty else set()
+    mias = guardadas[guardadas["ticker"].isin(cartera)]
+    nuevas = guardadas[~guardadas["ticker"].isin(cartera)]
+
+    fecha = pd.Timestamp(guardadas["fecha"].iloc[0])
+    st.caption(f"Consejos de la sesión del {fecha:%d/%m/%Y}.")
+
+    st.divider()
+    st.subheader("Tu cartera")
+
+    # EL SILENCIO HAY QUE CONTARLO, Y AQUI MAS QUE EN NINGUN SITIO
+    #
+    # Solo se guarda lo accionable, asi que una cartera entera sobre la que el
+    # programa NO HA PODIDO OPINAR se veia exactamente igual que una cartera sana:
+    # "nada que hacer hoy". Es el mismo verde tranquilizador por falta de datos que
+    # `deterioration.py` existe para evitar, un piso mas arriba.
+    #
+    # El caso llega del uso real: con las fechas de compra puestas al importar el
+    # extracto, el diagnostico compara hoy contra hoy y no puede encontrar nada.
+    _mudas = []
+    try:
+        _salud = da.get_position_health()
+        if not _salud.empty:
+            _mudas = [d for d in health_panel.diagnosticos(_salud) if d.espejo]
+    except Exception:  # noqa: BLE001 - una pantalla no se cae por un aviso
+        _mudas = []
+
+    if _mudas:
+        st.warning(
+            f"**No he podido opinar sobre {len(_mudas)} de tus posiciones** "
+            f"({', '.join(d.ticker for d in _mudas)}). La fecha de compra que "
+            "tengo de ellas es la de hoy —la que se pone al importar el extracto, "
+            "porque el extracto no la trae—, así que compararía los datos de hoy "
+            "con los datos de hoy y no encontraría nada nunca. Ponles la fecha "
+            "real en **Cartera y watchlist** y vuelven a juzgarse.",
+            icon=":material/event_busy:",
+        )
+
+    if mias.empty:
+        st.success(
+            "No hay propuestas de venta o ampliación guardadas para tu cartera. "
+            "Revisa el análisis de cada posición y los motivos de abstención; esto no certifica que todo esté bien."
+            + (" Ojo: esto NO incluye las posiciones de arriba, sobre las que no "
+               "he podido opinar." if _mudas else ""),
+            icon=":material/check_circle:",
+        )
+    else:
+        for _, fila in mias.iterrows():
+            _tarjeta(fila)
+
+    st.divider()
+    st.subheader("Compras nuevas")
+    if nuevas.empty:
+        st.info(
+            "Ningún candidato pasa hoy tus filtros. Es lo normal la mayoría de los "
+            "días: con siete plazas y el percentil 90 como listón, no hay una "
+            "compra cada mañana.",
+            icon=":material/inbox:",
+        )
+    else:
+        for _, fila in nuevas.iterrows():
+            _tarjeta(fila)
+
+    # ---------------------------------------------------------------------------
+    # El encuadre, al final y sin suavizar
+    # ---------------------------------------------------------------------------
+    st.divider()
+    huella = guardadas["universe_hash"].iloc[0]
+    if huella:
+        st.caption(
+            f"Calculado contra el universo con huella `{huella}`. El ranking es "
+            "relativo: con otro universo, estos consejos cambian sin que las "
+            "empresas hayan hecho nada."
+        )
+    render_disclaimer()
+
+
 page_header("Asesor de acciones", section="Análisis y decisiones")
 st.caption(
     "Lo que **tus reglas** implican hoy, no lo que va a hacer el mercado. "
@@ -48,6 +225,14 @@ with connect(read_only=True) as conn:
     profile = load_profile(conn)
 with st.expander("Tu horizonte, costes y límites", expanded=False):
     st.caption("Son supuestos personales, no tarifas verificadas de tu bróker ni garantías de pérdida máxima.")
+    mode_labels = {'rules': 'Recomendaciones manuales por reglas',
+                   'validated': 'Solo compras con validación predictiva prospectiva'}
+    mode = st.selectbox("Método de recomendación", list(mode_labels),
+                        index=list(mode_labels).index(profile['recommendation_mode']),
+                        format_func=mode_labels.get)
+    st.caption("Por reglas: puede proponer compras y reducciones con datos y riesgo comprobados, "
+               "sin afirmar ventaja predictiva. El modo prospectivo es experimental: exige 30 "
+               "episodios futuros no solapados; a seis meses son al menos unos 15 años.")
     months = st.selectbox("Horizonte de la recomendación (meses)", [1, 3, 6],
                            index=[1, 3, 6].index(profile['horizon_months']))
     cost_pct = st.number_input("Coste estimado total de comprar y vender (%)", min_value=.01,
@@ -61,11 +246,13 @@ with st.expander("Tu horizonte, costes y límites", expanded=False):
         with connect() as conn:
             save_profile(conn, {'horizon_months': months, 'roundtrip_pct': cost_pct,
                                'max_loss_pct': loss_pct, 'max_cluster_pct': cluster_pct,
-                               'confirmed': confirm_profile})
+                               'confirmed': confirm_profile, 'recommendation_mode': mode})
             profile = load_profile(conn)
         st.cache_data.clear()
         st.success("Perfil guardado. Recalcula el asesor para aplicarlo.")
 
+st.caption("Método activo: " + mode_labels[profile['recommendation_mode']] +
+           ". Ninguna propuesta ejecuta operaciones.")
 
 # Controles explícitos; la sincronización SnapTrade puede recalcular también.
 
@@ -137,14 +324,19 @@ if holding_reports:
                     prices = da.get_price_history(holding['ticker'], days=253) if holding['metrics'] else None
                     render_holding_card(holding, prices=prices)
 
+_render_saved_recommendations()
+
 st.warning("Herramienta experimental: la fuerza de una señal no es una probabilidad "
            "de acertar. El marcador y los estudios históricos no demuestran "
            "rentabilidad futura ni rentabilidad neta de costes.")
 
 with st.expander("Estado de validación de los modelos"):
-    st.write("Una prueba histórica favorable no activa por sí sola una compra. Al recalcular con el perfil "
+    st.write("Este experimento no valida las recomendaciones manuales por reglas ni las bloquea. "
+             "Solo el modo prospectivo exige que el modelo esté confirmado para proponer una compra. "
+             "Al recalcular con el perfil "
              "confirmado se fija un protocolo para cada valor: la evaluación final empieza al día siguiente "
-             "y necesita resultados futuros vencidos. Un protocolo refutado no vuelve a intentarse. "
+             "y necesita 30 resultados futuros no solapados: al menos unos 15 años a seis meses, "
+             "posiblemente más según el estado de mercado. Un protocolo refutado no vuelve a intentarse. "
              "Cambiar el motor, el horizonte o el coste supuesto crea otro protocolo y conserva el anterior. "
              "Los protocolos viajan en la copia de mercado para que una instalación nueva no empiece desde cero.")
     st.caption("Los avisos sobre deterioro o concentración de tu cartera no esperan a que un modelo predictivo sea confirmado.")
@@ -178,14 +370,6 @@ with st.expander("Riesgo conjunto de tu cartera"):
         else:
             st.info("Añade posiciones para medir el riesgo conjunto.")
 
-COLOR = {
-    Veredicto.VENDER: "🔴", Veredicto.REDUCIR: "🟠", Veredicto.COMPRAR: "🟢",
-    Veredicto.AMPLIAR: "🟢", Veredicto.MANTENER: "⚪", Veredicto.VETADA: "⛔",
-    Veredicto.SIN_OPINION: "❔",
-}
-FUERZA = {Conviccion.ALTA: "coincidencia alta con las reglas",
-          Conviccion.MEDIA: "coincidencia media con las reglas",
-          Conviccion.BAJA: "coincidencia baja con las reglas"}
 
 
 # ===========================================================================
@@ -251,168 +435,3 @@ with st.expander("Qué mide y qué NO mide este marcador"):
         "- **Mientras esté vacío, este asesor no está validado.** Es coherente "
         "y consistente, que no es lo mismo que acertado."
     )
-
-st.divider()
-
-# ===========================================================================
-# 2. Los consejos GUARDADOS de la ultima sesion
-# ===========================================================================
-# La pantalla LEE lo que escribio `run_advice`; no vuelve a calcular.
-#
-# Si recalculara al vuelo y el marcador puntuara lo guardado, los dos podrian
-# separarse —basta con que cambie un precio entre una cosa y otra— y el marcador
-# estaria puntuando consejos que nadie llego a ver. Que lo que se ve y lo que se
-# puntua sean lo mismo no es un detalle: es la condicion para que el marcador
-# signifique algo.
-guardadas = da.get_advice()
-
-with connect(read_only=True) as conn:
-    diagnostics = conn.execute("SELECT ticker AS Valor, reason AS Motivo FROM advisor_diagnostics ORDER BY ticker").fetchdf()
-if not diagnostics.empty:
-    with st.expander("Por qué no se propone operar en otros valores", expanded=bool(partial_issues)):
-        st.dataframe(diagnostics, hide_index=True)
-
-if guardadas.empty:
-    st.info(
-        "No hay propuestas operables guardadas. El análisis actual de tus posiciones aparece arriba; "
-        "no depende de que se autorice una compra. Los controles de evidencia, efectivo y riesgo "
-        "pueden impedir proponer importes. Usa los botones superiores para actualizar los datos o recalcular.\n\n"
-        "Con SnapTrade activo también se intenta recalcular tras una sincronización "
-        "automática correcta. Cada cálculo queda registrado; no implica ejecutar operaciones.",
-        icon=":material/hourglass_empty:",
-    )
-    st.stop()
-
-
-st.caption(f"Recomendaciones guardadas con fecha {pd.to_datetime(guardadas['fecha']).max():%d/%m/%Y}.")
-st.info("Son propuestas, no operaciones realizadas. Revisa fecha, precios y efectivo "
-        "antes de decidir. El historial anterior se conserva, pero no se presenta como actual.")
-
-def _lista(campo: str, fila) -> list[str]:
-    try:
-        return json.loads(fila[campo] or "[]")
-    except (TypeError, ValueError):
-        return []
-
-
-def _tarjeta(fila) -> None:
-    """Una recomendación entera: veredicto, porqué, y qué la desmentiría.
-
-    Las tres cosas juntas y siempre. Un consejo sin motivos no se puede
-    discutir, y uno sin condición de error no se puede revisar dentro de seis
-    meses: es lo que separa una afirmación comprobable de un horóscopo.
-    """
-    veredicto = Veredicto(fila["veredicto"])
-    conviccion = Conviccion(fila["conviccion"])
-    with panel(f"recommendation-{fila['ticker']}"):
-        st.markdown(
-            f"{COLOR[veredicto]} **{fila['ticker']}** — {ETIQUETA[veredicto]}"
-            f"  \n:gray[{FUERZA[conviccion]}]"
-        )
-        for motivo in _lista("motivos", fila):
-            st.markdown(f"- {motivo}")
-        try:
-            assessment = json.loads(fila.get('assessment') or '{}')
-        except (TypeError, ValueError):
-            assessment = {}
-        with st.expander("Datos, evidencia y encaje personal"):
-            for name, title in (('datos', 'Calidad del dato'), ('evidencia', 'Evidencia predictiva'), ('encaje', 'Encaje personal')):
-                st.write(f"{title}: {assessment.get(name, 'Sin evaluación separada registrada; revisa los motivos y los datos de la posición.')}")
-            st.caption(f"Versión: {fila.get('model_version', 'heredada')} · "
-                       f"Sesión: {fila['fecha']} · emisión: {fila.get('emitida_at', 'no registrada')}.")
-
-        if fila["importe_eur"] and fila["importe_eur"] > 0:
-            cols = st.columns(3)
-            cols[0].metric("Importe", format_money(fila["importe_eur"], "EUR"))
-            cols[1].metric("Stop", f"{fila['stop']:.2f}" if fila["stop"] else "—")
-            cols[2].metric("Pérdida estimada al stop",
-                           format_money(fila["riesgo_eur"], "EUR")
-                           if fila["riesgo_eur"] else "—")
-        elif fila["titulos"]:
-            st.metric("Títulos a soltar", f"{fila['titulos']:.4f}")
-
-        if fila["aviso_fiscal"]:
-            st.warning(fila["aviso_fiscal"], icon=":material/gavel:")
-
-        desmiente = _lista("desmentiria", fila)
-        if desmiente:
-            with st.expander("Qué haría que esto fuera un error"):
-                for d in desmiente:
-                    st.markdown(f"- {d}")
-
-
-cartera = set(da.get_positions()["ticker"]) if not da.get_positions().empty else set()
-mias = guardadas[guardadas["ticker"].isin(cartera)]
-nuevas = guardadas[~guardadas["ticker"].isin(cartera)]
-
-fecha = pd.Timestamp(guardadas["fecha"].iloc[0])
-st.caption(f"Consejos de la sesión del {fecha:%d/%m/%Y}.")
-
-st.divider()
-st.subheader("Tu cartera")
-
-# EL SILENCIO HAY QUE CONTARLO, Y AQUI MAS QUE EN NINGUN SITIO
-#
-# Solo se guarda lo accionable, asi que una cartera entera sobre la que el
-# programa NO HA PODIDO OPINAR se veia exactamente igual que una cartera sana:
-# "nada que hacer hoy". Es el mismo verde tranquilizador por falta de datos que
-# `deterioration.py` existe para evitar, un piso mas arriba.
-#
-# El caso llega del uso real: con las fechas de compra puestas al importar el
-# extracto, el diagnostico compara hoy contra hoy y no puede encontrar nada.
-_mudas = []
-try:
-    _salud = da.get_position_health()
-    if not _salud.empty:
-        _mudas = [d for d in health_panel.diagnosticos(_salud) if d.espejo]
-except Exception:  # noqa: BLE001 - una pantalla no se cae por un aviso
-    _mudas = []
-
-if _mudas:
-    st.warning(
-        f"**No he podido opinar sobre {len(_mudas)} de tus posiciones** "
-        f"({', '.join(d.ticker for d in _mudas)}). La fecha de compra que "
-        "tengo de ellas es la de hoy —la que se pone al importar el extracto, "
-        "porque el extracto no la trae—, así que compararía los datos de hoy "
-        "con los datos de hoy y no encontraría nada nunca. Ponles la fecha "
-        "real en **Cartera y watchlist** y vuelven a juzgarse.",
-        icon=":material/event_busy:",
-    )
-
-if mias.empty:
-    st.success(
-        "Nada que hacer hoy con lo que tienes. Los `mantener` no se guardan: "
-        "solo aparecen aquí las posiciones que piden una acción."
-        + (" Ojo: esto NO incluye las posiciones de arriba, sobre las que no "
-           "he podido opinar." if _mudas else ""),
-        icon=":material/check_circle:",
-    )
-else:
-    for _, fila in mias.iterrows():
-        _tarjeta(fila)
-
-st.divider()
-st.subheader("Compras nuevas")
-if nuevas.empty:
-    st.info(
-        "Ningún candidato pasa hoy tus filtros. Es lo normal la mayoría de los "
-        "días: con siete plazas y el percentil 90 como listón, no hay una "
-        "compra cada mañana.",
-        icon=":material/inbox:",
-    )
-else:
-    for _, fila in nuevas.iterrows():
-        _tarjeta(fila)
-
-# ---------------------------------------------------------------------------
-# El encuadre, al final y sin suavizar
-# ---------------------------------------------------------------------------
-st.divider()
-huella = guardadas["universe_hash"].iloc[0]
-if huella:
-    st.caption(
-        f"Calculado contra el universo con huella `{huella}`. El ranking es "
-        "relativo: con otro universo, estos consejos cambian sin que las "
-        "empresas hayan hecho nada."
-    )
-render_disclaimer()

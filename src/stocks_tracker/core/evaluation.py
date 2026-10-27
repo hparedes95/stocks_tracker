@@ -9,7 +9,7 @@ import pandas as pd
 
 from . import fx
 
-MODEL_VERSION = "advisor-evidence-v3-sessions"
+MODEL_VERSION = "advisor-rules-v4-sessions"
 BENCHMARKS = {"US": "SPY", "ES": "EWP", "DE": "EWG", "FR": "EWQ", "GB": "EWU",
               "United States": "SPY", "Spain": "EWP", "Germany": "EWG", "France": "EWQ",
               "United Kingdom": "EWU"}

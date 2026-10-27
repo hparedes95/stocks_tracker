@@ -100,6 +100,40 @@ def test_saving_profile_applies_new_horizon_in_the_same_render(almacen, monkeypa
     assert seen[-1] == 21
 
 
+def test_real_rule_purchase_is_saved_and_shown_before_research_scoreboard(almacen):
+    import json
+
+    from stocks_tracker.compute.run_advice import calcular_y_guardar
+    from stocks_tracker.core.investor_profile import DEFAULTS, save
+    from stocks_tracker.core.scoring import preset_hash
+    from stocks_tracker.core.trading_calendar import sessions
+
+    days = sessions('XMAD', date.today() - timedelta(days=450), date.today())[-260:]
+    with db.connect() as conn:
+        conn.execute("INSERT INTO instruments(ticker,country,currency,asset_class) VALUES "
+                     "('AAA','Spain','EUR','equity'),('EWP','US','EUR','etf')")
+        values = [100 + i / 10 for i in range(len(days))]
+        db.upsert_df(conn, 'prices_daily', pd.DataFrame({'ticker':'AAA', 'date':days,
+                     'close':values, 'adj_close':values, 'source':'fixture'}), keys=['ticker','date'])
+        conn.execute("INSERT INTO indicators_daily(ticker,date,close,atr_pct) VALUES ('AAA',?,?,2)",
+                     [days[-1].date(), values[-1]])
+        conn.execute("INSERT INTO factor_scores(ticker,date,weights_hash,composite,composite_pctile,coverage) "
+                     "VALUES ('AAA',?,?,2,.99,.9)", [days[-1].date(), preset_hash('balanced')])
+        save(conn, {**DEFAULTS, 'confirmed':True})
+    assert calcular_y_guardar(caja=10000) == 1
+    with db.connect(read_only=True) as conn:
+        verdict, raw = conn.execute("SELECT veredicto,assessment FROM recommendations").fetchone()
+        assert verdict == 'comprar'
+        assert json.loads(raw)['decision_basis'] == 'rules'
+        assert conn.execute('SELECT count(*) FROM recommendation_ledger').fetchone()[0] == 1
+        assert conn.execute('SELECT count(*) FROM orders').fetchone()[0] == 0
+    st.cache_data.clear()
+    page = _pintar()
+    assert any('Comprar' in str(m.value) for m in page.markdown)
+    headings = [s.value for s in page.subheader]
+    assert headings.index('Compras nuevas') < headings.index('¿Acierta este asesor?')
+
+
 def test_el_marcador_vacio_se_explica_en_vez_de_parecer_roto(almacen):
     """LO PRIMERO QUE VA A VER EL USUARIO, y va a durar meses.
 

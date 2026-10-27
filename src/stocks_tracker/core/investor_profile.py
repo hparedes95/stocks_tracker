@@ -3,7 +3,8 @@ import json
 import math
 
 DEFAULTS = {"horizon_months": 6, "roundtrip_pct": 1.0,
-            "max_loss_pct": 20.0, "max_cluster_pct": 35.0, "confirmed": False}
+            "max_loss_pct": 20.0, "max_cluster_pct": 35.0, "confirmed": False,
+            "recommendation_mode": "rules"}
 
 
 def load(conn) -> dict:
@@ -18,6 +19,8 @@ def save(conn, profile: dict) -> None:
         val = profile.get(key)
         if not isinstance(val, (int, float)) or not math.isfinite(val) or not 0 < val <= maximum:
             raise ValueError(f"Valor inválido: {key}.")
-    clean = {key: profile[key] for key in DEFAULTS}
+    clean = {key: profile.get(key, default) for key, default in DEFAULTS.items()}
+    if clean['recommendation_mode'] not in ('rules', 'validated'):
+        raise ValueError("Modo del asesor inválido.")
     clean['confirmed'] = bool(clean['confirmed'])
     conn.execute("INSERT OR REPLACE INTO investor_preferences VALUES (1, ?)", [json.dumps(clean)])

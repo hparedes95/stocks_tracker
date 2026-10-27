@@ -202,7 +202,7 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
              AND fu.as_of = (SELECT MAX(as_of) FROM fundamentals_snapshot
                              WHERE ticker = f.ticker AND as_of <= f.date)
         WHERE f.weights_hash = ? AND f.date = ?
-        ORDER BY f.composite DESC LIMIT 60
+        ORDER BY f.composite DESC
         """,
         [whash, dia],
     ).fetchdf()
@@ -234,21 +234,42 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
     # Una recomendación de venta no libera plazas hasta registrarla en cartera.
     recomendaciones = advice_build.de_la_cartera(
         salud, posiciones, pesos_sector=pesos_sector)
+    from ..core.investor_profile import load as load_profile
+    from ..core.position_guidance import complete
+    profile = load_profile(conn)
+    recomendaciones = complete(conn, recomendaciones, posiciones, as_of=dia,
+        horizon_months=profile['horizon_months'], decision_date=decision_date)
     salidas = {r.ticker for r in recomendaciones
                if r.veredicto in (advice.Veredicto.VENDER, advice.Veredicto.REDUCIR)}
     if not ranking.empty:
         ranking = ranking.loc[~ranking["ticker"].isin(salidas)]
 
-    recomendaciones += advice_build.de_los_candidatos(
+    from ..core.advisor_evidence import build_gate
+    held_tickers = set(posiciones.ticker) if not posiciones.empty else set()
+    selected = advice_build.candidate_rows(ranking, held_tickers)
+    review = build_gate(conn, as_of=dia, positions=posiciones, cash=caja,
+                        tickers=selected.ticker.tolist(), decision_date=decision_date)
+    candidatos = advice_build.de_los_candidatos(
         ranking, equity=equity, caja=caja, regimen=regimen,
         n_posiciones=posiciones["ticker"].nunique() if not posiciones.empty else 0,
         pesos_actuales=pesos_actuales, pesos_sector=pesos_sector,
         tipos_cambio=cambios,
+        review=review, entry_cost=profile['roundtrip_pct'] / 200,
+        held_tickers=held_tickers,
     )
 
-    from ..core.advisor_evidence import apply_gate
-    recomendaciones = apply_gate(conn, recomendaciones, as_of=dia,
-                                  positions=posiciones, cash=caja, decision_date=decision_date)
+    # One verdict per asset; retain the current-position conclusion and explain
+    # why adding more is blocked, rather than overwriting it with "no opinion".
+    from dataclasses import replace
+    unique = {r.ticker: r for r in recomendaciones}
+    for rec in candidatos:
+        existing = unique.get(rec.ticker)
+        if existing and not rec.accionable:
+            unique[rec.ticker] = replace(existing, motivos=existing.motivos +
+                ['Ampliación: ' + reason for reason in rec.motivos])
+        else:
+            unique[rec.ticker] = rec
+    recomendaciones = list(unique.values())
     return recomendaciones, posiciones, ranking, dia, universo
 
 
@@ -296,7 +317,7 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
         for rec in recomendaciones:
             if not rec.accionable:
                 conn.execute("INSERT OR REPLACE INTO advisor_diagnostics VALUES (?, ?, ?)",
-                             [rec.ticker, evaluated_at, " · ".join(rec.motivos)])
+                             [rec.ticker, evaluated_at, rec.etiqueta + ": " + " · ".join(rec.motivos)])
         n = guardar_recomendaciones(
             conn, recomendaciones, dia=dia, weights_hash=whash,
             precios=precios,
