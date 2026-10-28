@@ -44,6 +44,7 @@ dev = [
     "pip-audit>=2.9",
     # Dependencia transitiva del auditor: evitar los bloqueos vulnerables.
     "filelock>=4.2.1",
+    "msgpack>=1.2.3",
     # Los tests del proveedor de universos ejercitan `pandas.read_html` sobre
     # HTML simulado, y eso necesita lxml. Estaba solo en el extra `data`, asi
     # que un entorno instalado con `.[dev]` a secas —el de CI— fallaba ocho

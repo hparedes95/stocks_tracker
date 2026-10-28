@@ -32,3 +32,12 @@ normal del `.bat`. No se amplía el paquete que recibe el usuario.
 Referencias del mantenedor: [versión corregida](https://github.com/tox-dev/filelock/releases/tag/4.2.1),
 [aviso POSIX](https://github.com/tox-dev/filelock/security/advisories/GHSA-v4x8-3wr5-3wq8),
 [aviso Windows](https://github.com/tox-dev/filelock/security/advisories/GHSA-9vhv-jxww-xfm5).
+
+## Revisión del 27/10/2026
+
+La auditoría de la corrección del asesor detectó `CVE-2026-114613` en
+`msgpack 1.2.2`. Se actualiza a `1.2.3` con mínimo en el extra de desarrollo
+y comprobación de regresión. Es otra dependencia del auditor; no está en el
+paquete de ejecución del `.bat`. El
+[aviso del mantenedor](https://github.com/msgpack/msgpack-python/security/advisories/GHSA-j586-36cw-2gc2)
+describe pérdida de memoria al rechazar entradas MessagePack malformadas.
