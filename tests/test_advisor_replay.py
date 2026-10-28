@@ -92,6 +92,16 @@ def test_missing_price_does_not_roll_execution_forward(warehouse):
     assert 'sin_ejecucion' in result['decisions'].verdict.tolist()
 
 
+def test_conditional_recommendation_is_logged_but_never_traded(warehouse):
+    def policy(c, weights, cash, *, decision_date):
+        rec = Recomendacion('A', Veredicto.COMPRA_CONDICIONADA, Conviccion.BAJA)
+        return [rec], None, None, decision_date, None
+    result = run_replay(warehouse, ReplaySpec('2025-01-02', '2025-01-07', 'test'), policy=policy)
+    assert result['movements'].empty
+    assert result['decisions'].verdict.tolist() == ['comprar_condicionado']
+    assert result['summary']['pending_orders'] == 0
+
+
 def test_real_advisor_policy_runs_without_mutating_account(warehouse):
     result = run_replay(warehouse, ReplaySpec('2025-01-02','2025-01-07','test'))
     assert result['movements'].empty

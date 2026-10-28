@@ -40,6 +40,27 @@ dimensionar nuevas compras, pero no oculta avisos independientes de posiciones
 identificadas. Los rechazos y mantener se explican; las propuestas accionables
 se registran con metodología y versión, sin enviar órdenes.
 
+## Cartera parcial: CIBR e ITA — 28/10/2026
+
+Un CFD pendiente de valoración ya no anula la selección del resto de valores.
+Si una acción cumple ranking, cobertura, calidad de precios, divisa, calendario,
+perfil y controles de eventos, puede aparecer como **Comprar — condicionado**
+o **Ampliar — condicionado**. El modo de evidencia prospectiva sigue exigiendo
+sus pruebas. Un valor con identidad o valoración propia incompleta no pasa.
+
+La recomendación condicionada expresa una selección del valor, no que una
+operación encaje en la cartera. No calcula importes, títulos, stops ni pérdida
+estimada; no convierte un peso desconocido en cero. Quedan pendientes los pesos,
+la exposición sectorial, la correlación y el riesgo total. Se siguen exigiendo
+efectivo positivo verificado y plazas disponibles para posiciones nuevas.
+
+Estas propuestas se guardan y muestran con sus condiciones, pero no reservan
+caja, no ejecutan operaciones en el replay y no entran en el marcador de aciertos.
+Una compra evaluada posteriormente no queda ocultada por una propuesta
+condicionada anterior del mismo día. Con valoración completa se aplica de nuevo
+la política ordinaria de importes y límites. CIBR/ITA siguen presentes como CFD;
+su referencia ETF no se usa como sustituto del valor del contrato.
+
 ## Comprobación y límites
 
 Pruebas de compras por reglas y modo estricto, datos inválidos/cuarentena,

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from math import isfinite
 
 from . import deterioration as det
 from .config import get_settings
@@ -29,6 +30,8 @@ class Veredicto(StrEnum):
 
     COMPRAR = "comprar"          # no la tienes y tus reglas dicen que entres
     AMPLIAR = "ampliar"          # ya la tienes, sigue buena y pesa poco
+    COMPRA_CONDICIONADA = "comprar_condicionado"
+    AMPLIACION_CONDICIONADA = "ampliar_condicionado"
     MANTENER = "mantener"        # nada que hacer hoy
     REDUCIR = "reducir"          # recortar, no salir
     VENDER = "vender"            # la tesis se rompio, o el stop se perforo
@@ -45,6 +48,8 @@ class Conviccion(StrEnum):
 ETIQUETA = {
     Veredicto.COMPRAR: "Comprar",
     Veredicto.AMPLIAR: "Ampliar",
+    Veredicto.COMPRA_CONDICIONADA: "Comprar — condicionado",
+    Veredicto.AMPLIACION_CONDICIONADA: "Ampliar — condicionado",
     Veredicto.MANTENER: "Mantener",
     Veredicto.REDUCIR: "Reducir",
     Veredicto.VENDER: "Vender",
@@ -56,6 +61,8 @@ ETIQUETA = {
 # hay que guardar en el marcador.
 ACCIONABLES = frozenset({Veredicto.COMPRAR, Veredicto.AMPLIAR,
                          Veredicto.REDUCIR, Veredicto.VENDER})
+CONDICIONALES = frozenset({Veredicto.COMPRA_CONDICIONADA,
+                          Veredicto.AMPLIACION_CONDICIONADA})
 
 
 # ---------------------------------------------------------------------------
@@ -457,6 +464,7 @@ def sobre_un_candidato(
     motivos_ranking: list[str] | None = None,
     aviso_fiscal: str = "",
     tipo_cambio: float = 1.0,
+    dimensionar: bool = True,
 ) -> Recomendacion:
     """Que hacer con algo que NO tienes (o que tienes y podrias ampliar).
 
@@ -497,7 +505,8 @@ def sobre_un_candidato(
     ya_la_tienes = peso_actual_pct is not None
 
     # --- 0. Sin datos suficientes ----------------------------------------
-    if percentil is None or cobertura is None or cobertura < MIN_COBERTURA:
+    if (percentil is None or cobertura is None or not isfinite(percentil)
+            or not isfinite(cobertura) or cobertura < MIN_COBERTURA):
         tiene = f"{cobertura:.0%}" if cobertura is not None else "ninguna"
         return Recomendacion(
             ticker, Veredicto.SIN_OPINION, Conviccion.BAJA,
@@ -529,7 +538,8 @@ def sobre_un_candidato(
     # Es la regla 13 del gestor de riesgo, aqui tambien: entrar sin saber donde
     # sales es la unica forma segura de que una posicion pequena se vuelva
     # grande.
-    if atr14 is None or atr14 <= 0 or precio is None or precio <= 0:
+    if (atr14 is None or precio is None or not isfinite(atr14) or not isfinite(precio)
+            or atr14 <= 0 or precio <= 0):
         return Recomendacion(
             ticker, Veredicto.VETADA, Conviccion.ALTA,
             motivos=[
@@ -578,6 +588,18 @@ def sobre_un_candidato(
                 "esa plaza solo se libera al registrar la venta y este candidato vuelve a estar "
                 "disponible.",
             ],
+        )
+
+    if not dimensionar:
+        # Instrument-level thesis only. The final gate must validate the data
+        # and explicitly mark the unresolved portfolio allocation.
+        return Recomendacion(
+            ticker, Veredicto.AMPLIAR if ya_la_tienes else Veredicto.COMPRAR,
+            Conviccion.BAJA,
+            motivos=[f"Percentil {percentil:.0%} del universo puntuado."] + (motivos_ranking or []),
+            desmentiria=["Si empeoran los factores o aparecen alertas del valor, deja de cumplir las reglas.",
+                        "La valoración completa puede revelar que ampliar o comprar excede tus límites."],
+            assessment={'sizing': 'pending'}, aviso_fiscal=aviso_fiscal,
         )
 
     # --- 5. Ampliar solo si de verdad pesa poco ---------------------------
@@ -721,6 +743,7 @@ def ordenar(recomendaciones: list[Recomendacion]) -> list[Recomendacion]:
         Veredicto.VENDER: 0, Veredicto.REDUCIR: 1, Veredicto.COMPRAR: 2,
         Veredicto.AMPLIAR: 3, Veredicto.MANTENER: 4, Veredicto.VETADA: 5,
         Veredicto.SIN_OPINION: 6,
+        Veredicto.COMPRA_CONDICIONADA: 3, Veredicto.AMPLIACION_CONDICIONADA: 3,
     }
     fuerza = {Conviccion.ALTA: 0, Conviccion.MEDIA: 1, Conviccion.BAJA: 2}
     return sorted(recomendaciones,

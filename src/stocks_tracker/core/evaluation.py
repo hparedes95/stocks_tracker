@@ -8,8 +8,9 @@ import numpy as np
 import pandas as pd
 
 from . import fx
+from .advice import ACCIONABLES
 
-MODEL_VERSION = "advisor-rules-v4-sessions"
+MODEL_VERSION = "advisor-rules-v5-conditional"
 BENCHMARKS = {"US": "SPY", "ES": "EWP", "DE": "EWG", "FR": "EWQ", "GB": "EWU",
               "United States": "SPY", "Spain": "EWP", "Germany": "EWG", "France": "EWQ",
               "United Kingdom": "EWU"}
@@ -24,9 +25,13 @@ def _calculate(conn, *, hasta=None, benchmark=None) -> pd.DataFrame:
     """
     cutoff = pd.Timestamp(hasta or pd.Timestamp.today().date()).normalize()
     rows = conn.execute("SELECT * FROM recommendations ORDER BY fecha, ticker").fetchdf()
+    rows = rows[rows.veredicto.isin(ACCIONABLES)]
     ledger = conn.execute("SELECT payload FROM recommendation_ledger ORDER BY recorded_at, observation_id").fetchall()
     if ledger:
         frozen = pd.DataFrame([json.loads(r[0]) for r in ledger])
+        # Filter before deduplication: a conditional observation must not hide
+        # a later fully assessed purchase issued on the same date.
+        frozen = frozen[frozen.veredicto.isin(ACCIONABLES)]
         frozen['fecha'] = pd.to_datetime(frozen['fecha'])
         keys = ['fecha', 'ticker', 'weights_hash', 'model_version']
         frozen = frozen.drop_duplicates(keys, keep='first')
@@ -158,6 +163,8 @@ def evaluate(conn, *, hasta=None, benchmark=None):
     result = {observation_key(r): r for r in current.to_dict('records')}
     for payload, in stored:
         row = json.loads(payload)
+        if row.get('veredicto') not in ACCIONABLES:
+            continue
         if pd.Timestamp(row['salida']) > cutoff or (benchmark and row['benchmark'] != benchmark):
             continue
         for field in ('fecha', 'entrada', 'salida', 'vence', 'emitida_at'):

@@ -30,7 +30,7 @@ from stocks_tracker.app.components.theme import format_money
 from stocks_tracker.app.components.valuation_panel import render_valuation_issues
 from stocks_tracker.app.research_actions import refresh_research
 from stocks_tracker.app.runtime_reads import get_holding_analysis
-from stocks_tracker.core.advice import ETIQUETA, Conviccion, Veredicto
+from stocks_tracker.core.advice import CONDICIONALES, ETIQUETA, Conviccion, Veredicto
 from stocks_tracker.core.advice_store import resumen_honesto
 from stocks_tracker.core.db import connect
 from stocks_tracker.core.investor_profile import load as load_profile
@@ -43,6 +43,7 @@ def _render_saved_recommendations():
         Veredicto.VENDER: "🔴", Veredicto.REDUCIR: "🟠", Veredicto.COMPRAR: "🟢",
         Veredicto.AMPLIAR: "🟢", Veredicto.MANTENER: "⚪", Veredicto.VETADA: "⛔",
         Veredicto.SIN_OPINION: "❔",
+        Veredicto.COMPRA_CONDICIONADA: "🟡", Veredicto.AMPLIACION_CONDICIONADA: "🟡",
     }
     FUERZA = {Conviccion.ALTA: "coincidencia alta con las reglas",
               Conviccion.MEDIA: "coincidencia media con las reglas",
@@ -105,6 +106,10 @@ def _render_saved_recommendations():
                 f"{COLOR[veredicto]} **{fila['ticker']}** — {ETIQUETA[veredicto]}"
                 f"  \n:gray[{FUERZA[conviccion]}]"
             )
+            if veredicto in CONDICIONALES:
+                st.warning("Recomendación sobre el valor, pendiente de encaje en tu cartera. "
+                           "Sin importe ni títulos: falta valorar las posiciones indicadas. "
+                           "No cuenta como una operación propuesta en el marcador de aciertos.")
             for motivo in _lista("motivos", fila):
                 st.markdown(f"- {motivo}")
             try:
@@ -117,14 +122,14 @@ def _render_saved_recommendations():
                 st.caption(f"Versión: {fila.get('model_version', 'heredada')} · "
                            f"Sesión: {fila['fecha']} · emisión: {fila.get('emitida_at', 'no registrada')}.")
 
-            if fila["importe_eur"] and fila["importe_eur"] > 0:
+            if veredicto not in CONDICIONALES and pd.notna(fila["importe_eur"]) and fila["importe_eur"] > 0:
                 cols = st.columns(3)
                 cols[0].metric("Importe", format_money(fila["importe_eur"], "EUR"))
                 cols[1].metric("Stop", f"{fila['stop']:.2f}" if fila["stop"] else "—")
                 cols[2].metric("Pérdida estimada al stop",
                                format_money(fila["riesgo_eur"], "EUR")
                                if fila["riesgo_eur"] else "—")
-            elif fila["titulos"]:
+            elif veredicto not in CONDICIONALES and pd.notna(fila["titulos"]) and fila["titulos"]:
                 st.metric("Títulos a soltar", f"{fila['titulos']:.4f}")
 
             if fila["aviso_fiscal"]:
@@ -136,6 +141,15 @@ def _render_saved_recommendations():
                     for d in desmiente:
                         st.markdown(f"- {d}")
 
+
+    def _grupo(frame):
+        conditioned = frame.veredicto.isin(CONDICIONALES)
+        for _, fila in frame[~conditioned].iterrows():
+            _tarjeta(fila)
+        if conditioned.any():
+            st.markdown("**Selección condicionada · pendiente de valorar la cartera completa**")
+            for _, fila in frame[conditioned].iterrows():
+                _tarjeta(fila)
 
     cartera = set(da.get_positions()["ticker"]) if not da.get_positions().empty else set()
     mias = guardadas[guardadas["ticker"].isin(cartera)]
@@ -184,8 +198,7 @@ def _render_saved_recommendations():
             icon=":material/check_circle:",
         )
     else:
-        for _, fila in mias.iterrows():
-            _tarjeta(fila)
+        _grupo(mias)
 
     st.divider()
     st.subheader("Compras nuevas")
@@ -197,8 +210,7 @@ def _render_saved_recommendations():
             icon=":material/inbox:",
         )
     else:
-        for _, fila in nuevas.iterrows():
-            _tarjeta(fila)
+        _grupo(nuevas)
 
     # ---------------------------------------------------------------------------
     # El encuadre, al final y sin suavizar

@@ -32,6 +32,22 @@ def test_score_is_fixed_to_calendar_maturity(data):
     assert later['ventaja_neta'] == pytest.approx(.14)
 
 
+def test_conditional_advice_is_not_scored_and_does_not_hide_later_purchase(data):
+    import json
+
+    data.execute("UPDATE recommendations SET model_version='test', veredicto='comprar_condicionado'")
+    row = data.execute('SELECT * FROM recommendations').fetchdf().iloc[0].to_dict()
+    data.execute("INSERT INTO recommendation_ledger VALUES ('conditional','2025-01-01',?)",
+                 [json.dumps(row, default=str)])
+    assert evaluate(data, hasta='2025-12-31').empty
+    row['veredicto'] = 'comprar'
+    data.execute("INSERT INTO recommendation_ledger VALUES ('purchase','2025-01-01 01:00:00',?)",
+                 [json.dumps(row, default=str)])
+    results = evaluate(data, hasta='2025-12-31')
+    assert len(results) == 1 and results.iloc[0]['veredicto'] == 'comprar'
+    assert results.iloc[0]['retorno'] == pytest.approx(.20)
+
+
 def test_adjusted_returns_not_raw_price_changes(data):
     data.execute("UPDATE prices_daily SET close=60 WHERE ticker='AAA' AND date='2025-07-01'")
     assert evaluate(data, hasta='2025-12-31').iloc[0]['retorno'] == pytest.approx(.20)

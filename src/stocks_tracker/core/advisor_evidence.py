@@ -53,11 +53,18 @@ def build_gate(conn, *, as_of, positions, cash, tickers=(), decision_date=None):
     available = cash if valid_portfolio else 0.0
     from .snaptrade_portfolio import limitations
     pending = limitations(positions)
+    partial = invalid_positions or bool(pending)
+    unresolved = set()
+    for row in positions.to_dict('records'):
+        if (not row.get('supported', True) or not row.get('analysis_supported', True)
+                or not finite_number(row.get('valor_eur')) or row['valor_eur'] < 0):
+            unresolved.update(str(row.get(key) or '') for key in ('ticker', 'broker_symbol'))
     def review(rec):
         nonlocal available
         if rec.veredicto not in (Veredicto.COMPRAR, Veredicto.AMPLIAR):
             return rec
         reasons = []
+        conditional = partial and rec.ticker not in unresolved
         age = (pd.Timestamp(decision_date or date.today()) - pd.Timestamp(as_of)).days
         if age < 0:
             reasons.append("La sesión está en el futuro: no se puede recomendar con ella.")
@@ -65,11 +72,13 @@ def build_gate(conn, *, as_of, positions, cash, tickers=(), decision_date=None):
             reasons.append("La base tiene más de siete días: no permite proponer una compra actual.")
         if shared.get('frozen') and shared.get('engine') != engine:
             reasons.append("La copia pertenece a otra versión del motor; importa una copia compatible.")
-        if not math.isfinite(equity) or equity <= 0:
+        if not finite_number(cash) or cash < 0 or (conditional and cash == 0):
+            reasons.append("No hay efectivo positivo verificado para plantear una compra.")
+        if not conditional and (not math.isfinite(equity) or equity <= 0):
             reasons.append("No se puede valorar íntegramente la cartera y el efectivo.")
-        if pending:
+        if partial and not conditional:
             reasons.append('Análisis parcial: ' + ' · '.join(pending) +
-                           ' No se propone una compra personalizada sin comprobar el conjunto de la cartera.')
+                           ' No se puede identificar o valorar íntegramente esta posición.')
         if not profile['confirmed']:
             reasons.append("Confirma horizonte, costes y tolerancia a pérdidas en el perfil del asesor.")
         ref = BENCHMARKS.get(meta.loc[rec.ticker, 'country'], 'VT') if rec.ticker in meta.index else 'VT'
@@ -114,18 +123,18 @@ def build_gate(conn, *, as_of, positions, cash, tickers=(), decision_date=None):
         personal_start = len(reasons)
         valid_size = all(finite_number(v) and v > 0 for v in
                          (rec.importe_eur, rec.titulos, rec.stop))
-        if not valid_size:
+        if not valid_size and not conditional:
             reasons.append('El importe, los títulos o el stop son inválidos; no se propone una compra.')
-        amount = rec.importe_eur if valid_size else 0.0
+        amount = rec.importe_eur if valid_size and not conditional else 0.0
         # Reserva coste de entrada: la mitad del supuesto ida/vuelta.
         if amount * (1 + costs / 2) > available:
             reasons.append("El efectivo no cubre el importe propuesto y el coste de entrada estimado.")
-        if equity > 0 and (sum(projected.values()) + amount) * .30 > equity * profile['max_loss_pct'] / 100:
+        if not conditional and equity > 0 and (sum(projected.values()) + amount) * .30 > equity * profile['max_loss_pct'] / 100:
             shock_pct = (sum(projected.values()) + amount) * .30 / equity * 100
             reasons.append(f"Una caída del 30 % en las posiciones supondría {shock_pct:.1f} % "
                            f"del patrimonio, por encima de tu límite del {profile['max_loss_pct']:.1f} %.")
         cluster = amount
-        for held, value in projected.items():
+        for held, value in (projected.items() if not conditional else ()):
             if held == rec.ticker:
                 cluster += value
             elif held in eur_returns and rec.ticker in eur_returns:
@@ -140,7 +149,7 @@ def build_gate(conn, *, as_of, positions, cash, tickers=(), decision_date=None):
                         cluster += value
             else:
                 reasons.append(f"No se puede contrastar el riesgo conjunto con {held}.")
-        if equity > 0 and cluster / equity * 100 > profile['max_cluster_pct']:
+        if not conditional and equity > 0 and cluster / equity * 100 > profile['max_cluster_pct']:
             reasons.append(f"La exposición conjunta correlacionada sería {cluster / equity * 100:.1f} %, "
                            f"por encima de tu límite del {profile['max_cluster_pct']:.1f} %.")
         assessment = {
@@ -150,7 +159,8 @@ def build_gate(conn, *, as_of, positions, cash, tickers=(), decision_date=None):
                      f"{vp.attrs.get('calendar') or 'desconocido'}. Cobertura no equivale a verificación independiente.",
             'evidencia': ('' if strict else 'Propuesta manual por reglas; sin ventaja predictiva demostrada. ') +
                          validation.reason + ' La simulación del asesor completo sigue en investigación.',
-            'encaje': ('Análisis parcial: no se ha podido verificar el encaje conjunto de la cartera.' if pending else
+            'encaje': ('Análisis parcial: no se ha podido verificar el encaje conjunto de la cartera. '
+                       'Pendiente: ' + ' · '.join(pending) if partial else
                        'Perfil sin confirmar.' if not profile['confirmed'] else
                        ' · '.join(reasons[personal_start:]) or
                        'Dentro de los límites comprobados de efectivo y exposición; no son garantías de pérdida máxima.'),
@@ -179,6 +189,18 @@ def build_gate(conn, *, as_of, positions, cash, tickers=(), decision_date=None):
                                   "Contraste oficial: " + (review['reason'] or "cuentas SEC disponibles; revisar ficha"),
                                   f"Coste de ida y vuelta supuesto: {costs:.2%}; no incluye impuestos.",
                                   "La ausencia de eventos en el calendario no confirma que no los haya."])
+            if conditional:
+                condition = ('Análisis parcial: ' + ' · '.join(pending) +
+                    ' El valor cumple las reglas de selección, pero falta comprobar el peso, '
+                    'la concentración y el riesgo total antes de decidir cuánto comprar. '
+                    'No es una compra lista para ejecutar y no se asignan importes ni títulos.')
+                return replace(accepted,
+                    veredicto=(Veredicto.AMPLIACION_CONDICIONADA if rec.veredicto == Veredicto.AMPLIAR
+                               else Veredicto.COMPRA_CONDICIONADA),
+                    importe_eur=None, titulos=None, stop=None, riesgo_eur=None,
+                    limitado_por='valoración pendiente',
+                    assessment={**assessment, 'sizing': 'pending'},
+                    motivos=[condition] + accepted.motivos)
             projected[rec.ticker] = projected.get(rec.ticker, 0.0) + amount
             available -= amount * (1 + costs / 2)
             return accepted

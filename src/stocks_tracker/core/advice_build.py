@@ -105,7 +105,7 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
                       avisos_fiscales: dict[str, str] | None = None,
                       tipos_cambio: dict[str, float] | None = None,
                       limite: int = 25, review=None, entry_cost: float = 0.0,
-                      held_tickers=None) -> list[Recomendacion]:
+                      held_tickers=None, dimensionar=True) -> list[Recomendacion]:
     """Un veredicto por candidato del ranking.
 
     `limite` no es paginacion: es que una lista larga no se lee. Con
@@ -178,9 +178,16 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
             motivos_ranking=_motivos_del_ranking(fila),
             aviso_fiscal=avisos_fiscales.get(ticker, ""),
             tipo_cambio=cambio,
+            dimensionar=dimensionar,
         )
         if review is not None:
             propuesta = review(propuesta)
+        elif not dimensionar:
+            # An unsized draft is never exposed as an executable purchase.
+            from dataclasses import replace
+            if propuesta.veredicto in (advice.Veredicto.COMPRAR, advice.Veredicto.AMPLIAR):
+                propuesta = replace(propuesta, veredicto=advice.Veredicto.SIN_OPINION,
+                    motivos=['Falta la comprobación final del asesor.'])
         fuera.append(propuesta)
         if propuesta.veredicto in (advice.Veredicto.COMPRAR, advice.Veredicto.AMPLIAR):
             importe = propuesta.importe_eur or 0.0

@@ -100,7 +100,8 @@ def test_saving_profile_applies_new_horizon_in_the_same_render(almacen, monkeypa
     assert seen[-1] == 21
 
 
-def test_real_rule_purchase_is_saved_and_shown_before_research_scoreboard(almacen):
+@pytest.mark.parametrize('partial,owned', [(False, False), (True, False), (True, True)])
+def test_real_rule_purchase_is_saved_and_shown_before_research_scoreboard(almacen, partial, owned):
     import json
 
     from stocks_tracker.compute.run_advice import calcular_y_guardar
@@ -120,16 +121,39 @@ def test_real_rule_purchase_is_saved_and_shown_before_research_scoreboard(almace
         conn.execute("INSERT INTO factor_scores(ticker,date,weights_hash,composite,composite_pctile,coverage) "
                      "VALUES ('AAA',?,?,2,.99,.9)", [days[-1].date(), preset_hash('balanced')])
         save(conn, {**DEFAULTS, 'confirmed':True})
+        if partial:
+            from datetime import UTC, datetime
+
+            from stocks_tracker.core import snaptrade_portfolio as snap
+
+            now = datetime.now(UTC).isoformat()
+            book = [{'id': t, 'symbol': t, 'kind': 'cfd', 'listing_currency': 'USD',
+                     'exchange': 'OTC', 'qty': 2., 'avg_cost': None, 'currency': 'USD',
+                     'price': 100., 'cash_equivalent': False} for t in ('CIBR', 'ITA')]
+            if owned:
+                conn.execute("UPDATE instruments SET exchange='XMAD' WHERE ticker='AAA'")
+                book.append({'id': 'aaa', 'symbol': 'AAA', 'kind': 'stock',
+                    'listing_currency': 'EUR', 'exchange': 'XMAD', 'qty': 2., 'avg_cost': None,
+                    'currency': 'EUR', 'price': values[-1], 'cash_equivalent': False})
+            snap.store_snapshot(conn, {'account_id': 'fixture', 'as_of': now, 'cash_as_of': now,
+                'balances': [{'currency': 'EUR', 'cash': 390.12}], 'positions': book})
+            snap.enable(conn, True)
     assert calcular_y_guardar(caja=10000) == 1
     with db.connect(read_only=True) as conn:
         verdict, raw = conn.execute("SELECT veredicto,assessment FROM recommendations").fetchone()
-        assert verdict == 'comprar'
+        assert verdict == ('ampliar_condicionado' if owned else 'comprar_condicionado' if partial else 'comprar')
         assert json.loads(raw)['decision_basis'] == 'rules'
         assert conn.execute('SELECT count(*) FROM recommendation_ledger').fetchone()[0] == 1
         assert conn.execute('SELECT count(*) FROM orders').fetchone()[0] == 0
+        if partial:
+            assert conn.execute('SELECT importe_eur,titulos,stop,riesgo_eur FROM recommendations').fetchone() == (None,) * 4
+            assert conn.execute('SELECT count(*) FROM evaluation_ledger').fetchone()[0] == 0
     st.cache_data.clear()
     page = _pintar()
-    assert any('Comprar' in str(m.value) for m in page.markdown)
+    assert any(('Ampliar' if owned else 'Comprar') in str(m.value) for m in page.markdown)
+    if partial:
+        assert any('Sin importe ni títulos' in str(w.value) for w in page.warning)
+        assert not any(m.label == 'Títulos a soltar' for m in page.metric)
     headings = [s.value for s in page.subheader]
     assert headings.index('Compras nuevas') < headings.index('¿Acierta este asesor?')
 

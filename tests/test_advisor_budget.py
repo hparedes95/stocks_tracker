@@ -66,3 +66,19 @@ def test_owned_position_beyond_top_25_is_still_considered_first():
                               pesos_actuales={'A39': 1.}, n_posiciones=1)
     assert result[0].ticker == 'A39'
     assert result[0].veredicto == Veredicto.AMPLIAR
+
+
+def test_unsized_selections_do_not_reserve_slots_and_keep_known_position_limit():
+    from dataclasses import replace
+
+    def review(rec):
+        if rec.veredicto == Veredicto.COMPRAR:
+            return replace(rec, veredicto=Veredicto.COMPRA_CONDICIONADA)
+        return rec
+    results = de_los_candidatos(ranking(2), equity=float('nan'), caja=100,
+        n_posiciones=6, dimensionar=False, review=review)
+    assert all(r.veredicto == Veredicto.COMPRA_CONDICIONADA for r in results)
+    assert all(r.importe_eur is None and not r.accionable for r in results)
+    results = de_los_candidatos(ranking(2), equity=float('nan'), caja=100,
+        n_posiciones=7, dimensionar=False, review=review)
+    assert all(r.veredicto == Veredicto.VETADA for r in results)

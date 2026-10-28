@@ -51,7 +51,7 @@ from datetime import date
 import pandas as pd
 
 from . import lineage
-from .advice import ACCIONABLES, Recomendacion, Veredicto
+from .advice import ACCIONABLES, CONDICIONALES, Recomendacion, Veredicto
 from .evaluation import BENCHMARKS, MODEL_VERSION, independent_episodes
 from .timeutils import utcnow
 
@@ -81,7 +81,9 @@ def guardar_recomendaciones(conn, recomendaciones: list[Recomendacion], *, dia: 
     sustituye la fila en vez de duplicarla. Lo que NO hace es actualizar la
     recomendacion de un dia anterior: cada dia es su propia apuesta.
     """
-    accionables = [r for r in recomendaciones if r.veredicto in ACCIONABLES]
+    # Conditional selections are visible records, excluded by evaluation.py
+    # from the performance scoreboard and by .accionable from trade replay.
+    accionables = [r for r in recomendaciones if r.veredicto in ACCIONABLES | CONDICIONALES]
     if not accionables:
         return 0
 

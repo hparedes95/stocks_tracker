@@ -215,16 +215,15 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
         "ORDER BY date DESC LIMIT 1", [whash, dia]).fetchone()
 
     valor = fx.total(posiciones["valor_eur"]) if not posiciones.empty else 0.0
+    partial = bool(snap.limitations(posiciones)) or valor != valor
     equity = (valor if valor == valor else 0.0) + caja
     if valor != valor:
         console.print("[yellow]No se puede valorar toda la cartera. "
-                      "No se proponen compras nuevas.[/]")
+                      "Se analizarán los valores sin asignar importes de compra.[/]")
         from ..core.portfolio_valuation import issues
         for item in issues(posiciones, cambios).to_dict('records'):
             console.print(f"  {item['Símbolo']}: {item['Motivo']} "
                           f"{item['Qué falta resolver']}", markup=False)
-        if not live:
-            ranking = ranking.iloc[:0]
     if live and not posiciones.empty:
         excluded = posiciones.loc[~posiciones.supported | ~posiciones.analysis_supported, 'broker_symbol']
         # A CFD or an unidentified holding is not the spot ETF in the ranking.
@@ -256,6 +255,7 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
         tipos_cambio=cambios,
         review=review, entry_cost=profile['roundtrip_pct'] / 200,
         held_tickers=held_tickers,
+        dimensionar=not partial,
     )
 
     # One verdict per asset; retain the current-position conclusion and explain
@@ -264,7 +264,7 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
     unique = {r.ticker: r for r in recomendaciones}
     for rec in candidatos:
         existing = unique.get(rec.ticker)
-        if existing and not rec.accionable:
+        if existing and not rec.accionable and rec.veredicto not in advice.CONDICIONALES:
             unique[rec.ticker] = replace(existing, motivos=existing.motivos +
                 ['Ampliación: ' + reason for reason in rec.motivos])
         else:
@@ -315,7 +315,7 @@ def calcular_y_guardar(preset: str | None = None, caja: float = 0.0) -> int:
         )
         conn.execute("DELETE FROM advisor_diagnostics")
         for rec in recomendaciones:
-            if not rec.accionable:
+            if not rec.accionable and rec.veredicto not in advice.CONDICIONALES:
                 conn.execute("INSERT OR REPLACE INTO advisor_diagnostics VALUES (?, ?, ?)",
                              [rec.ticker, evaluated_at, rec.etiqueta + ": " + " · ".join(rec.motivos)])
         n = guardar_recomendaciones(
@@ -346,7 +346,7 @@ def _informar(recomendaciones: list, guardadas: int, dia: date,
         if conteo.get(veredicto):
             console.print(f"  {advice.ETIQUETA[veredicto]:<22} "
                           f"{conteo[veredicto]}")
-    console.print(f"[green]Guardados {guardadas} accionables[/] "
+    console.print(f"[green]Guardadas {guardadas} propuestas (incluye condicionadas sin importe)[/] "
                   "(los 'mantener' no se guardan: nadie actua sobre ellos)")
 
 
