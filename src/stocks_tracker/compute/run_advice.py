@@ -215,9 +215,19 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
         "ORDER BY date DESC LIMIT 1", [whash, dia]).fetchone()
 
     valor = fx.total(posiciones["valor_eur"]) if not posiciones.empty else 0.0
-    partial = bool(snap.limitations(posiciones)) or valor != valor
-    equity = (valor if valor == valor else 0.0) + caja
-    if valor != valor:
+    from ..core.cfd_risk import RiskBook
+    from ..core.cfd_risk import build as build_risk_book
+    risk_book = build_risk_book(conn, posiciones, as_of=dia) if live else RiskBook()
+    risk_positions = risk_book.positions if risk_book.ready else posiciones
+    partial = not risk_book.ready and (bool(snap.limitations(posiciones)) or valor != valor)
+    equity = risk_book.equity if risk_book.ready else (valor if valor == valor else 0.0) + caja
+    unknown_sector_pct = 0.0
+    if risk_book.ready:
+        pesos_actuales = risk_positions.groupby('ticker').peso_pct.sum().to_dict()
+        sectors = risk_positions.gics_sector.fillna('__unknown__').replace('', '__unknown__')
+        pesos_sector = risk_positions.groupby(sectors).peso_pct.sum().to_dict()
+        unknown_sector_pct = pesos_sector.pop('__unknown__', 0.0)
+    if valor != valor and not risk_book.ready:
         console.print("[yellow]No se puede valorar toda la cartera. "
                       "Se analizarán los valores sin asignar importes de compra.[/]")
         from ..core.portfolio_valuation import issues
@@ -246,8 +256,10 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
     from ..core.advisor_evidence import build_gate
     held_tickers = set(posiciones.ticker) if not posiciones.empty else set()
     selected = advice_build.candidate_rows(ranking, held_tickers)
-    review = build_gate(conn, as_of=dia, positions=posiciones, cash=caja,
-                        tickers=selected.ticker.tolist(), decision_date=decision_date)
+    review = build_gate(conn, as_of=dia, positions=risk_positions, cash=caja,
+                        tickers=selected.ticker.tolist(), decision_date=decision_date,
+                        equity_override=risk_book.equity if risk_book.ready else None,
+                        portfolio_note=risk_book.note or risk_book.reason)
     candidatos = advice_build.de_los_candidatos(
         ranking, equity=equity, caja=caja, regimen=regimen,
         n_posiciones=posiciones["ticker"].nunique() if not posiciones.empty else 0,
@@ -256,6 +268,7 @@ def calculate_policy(conn, whash, caja, *, decision_date=None, use_live_portfoli
         review=review, entry_cost=profile['roundtrip_pct'] / 200,
         held_tickers=held_tickers,
         dimensionar=not partial,
+        unknown_sector_pct=unknown_sector_pct,
     )
 
     # One verdict per asset; retain the current-position conclusion and explain

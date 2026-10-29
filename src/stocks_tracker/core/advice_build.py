@@ -105,7 +105,7 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
                       avisos_fiscales: dict[str, str] | None = None,
                       tipos_cambio: dict[str, float] | None = None,
                       limite: int = 25, review=None, entry_cost: float = 0.0,
-                      held_tickers=None, dimensionar=True) -> list[Recomendacion]:
+                      held_tickers=None, dimensionar=True, unknown_sector_pct=0.0) -> list[Recomendacion]:
     """Un veredicto por candidato del ranking.
 
     `limite` no es paginacion: es que una lista larga no se lee. Con
@@ -174,7 +174,7 @@ def de_los_candidatos(ranking: pd.DataFrame, *, equity: float, caja: float,
             equity=equity, caja=caja / (1 + entry_cost), regimen=regimen,
             n_posiciones=n_posiciones,
             peso_actual_pct=pesos_actuales.get(ticker, 0.0 if ticker in held else None),
-            peso_sector_pct=pesos_sector.get(str(fila.get("gics_sector") or "")),
+            peso_sector_pct=pesos_sector.get(str(fila.get("gics_sector") or ""), 0.0) + unknown_sector_pct,
             motivos_ranking=_motivos_del_ranking(fila),
             aviso_fiscal=avisos_fiscales.get(ticker, ""),
             tipo_cambio=cambio,

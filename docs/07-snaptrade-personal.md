@@ -124,3 +124,11 @@ pesos sobre el subtotal conocido. Las propuestas de compra personalizadas siguen
 pendientes mientras falte información necesaria para evaluar el conjunto de la
 cartera. Los avisos independientes de otras posiciones no se eliminan por ello.
 Una conexión completa caducada o fallida conserva su control de antigüedad.
+
+Desde el 29/10/2026, los CFD largos de CIBR e ITA pueden incorporarse al
+dimensionamiento del resto de acciones mediante exposición bruta y patrimonio
+neto del bróker, obtenidos automáticamente de SnapTrade. No se usa la exposición
+como valor de liquidación. Consulta el [modelo y sus controles](14-cfd-exposicion-automatica.md).
+La siguiente sincronización normal añade los campos; no hay que introducir datos
+ni cambiar claves. Si el proveedor no los entrega, la app identifica el campo
+pendiente y conserva las recomendaciones condicionadas.

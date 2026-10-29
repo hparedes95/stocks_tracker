@@ -171,6 +171,45 @@ def test_el_marcador_vacio_se_explica_en_vez_de_parecer_roto(almacen):
     assert "hacia delante" in texto
 
 
+def test_cfd_exposure_and_sized_stock_advice_are_visible_without_manual_fields(almacen):
+    from stocks_tracker.core.advice_store import guardar_recomendaciones
+    from stocks_tracker.core.scoring import preset_hash
+    from stocks_tracker.core.timeutils import utcnow
+    from tests.test_cfd_risk import calculate, prepare
+    from tests.test_holding_analysis import DAY, seed
+
+    with db.connect() as conn:
+        seed(conn)
+        prepare(conn)
+        recs = list(calculate(conn).values())
+        weights = preset_hash('balanced')
+        conn.execute('INSERT INTO advisor_runs VALUES (?,?,?)', [weights, utcnow(), DAY.date()])
+        assert guardar_recomendaciones(conn, recs, dia=DAY.date(), weights_hash=weights,
+                                      precios={'AAPL':200}) == 1
+    st.cache_data.clear()
+    page = _pintar()
+    assert any('Patrimonio neto comunicado' in m.label for m in page.metric)
+    assert any(m.label == 'Importe' and m.value != '—' for m in page.metric)
+    assert any('AAPL' in str(m.value) and 'Ampliar' in str(m.value) for m in page.markdown)
+    assert any('Exposición bruta (EUR)' in frame.value.columns for frame in page.dataframe)
+    assert not any('Sin importe ni títulos' in str(w.value) for w in page.warning)
+    script = almacen.warehouse_path.parent / 'connection_panel.py'
+    script.write_text('''
+from stocks_tracker.app.components.snaptrade_panel import render_snapshot
+from stocks_tracker.core import snaptrade_portfolio as snap
+from stocks_tracker.core.db import connect
+with connect(read_only=True) as conn:
+    current = snap.state(conn)
+render_snapshot(current)
+''', encoding='utf-8')
+    connection = AppTest.from_file(str(script)).run(timeout=30)
+    assert not connection.exception
+    mapping = next(f.value for f in connection.dataframe if 'Serie para análisis' in f.value.columns)
+    cfds = mapping[mapping['Símbolo del bróker'].isin(['CIBR', 'ITA'])]
+    assert len(cfds) == 2 and cfds['Estado'].str.contains('Incluido en el riesgo').all()
+    assert not any('Análisis parcial' in str(w.value) for w in connection.warning)
+
+
 def test_cibr_pending_position_keeps_partial_advisor_recalculate_enabled(almacen, monkeypatch):
     from datetime import UTC, datetime
 

@@ -25,7 +25,8 @@ def finite_number(value):
         return False
 
 
-def build_gate(conn, *, as_of, positions, cash, tickers=(), decision_date=None):
+def build_gate(conn, *, as_of, positions, cash, tickers=(), decision_date=None,
+               equity_override=None, portfolio_note=''):
     """Build one read-only assessment; reserve cash only for accepted proposals."""
     profile = load(conn)
     from .prediction_plans import lookup
@@ -45,6 +46,8 @@ def build_gate(conn, *, as_of, positions, cash, tickers=(), decision_date=None):
               if not positions.empty and not invalid_positions else {})
     valid_portfolio = not invalid_positions and finite_number(cash) and cash >= 0
     equity = sum(values.values()) + cash if valid_portfolio else float('nan')
+    if equity_override is not None:
+        equity = equity_override if valid_portfolio and finite_number(equity_override) and equity_override > 0 else float('nan')
     tickers = sorted(set(values) | set(tickers))
     # Reutilizar una matriz para la correlación y para evaluar en la misma divisa.
     eur_returns = returns_in_eur(conn, tickers + list(set(BENCHMARKS.values()) | {'VT'}), as_of=as_of)
@@ -165,6 +168,8 @@ def build_gate(conn, *, as_of, positions, cash, tickers=(), decision_date=None):
                        ' · '.join(reasons[personal_start:]) or
                        'Dentro de los límites comprobados de efectivo y exposición; no son garantías de pérdida máxima.'),
         }
+        if portfolio_note:
+            assessment['encaje'] += ' ' + portfolio_note
         earnings = conn.execute("SELECT MIN(report_date) FROM earnings_events WHERE ticker=? "
                                "AND report_date BETWEEN ? AND ?", [rec.ticker, as_of,
                                (pd.Timestamp(as_of) + pd.Timedelta(days=7)).date()]).fetchone()[0]
@@ -185,7 +190,7 @@ def build_gate(conn, *, as_of, positions, cash, tickers=(), decision_date=None):
                                   conviccion=rec.conviccion if strict else Conviccion.BAJA,
                                   assessment=assessment,
                                   horizonte_meses=profile['horizon_months'],
-                                  motivos=rec.motivos + [assessment['evidencia'],
+                                  motivos=rec.motivos + ([portfolio_note] if portfolio_note else []) + [assessment['evidencia'],
                                   "Contraste oficial: " + (review['reason'] or "cuentas SEC disponibles; revisar ficha"),
                                   f"Coste de ida y vuelta supuesto: {costs:.2%}; no incluye impuestos.",
                                   "La ausencia de eventos en el calendario no confirma que no los haya."])

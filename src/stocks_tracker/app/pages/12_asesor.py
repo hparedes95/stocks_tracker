@@ -27,7 +27,7 @@ from stocks_tracker.app.components.common import render_disclaimer
 from stocks_tracker.app.components.design import page_header, panel
 from stocks_tracker.app.components.holding_card import render_holding_card, research_summary
 from stocks_tracker.app.components.theme import format_money
-from stocks_tracker.app.components.valuation_panel import render_valuation_issues
+from stocks_tracker.app.components.valuation_panel import render_cfd_risk, render_valuation_issues
 from stocks_tracker.app.research_actions import refresh_research
 from stocks_tracker.app.runtime_reads import get_holding_analysis
 from stocks_tracker.core.advice import CONDICIONALES, ETIQUETA, Conviccion, Veredicto
@@ -281,6 +281,13 @@ with st.expander("Actualizar datos y recomendaciones", expanded=False):
         session = conn.execute('SELECT date FROM current_session').fetchone()
         valuation_rates = fx.tipos(conn, session[0] if session else None)
         partial_issues = snap.limitations(current_positions)
+        from stocks_tracker.core.cfd_risk import RiskBook
+        from stocks_tracker.core.cfd_risk import build as build_risk_book
+        risk_book = build_risk_book(conn, current_positions, as_of=session[0]) if live and session else RiskBook()
+        if risk_book.ready:
+            partial_issues = []
+        elif risk_book.reason:
+            partial_issues.append(risk_book.reason)
     if live:
         cash = float(synced_cash) if pd.notna(synced_cash) and synced_cash >= 0 else 0.0
         st.metric('Efectivo sincronizado (EUR)', format_money(synced_cash, 'EUR'))
@@ -304,7 +311,8 @@ if live_issue:
 if partial_issues:
     st.warning('Valoración de cartera parcial; los análisis identificados siguen disponibles. '
                'Consulta Actualizar datos y recomendaciones para ver las posiciones afectadas.')
-render_valuation_issues(current_positions, valuation_rates)
+if not render_cfd_risk(risk_book):
+    render_valuation_issues(current_positions, valuation_rates)
 if frozen_market():
     st.info('Estás usando una copia de mercado congelada. Estos botones no descargan precios nuevos '
             'en este modo. Para actualizarlos, confirma que abandonas la copia congelada en Datos compartidos.')
@@ -364,10 +372,16 @@ with st.expander("Riesgo conjunto de tu cartera"):
         positions, _, _ = _cartera(conn)
         session = conn.execute("SELECT date FROM current_session").fetchone()
         if not positions.empty and session:
+            current_risk = build_risk_book(conn, positions, as_of=session[0]) if live else RiskBook()
+            if current_risk.ready:
+                positions = current_risk.positions
             values = positions.groupby('ticker')['valor_eur'].sum(min_count=1).to_dict()
             currencies = positions.drop_duplicates('ticker').set_index('ticker')['currency'].to_dict()
             returns = returns_in_eur(conn, list(values), as_of=session[0])
-            report = analyse(returns, values, cash=cash, currencies=currencies)
+            report = analyse(returns, values, cash=cash, currencies=currencies,
+                             equity_override=current_risk.equity if current_risk.ready else None)
+            if current_risk.ready:
+                st.caption(current_risk.note + ' Las exposiciones pueden sumar más del 100 % del patrimonio.')
             if report.get('reason'):
                 st.warning(report['reason'])
             if 'equity' in report:

@@ -6,13 +6,13 @@ import pandas as pd
 
 
 def analyse(returns: pd.DataFrame, values: dict[str, float], *, cash=0.0,
-            currencies: dict[str, str] | None = None) -> dict:
+            currencies: dict[str, str] | None = None, equity_override=None) -> dict:
     if cash < 0 or not np.isfinite(cash):
         raise ValueError("Efectivo inválido.")
     if any(not np.isfinite(v) or v < 0 for v in values.values()):
         return {"reason": "No se puede valorar toda la cartera; riesgo conjunto no disponible."}
-    total = sum(values.values()) + cash
-    if total <= 0:
+    total = sum(values.values()) + cash if equity_override is None else equity_override
+    if not np.isfinite(total) or total <= 0:
         return {"reason": "Añade posiciones y efectivo para evaluar el riesgo conjunto."}
     weights = pd.Series(values, dtype=float) / total
     exposure = {}

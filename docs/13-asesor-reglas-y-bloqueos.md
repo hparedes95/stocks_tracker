@@ -61,6 +61,12 @@ condicionada anterior del mismo día. Con valoración completa se aplica de nuev
 la política ordinaria de importes y límites. CIBR/ITA siguen presentes como CFD;
 su referencia ETF no se usa como sustituto del valor del contrato.
 
+El [modelo automático de exposición CFD](14-cfd-exposicion-automatica.md), añadido
+el 29/10/2026, permite dimensionar compras del resto si SnapTrade aporta patrimonio
+neto e identidad suficiente del subyacente. El riesgo se calcula sobre exposición
+bruta / patrimonio neto, conservando separados los CFD. El modo condicionado queda
+como respaldo cuando faltan campos o no se pueden conciliar.
+
 ## Comprobación y límites
 
 Pruebas de compras por reglas y modo estricto, datos inválidos/cuarentena,

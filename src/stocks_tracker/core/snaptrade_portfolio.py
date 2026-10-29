@@ -87,14 +87,28 @@ def normalise(payload):
                           'listing_currency': inst.get('currency'), 'exchange': inst.get('exchange'),
                           'qty': qty, 'avg_cost': cost, 'currency': currency, 'price': price,
                           'cash_equivalent': equivalent})
+            if inst.get('kind') == 'cfd':
+                underlying = inst.get('underlying_instrument')
+                clean[-1]['underlying'] = ({k: underlying.get(k) for k in
+                    ('kind', 'symbol', 'currency', 'exchange')} if isinstance(underlying, dict) else None)
         for row in balances:
             currency = row['currency']['code']
             if not isinstance(currency, str) or len(currency) != 3 or not currency.isupper() or currency in currencies:
                 raise ValueError
             currencies.add(currency)
             cash.append({'currency': currency, 'cash': number(row['cash'])})
-        return {'account_id': payload['account']['id'], 'as_of': as_of, 'cash_as_of': cash_as_of,
-                'positions': clean, 'balances': cash}
+        account = payload['account']
+        value = account.get('net_value')
+        net_value = None
+        if isinstance(value, dict) and value.get('amount') is not None:
+            amount = number(value['amount'])
+            currency = value.get('currency')
+            if not isinstance(currency, str) or len(currency) != 3 or not currency.isupper():
+                raise ValueError
+            net_value = {'amount': amount, 'currency': currency}
+        return {'account_id': account['id'], 'as_of': as_of, 'cash_as_of': cash_as_of,
+                'positions': clean, 'balances': cash, 'net_value': net_value,
+                'account_positions_as_of': account.get('sync_status', {}).get('positions')}
     except (KeyError, TypeError, ValueError, AttributeError):
         raise SnapTradeError('Respuesta incompleta o incompatible; se conserva la cartera anterior.') from None
 

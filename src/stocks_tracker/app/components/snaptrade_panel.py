@@ -12,7 +12,7 @@ from stocks_tracker.core.db import connect
 from stocks_tracker.providers.snaptrade import Client, SnapTradeError
 
 from .design import page_header
-from .valuation_panel import render_valuation_issues
+from .valuation_panel import render_cfd_risk, render_valuation_issues
 
 
 def render_snapshot(current):
@@ -35,33 +35,45 @@ def render_snapshot(current):
                'ventas realizadas, dividendos ni comisiones. No calcula rentabilidad histórica con fechas inventadas. '
                'La consulta no garantiza precios en tiempo real.')
     if current.get('active'):
+        from stocks_tracker.compute.run_advice import _cartera
+        from stocks_tracker.core.cfd_risk import RiskBook
+        from stocks_tracker.core.cfd_risk import build as build_risk_book
+
         with connect(read_only=True) as conn:
             issue = snap.readiness(conn)
             session = conn.execute('SELECT date FROM current_session').fetchone()
             frame = snap.portfolio(conn, session[0] if session else None)
+            risk_book = build_risk_book(conn, _cartera(conn)[0], as_of=session[0]) if session else RiskBook()
         if issue:
             st.warning(issue)
         from stocks_tracker.core import fx
         with connect(read_only=True) as conn:
             rates = fx.tipos(conn, session[0] if session else None)
-        render_valuation_issues(frame, rates)
+        if not render_cfd_risk(risk_book):
+            render_valuation_issues(frame, rates)
         if not frame.empty:
             view = frame[['broker_symbol', 'ticker', 'currency', 'valuation_source', 'reason']].rename(columns={
                 'broker_symbol': 'Símbolo del bróker', 'ticker': 'Serie para análisis',
                 'currency': 'Divisa de valoración', 'valuation_source': 'Origen de valoración', 'reason': 'Estado'})
             view.loc[~frame.analysis_supported, 'Serie para análisis'] = 'Sin correspondencia verificada'
+            if risk_book.ready:
+                for row in risk_book.positions[risk_book.positions.asset_class.eq('cfd')].itertuples():
+                    selected = frame.id.eq(row.id)
+                    view.loc[selected, 'Serie para análisis'] = f'{row.ticker} (referencia ETF del CFD)'
+                    view.loc[selected, 'Origen de valoración'] = 'Exposición bruta para riesgo; patrimonio desde el bróker'
+                    view.loc[selected, 'Estado'] = 'Incluido en el riesgo y en el cálculo de importes para otras acciones'
             st.write('Cómo se incorpora al asesor:')
             st.dataframe(view, hide_index=True)
             if frame.asset_class.eq('crypto').any():
                 st.caption('BTC y ETH cuentan en el valor, los pesos y los avisos de concentración de la cartera. '
                            'Se utiliza su histórico para el riesgo cuando está disponible; '
                            'el modelo fundamental de compras de acciones no se aplica a las criptomonedas.')
-        if not frame.empty and not frame.supported.all():
+        if not frame.empty and not frame.supported.all() and not risk_book.ready:
             st.warning('Análisis parcial. Posiciones pendientes: '
                        + '; '.join(f"{p.broker_symbol}: {p.reason}" for p in frame[~frame.supported].itertuples()))
             st.caption('El asesor sigue analizando las demás posiciones. Las compras que requieren comprobar '
                        'la valoración o el riesgo de toda la cartera quedan pendientes.')
-        elif not frame.empty and frame.reason.ne('').any():
+        elif not frame.empty and frame.reason.ne('').any() and not risk_book.ready:
             st.info('Las posiciones aceptadas cuentan en la cartera. Si falta histórico o una identidad segura, '
                     'se indica arriba y no se habilitan compras sin poder comprobar el riesgo conjunto. '
                     'Usa Actualizar datos y análisis en el Asesor para descargar las nuevas series.')
