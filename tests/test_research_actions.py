@@ -9,6 +9,8 @@ from stocks_tracker.app import research_actions as actions
 
 @pytest.fixture(autouse=True)
 def complete_market(monkeypatch):
+    from stocks_tracker.core import snaptrade_portfolio as snap
+    monkeypatch.setattr(snap, 'refresh_active', lambda: False)
     from stocks_tracker.ingest import run_ingest
     monkeypatch.setattr(run_ingest, 'needs_update', lambda: run_ingest.Frescura(False, 'complete'))
 
@@ -35,6 +37,32 @@ def test_frozen_copy_recalculates_only_personal_advice(monkeypatch):
     actions.refresh_research(cash=100, download=True)
     assert run.call_count == 1
     assert 'stocks_tracker.compute.run_advice' in run.call_args.args[0]
+
+
+def test_download_refreshes_broker_before_fetching_holdings(monkeypatch):
+    from stocks_tracker.core import snaptrade_portfolio as snap
+    events = []
+    monkeypatch.setattr(snap, 'refresh_active', lambda: events.append('broker'))
+    def run(args, **kwargs):
+        events.append(args[2])
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(actions.subprocess, 'run', run)
+    actions.refresh_research(cash=0, download=True)
+    assert events[:2] == ['broker', 'stocks_tracker.ingest.holding_refresh']
+    events.clear()
+    actions.refresh_research(cash=0, download=False)
+    assert 'broker' not in events
+
+
+def test_failed_broker_refresh_never_runs_advice_on_old_snapshot(monkeypatch):
+    from stocks_tracker.core import snaptrade_portfolio as snap
+    from stocks_tracker.providers.snaptrade import SnapTradeError
+    monkeypatch.setattr(snap, 'refresh_active', Mock(side_effect=SnapTradeError('Conexión caducada.')))
+    run = Mock()
+    monkeypatch.setattr(actions.subprocess, 'run', run)
+    with pytest.raises(SnapTradeError, match='caducada'):
+        actions.refresh_research(cash=0, download=True)
+    run.assert_not_called()
 
 
 def test_failure_stops_the_pipeline_without_leaking_output(monkeypatch):

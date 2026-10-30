@@ -25,6 +25,10 @@ def _failure_detail(result):
 def refresh_research(*, cash: float, download: bool = False) -> None:
     if not math.isfinite(cash) or cash < 0:
         raise ValueError("El efectivo debe ser finito y no negativo.")
+    if download:
+        from stocks_tracker.core.snaptrade_portfolio import refresh_active
+        # Holdings must be current BEFORE choosing which market series to fetch.
+        refresh_active()
     steps = []
     from stocks_tracker.core.market_bundle import frozen_market
     frozen = frozen_market()

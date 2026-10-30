@@ -10,7 +10,7 @@ import pandas as pd
 from . import fx
 from .advice import ACCIONABLES
 
-MODEL_VERSION = "advisor-rules-v6-cfd-exposure"
+MODEL_VERSION = "advisor-rules-v7-current-exposure"
 BENCHMARKS = {"US": "SPY", "ES": "EWP", "DE": "EWG", "FR": "EWQ", "GB": "EWU",
               "United States": "SPY", "Spain": "EWP", "Germany": "EWG", "France": "EWQ",
               "United Kingdom": "EWU"}

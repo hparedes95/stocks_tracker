@@ -145,7 +145,8 @@ def analyse(conn, *, as_of=None, horizon=126):
             report['limitations'].append(account_issue)
         if pos['kind'] == 'cfd':
             report['limitations'].append('Se analiza la referencia del subyacente, no la rentabilidad del CFD. '
-                'Sin multiplicador, margen, apalancamiento y financiación no se calcula su peso, importe ni pérdida máxima.')
+                'Su exposición y el encaje de otras compras se comprueban aparte con los datos del bróker. '
+                'Este análisis no estima margen, financiación ni pérdida máxima del contrato.')
         if not pos['ticker']:
             report['limitations'].append(pos['identity_note'] or 'No se identifica el instrumento con seguridad.')
             continue
@@ -173,8 +174,8 @@ def analyse(conn, *, as_of=None, horizon=126):
                 'Revisar reducción; no ampliar': 'Subyacente débil; revisar el CFD',
                 'Vigilar; no ampliar por tendencia': 'Subyacente mixto; no ampliar por esta señal',
             }.get(report['stance'], report['stance'])
-            report['limitations'].append('No se ha verificado la dirección del contrato. La debilidad del '
-                'subyacente perjudica una exposición larga y favorece una corta; no se traduce automáticamente en vender el CFD.')
+            report['limitations'].append('La debilidad del subyacente perjudica una exposición larga y favorece una corta; '
+                'esta lectura de tendencia no se traduce automáticamente en vender el CFD.')
         report['review_if'] = [f'Revisar si el cierre cruza la media de 200 sesiones '
                                f'(hoy {metrics["sma200"]:.2f}; nivel móvil, no stop garantizado).',
                                'Revisar si cambia el signo del retorno a 63 sesiones.']

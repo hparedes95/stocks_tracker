@@ -215,6 +215,35 @@ def test_snapshot_is_not_changed_by_normalise(payload):
     assert original == payload
 
 
+def test_unchanged_sync_preserves_current_advice_and_diagnostics(payload, conn):
+    snapshot = snap.normalise(payload)
+    snap.store_snapshot(conn, snapshot)
+    snap.enable(conn, True)
+    conn.execute("INSERT INTO advisor_runs VALUES ('test',current_timestamp,current_date)")
+    conn.execute("INSERT INTO advisor_diagnostics VALUES ('AAPL',current_timestamp,'Mantener')")
+    snap.store_snapshot(conn, snapshot)
+    assert conn.execute('SELECT count(*) FROM advisor_runs').fetchone()[0] == 1
+    assert conn.execute('SELECT count(*) FROM advisor_diagnostics').fetchone()[0] == 1
+    snapshot['positions'][0]['qty'] += 1
+    snap.store_snapshot(conn, snapshot)
+    assert conn.execute('SELECT count(*) FROM advisor_runs').fetchone()[0] == 0
+
+
+def test_explicit_refresh_retries_active_account_without_waiting(local_db, payload, monkeypatch):
+    with local_db.connect() as c:
+        snap.store_snapshot(c, snap.normalise(payload))
+        snap.enable(c, True)
+        c.execute("UPDATE snaptrade_state SET error='Fallo anterior'")
+    calls = []
+    monkeypatch.setattr(snap, 'sync', lambda account: calls.append(account))
+    assert snap.refresh_active() is True
+    assert calls == [ACCOUNT]
+    with local_db.connect() as c:
+        snap.enable(c, False)
+    assert snap.refresh_active() is False
+    assert calls == [ACCOUNT]
+
+
 def test_advisor_uses_live_quantities_without_splits(payload, conn):
     from stocks_tracker.compute.run_advice import _cartera
     day = datetime.now(UTC).date()

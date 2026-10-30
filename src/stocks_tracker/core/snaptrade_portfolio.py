@@ -125,7 +125,7 @@ def store_snapshot(conn, snapshot, *, now=None):
         conn.execute('INSERT INTO snaptrade_state(singleton,active,auto_sync) VALUES (1,FALSE,FALSE) ON CONFLICT DO NOTHING')
         conn.execute('UPDATE snaptrade_state SET account_id=?, previous_snapshot=snapshot, snapshot=?, '
                      'last_attempt=?,last_success=?,error=NULL WHERE singleton=1', [account, encoded, now, now])
-        if previous.get('active'):
+        if previous.get('active') and (previous.get('snapshot') != encoded or previous.get('error')):
             conn.execute('DELETE FROM advisor_runs')
             conn.execute('DELETE FROM advisor_diagnostics')
         conn.execute('COMMIT')
@@ -268,6 +268,17 @@ def readiness(conn, *, now=None):
         if age.total_seconds() < -300 or age.total_seconds() > 36 * 3600:
             return f'La fecha de {label} es futura o tiene más de 36 horas. Sincroniza o reconecta SnapTrade.'
     return ''
+
+
+def refresh_active():
+    """Explicit update: retry the connected account even after a recent failure."""
+    from .db import connect
+    with connect(read_only=True) as conn:
+        current = state(conn)
+    if not current.get('active'):
+        return False
+    sync(current['account_id'])
+    return True
 
 
 def auto_sync():

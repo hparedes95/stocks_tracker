@@ -50,8 +50,9 @@ def returns_in_eur(conn, tickers: list[str], *, as_of) -> pd.DataFrame:
     instruments = conn.execute("SELECT ticker,currency,asset_class,country,exchange FROM instruments").fetchdf()
     metadata = instruments.set_index('ticker').to_dict('index')
     currencies = dict(zip(instruments.ticker, instruments.currency, strict=False))
-    frame = conn.execute("SELECT ticker, date, close, adj_close, source FROM prices_daily "
-                         "WHERE date <= ? ORDER BY ticker, date", [as_of]).fetchdf()
+    frame = conn.execute("SELECT p.ticker,p.date,p.close,p.adj_close,p.source,q.date IS NOT NULL AS quarantined "
+                         "FROM prices_daily p LEFT JOIN prices_quarantine q ON q.ticker=p.ticker AND q.date=p.date "
+                         "WHERE p.date <= ? ORDER BY p.ticker,p.date", [as_of]).fetchdf()
     if frame.empty:
         return pd.DataFrame()
     frame['date'] = pd.to_datetime(frame['date'])
@@ -59,7 +60,7 @@ def returns_in_eur(conn, tickers: list[str], *, as_of) -> pd.DataFrame:
     prices = {}
     for ticker in tickers:
         p = frame[frame.ticker == ticker].copy()
-        if (p.empty or p.source.isna().any() or
+        if (p.empty or p.quarantined.tail(253).any() or p.source.isna().any() or
                 p.source.astype(str).str.strip().str.lower().isin(['synthetic', '']).any() or
                 p.source.nunique() != 1 or not np.isfinite(p.adj_close).all() or
                 (p.adj_close <= 0).any()):

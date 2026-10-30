@@ -27,7 +27,7 @@ de aumentar el CFD. Se estudian las compras del resto de valores.
 
 Se exige patrimonio positivo, saldos y posiciones frescos, fechas de sincronización
 de cuenta y posiciones con una diferencia máxima de cinco minutos, divisas válidas,
-histórico identificable sin cuarentena y precios de contrato y referencia a menos
+cierre de referencia vigente sin cuarentena y precios de contrato y referencia a menos
 del 5 %. Son tolerancias de la aplicación, no garantías del proveedor. El valor
 neto es una cifra en caché de SnapTrade: se muestra la sincronización de saldos,
 sin afirmar que sea un precio en tiempo real ni una fecha independiente del NAV.
@@ -59,3 +59,21 @@ campos en todas las cuentas; la disponibilidad real la determina SnapTrade.
 
 La API de saldos V2 tiene campos adicionales, pero es beta y requiere habilitación
 por SnapTrade. Esta solución usa las consultas ya autorizadas; no depende de esa beta.
+
+## Corrección del flujo de actualización — 30/10/2026
+
+Actualizar datos y análisis consulta primero la cuenta activa, incluso tras un
+fallo reciente, y después descarga las series de las posiciones recibidas.
+Recalcular con datos guardados conserva su significado: no consulta al bróker.
+Una respuesta idéntica de SnapTrade ya no invalida el cálculo vigente. Los cambios
+de cartera y los errores de sincronización siguen invalidándolo.
+
+La valoración de exposición no exige 200 cierres para una media de tendencia:
+contrasta el precio comunicado con un cierre vigente de fuente identificada.
+La autorización de compras sigue exigiendo histórico suficiente para correlación;
+los precios en cuarentena no se usan para ese cálculo. Valorar un contrato no
+equivale a disponer de toda la evidencia necesaria para ampliar la cartera.
+
+La pantalla vuelve a leer patrimonio, posiciones y recomendaciones tras actualizar;
+el panel de riesgo muestra el motivo específico. El perfil sin confirmar y la
+ausencia de un cálculo vigente ya no quedan ocultos tras el aviso genérico.

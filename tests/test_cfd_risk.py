@@ -130,11 +130,32 @@ def test_old_snapshot_does_not_gain_invented_fields(conn):  # noqa: F811
     assert not book(conn).ready
 
 
+def test_cfd_valuation_does_not_require_a_trend_history_but_buying_requires_correlation(conn):  # noqa: F811
+    prepare(conn)
+    conn.execute("DELETE FROM prices_daily WHERE ticker='CIBR' AND date < ?", [DAY.date()])
+    risk = book(conn)
+    assert risk.ready, risk.reason
+    assert risk.positions.set_index('ticker').loc['CIBR', 'valor_eur'] == 50
+    rec = calculate(conn)['AAPL']
+    assert rec.veredicto != Veredicto.AMPLIAR
+    assert any('correlación' in reason or 'riesgo conjunto' in reason for reason in rec.motivos)
+
+
 def test_new_data_stays_in_private_snapshot_not_market_tables(conn):  # noqa: F811
     prepare(conn)
     from stocks_tracker.core.market_bundle import TABLES
     assert 'snaptrade_state' not in TABLES
     assert json.loads(snap.state(conn)['snapshot'])['positions'][1]['underlying']['symbol'] == 'CIBR'
+
+
+def test_old_quarantine_does_not_hide_current_exposure_but_blocks_risk_allocation(conn):  # noqa: F811
+    prepare(conn)
+    previous = conn.execute("SELECT date FROM prices_daily WHERE ticker='CIBR' ORDER BY date DESC LIMIT 1 OFFSET 1").fetchone()[0]
+    conn.execute("INSERT INTO prices_quarantine(ticker,date) VALUES ('CIBR',?)", [previous])
+    assert book(conn).ready
+    rec = calculate(conn)['AAPL']
+    assert rec.veredicto != Veredicto.AMPLIAR
+    assert any('riesgo conjunto' in reason for reason in rec.motivos)
 
 
 def test_current_cash_is_used_not_leveraged_buying_power(conn):  # noqa: F811

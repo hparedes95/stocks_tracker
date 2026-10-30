@@ -223,6 +223,8 @@ def test_cibr_pending_position_keeps_partial_advisor_recalculate_enabled(almacen
                      'exchange':'XNAS', 'qty':1., 'avg_cost':100., 'currency':'USD',
                      'price':100., 'cash_equivalent':False}]}
     with db.connect() as conn:
+        conn.execute("INSERT INTO instruments(ticker,asset_class,currency,exchange) VALUES ('CIBR','etf','USD','XNAS')")
+        conn.execute("INSERT INTO indicators_daily(ticker,date,close) VALUES ('CIBR',?,100)", [datetime.now(UTC).date()])
         snap.store_snapshot(conn, snapshot)
         snap.enable(conn, True)
     calls = []
@@ -231,6 +233,9 @@ def test_cibr_pending_position_keeps_partial_advisor_recalculate_enabled(almacen
     text = ' '.join(str(w.value) for w in page.warning)
     assert 'CIBR' in text and 'parcial' in text
     assert 'Asesor bloqueado' not in text
+    assert 'No hay un cálculo vigente' in text
+    assert 'fechas de sincronización conjunta' in text
+    assert 'Falta confirmar tu horizonte' in text
     recalculate = next(b for b in page.button if b.label == 'Recalcular asesor con los datos guardados')
     assert not recalculate.disabled
     recalculate.click().run()

@@ -70,6 +70,24 @@ def _render_saved_recommendations():
             st.dataframe(diagnostics, hide_index=True)
 
     if guardadas.empty:
+        with connect(read_only=True) as conn:
+            from stocks_tracker.core.config import get_settings
+            from stocks_tracker.core.scoring import preset_hash
+            weights = preset_hash(get_settings().compute.get('weights_preset', 'balanced'))
+            run = conn.execute('SELECT evaluated_at,session_date FROM advisor_runs WHERE weights_hash=?', [weights]).fetchone()
+            session = conn.execute('SELECT date FROM current_session').fetchone()
+        if not session:
+            st.error('El asesor no ha podido calcular: no hay una sesión de mercado preparada.')
+        elif not run:
+            st.warning('No hay un cálculo vigente para la cartera actual. Una sincronización o un fallo '
+                       'puede haber invalidado el anterior. Pulsa Actualizar datos y análisis; '
+                       'primero se consultará SnapTrade y después se calculará con esa cartera.')
+        elif run[1] != session[0]:
+            st.warning(f'El último cálculo corresponde al {run[1]}, pero los datos ya están en {session[0]}. '
+                       'Recalcula el asesor para obtener propuestas de esta sesión.')
+        else:
+            st.caption(f'Último cálculo completado: {run[0]} UTC · sesión {run[1]}. '
+                       'Los motivos por valor aparecen en la tabla anterior.')
         st.info(
             "No hay propuestas operables guardadas. El análisis actual de tus posiciones aparece arriba; "
             "no depende de que se autorice una compra. Los controles de evidencia, efectivo y riesgo "
@@ -235,7 +253,7 @@ st.caption(
 
 with connect(read_only=True) as conn:
     profile = load_profile(conn)
-with st.expander("Tu horizonte, costes y límites", expanded=False):
+with st.expander("Tu horizonte, costes y límites", expanded=not profile['confirmed']):
     st.caption("Son supuestos personales, no tarifas verificadas de tu bróker ni garantías de pérdida máxima.")
     mode_labels = {'rules': 'Recomendaciones manuales por reglas',
                    'validated': 'Solo compras con validación predictiva prospectiva'}
@@ -265,6 +283,9 @@ with st.expander("Tu horizonte, costes y límites", expanded=False):
 
 st.caption("Método activo: " + mode_labels[profile['recommendation_mode']] +
            ". Ninguna propuesta ejecuta operaciones.")
+if not profile['confirmed']:
+    st.warning('Falta confirmar tu horizonte, costes y límites en el apartado anterior. '
+               'Hasta confirmarlos no se autorizan compras; el análisis de las posiciones continúa.')
 
 # Controles explícitos; la sincronización SnapTrade puede recalcular también.
 
@@ -325,8 +346,9 @@ if download or recalculate:
                      "Las recomendaciones anteriores NO se han actualizado.")
         else:
             st.cache_data.clear()
-            st.success("Análisis recalculado. Las limitaciones de cada posición se muestran debajo; "
-                       "si faltan datos o efectivo puede no haber propuestas de compra.")
+            # The snapshot, cash and risk above were read before the action.
+            # Re-render them together with the new recommendations.
+            st.rerun()
 
 st.subheader('Análisis actual de tus posiciones')
 st.caption('Lectura de mercado independiente de la fecha de compra. Las orientaciones técnicas '
@@ -383,7 +405,9 @@ with st.expander("Riesgo conjunto de tu cartera"):
             if current_risk.ready:
                 st.caption(current_risk.note + ' Las exposiciones pueden sumar más del 100 % del patrimonio.')
             if report.get('reason'):
-                st.warning(report['reason'])
+                st.warning(current_risk.reason or report['reason'])
+                if not current_risk.ready:
+                    render_valuation_issues(positions, fx.tipos(conn, session[0]))
             if 'equity' in report:
                 st.write("Exposición por divisa (incluye efectivo EUR en el total):", report['currency_exposure'])
                 st.metric("Escenario: todas las posiciones caen un 30 %", f"{report['shock_equity_30_eur']:,.0f} EUR")

@@ -72,8 +72,6 @@ def build(conn, positions, *, as_of):
     expected = {p['id'] for p in snapshot['positions'] if p['qty'] != 0 and not p['cash_equivalent']}
     if set(book.id) != expected:
         return missing('La cuenta ha cambiado durante el cálculo; hay que volver a sincronizar.')
-    from .holding_analysis import _technical
-    from .trading_calendar import calendar_name
     for pos in contracts:
         symbol = text(pos.get('symbol'))
         underlying = pos.get('underlying') or {}
@@ -93,11 +91,17 @@ def build(conn, positions, *, as_of):
             return missing(f'{symbol}: SnapTrade no informa un precio válido del contrato.')
         history = conn.execute('SELECT p.date,p.adj_close,p.close,p.source,q.date IS NOT NULL AS quarantined '
             'FROM prices_daily p LEFT JOIN prices_quarantine q ON p.ticker=q.ticker AND p.date=q.date '
-            'WHERE p.ticker=? AND p.date<=? ORDER BY p.date', [symbol, as_of]).fetchdf()
-        history.attrs['calendar'] = calendar_name('US', underlying.get('exchange'))
-        _, issue = _technical(history, pd.Timestamp(as_of))
-        if issue:
-            return missing(f'{symbol}: {issue}')
+            'WHERE p.ticker=? AND p.date<=? ORDER BY p.date DESC LIMIT 1', [symbol, as_of]).fetchdf()
+        # Valuing current exposure needs a current reference quote, not 200
+        # closes for a trend model. Correlation is checked separately per buy.
+        if history.empty:
+            return missing(f'{symbol}: falta un cierre de referencia descargado para contrastar el precio.')
+        reference = history.iloc[0]
+        if reference.quarantined:
+            return missing(f'{symbol}: el cierre de referencia está en cuarentena.')
+        source = str(reference.source or '').strip().lower()
+        if not source or 'synthetic' in source or (pd.Timestamp(as_of) - pd.Timestamp(reference.date)).days > 7:
+            return missing(f'{symbol}: el cierre de referencia está desactualizado o carece de una fuente válida.')
         market_price = float(history.close.iloc[-1])
         if not _positive(market_price) or abs(pos['price'] / market_price - 1) > .05:
             return missing(f'{symbol}: precio del contrato y referencia ETF difieren más del 5 %; no se presume que sean equivalentes.')
