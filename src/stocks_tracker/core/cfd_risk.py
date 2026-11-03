@@ -44,17 +44,10 @@ def build(conn, positions, *, as_of):
         return RiskBook()
     def missing(reason):
         return RiskBook(reason='Importes pendientes: ' + reason)
-    if issue := snap.readiness(conn):
+    # Each feed has its own update schedule. Check its age against now,
+    # then reconcile the amounts below before using them for sizing.
+    if issue := snap.readiness(conn, check_account_positions=True):
         return missing(issue)
-    # Cached account total and positions must belong to the same sync cycle.
-    # These are provider sync dates, not real-time price guarantees.
-    try:
-        stamps = [snap.timestamp(snapshot.get(k)) for k in
-                  ('as_of', 'cash_as_of', 'account_positions_as_of')]
-    except snap.SnapTradeError:
-        return missing('SnapTrade no informa las fechas de sincronización conjunta de cuenta, saldos y posiciones.')
-    if max(stamps) - min(stamps) > pd.Timedelta(minutes=5):
-        return missing('El patrimonio, los saldos y las posiciones pertenecen a sincronizaciones distintas. Se reintentará al sincronizar.')
     value = snapshot.get('net_value') or {}
     if not _positive(value.get('amount')) or not value.get('currency'):
         return missing('SnapTrade no ha comunicado un patrimonio neto positivo de la cuenta (net_value).')

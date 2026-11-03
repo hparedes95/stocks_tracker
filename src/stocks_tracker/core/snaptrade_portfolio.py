@@ -255,7 +255,7 @@ def limitations(frame):
     return result
 
 
-def readiness(conn, *, now=None):
+def readiness(conn, *, now=None, check_account_positions=False):
     current = state(conn)
     if not current.get('active'):
         return ''
@@ -263,10 +263,14 @@ def readiness(conn, *, now=None):
         return 'La última sincronización falló. Revisa Conexión SnapTrade antes de recalcular el asesor.'
     snapshot = json.loads(current['snapshot'])
     clock = timestamp(now or datetime.now(UTC))
-    for label, value in [('posiciones', snapshot['as_of']), ('efectivo', snapshot.get('cash_as_of'))]:
-        if value is None:
-            return f'SnapTrade no indica la antigüedad del {label}; no se activa el asesor.'
-        age = clock - timestamp(value)
+    dates = [('posiciones', snapshot.get('as_of')), ('efectivo', snapshot.get('cash_as_of'))]
+    if check_account_positions:
+        dates.append(('posiciones de la cuenta', snapshot.get('account_positions_as_of')))
+    for label, value in dates:
+        try:
+            age = clock - timestamp(value)
+        except SnapTradeError:
+            return f'Falta una fecha válida de {label} para comprobar su antigüedad.'
         if age.total_seconds() < -300 or age.total_seconds() > 36 * 3600:
             return f'La fecha de {label} es futura o tiene más de 36 horas. Sincroniza o reconecta SnapTrade.'
     return ''

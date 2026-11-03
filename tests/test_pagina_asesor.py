@@ -234,7 +234,7 @@ def test_cibr_pending_position_keeps_partial_advisor_recalculate_enabled(almacen
     assert 'CIBR' in text and 'parcial' in text
     assert 'Asesor bloqueado' not in text
     assert 'No hay un cálculo vigente' in text
-    assert 'fechas de sincronización conjunta' in text
+    assert 'fecha válida de posiciones de la cuenta' in text
     assert 'Falta confirmar tu horizonte' in text
     recalculate = next(b for b in page.button if b.label == 'Recalcular asesor con los datos guardados')
     assert not recalculate.disabled

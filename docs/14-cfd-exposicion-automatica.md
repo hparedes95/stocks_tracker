@@ -25,8 +25,11 @@ expresamente como el ETF USD en un mercado compatible con la ficha local. El
 contrato se mantiene separado de las acciones al contado y no recibe propuestas
 de aumentar el CFD. Se estudian las compras del resto de valores.
 
-Se exige patrimonio positivo, saldos y posiciones frescos, fechas de sincronización
-de cuenta y posiciones con una diferencia máxima de cinco minutos, divisas válidas,
+Se exige patrimonio positivo y se comprueba por separado la antigüedad de los
+saldos, las posiciones y la actualización de posiciones de la cuenta. Cada fecha
+debe ser válida y tener como máximo 36 horas, con cinco minutos de tolerancia
+para adelantos del reloj. Las actualizaciones pueden distar horas entre sí.
+También se requieren divisas válidas,
 cierre de referencia vigente sin cuarentena y precios de contrato y referencia a menos
 del 5 %. Son tolerancias de la aplicación, no garantías del proveedor. El valor
 neto es una cifra en caché de SnapTrade: se muestra la sincronización de saldos,

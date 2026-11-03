@@ -67,8 +67,24 @@ def test_complete_snapshot_enables_sized_add_without_converting_cfds_to_stocks(c
     assert conn.execute('SELECT count(*) FROM orders').fetchone()[0] == 0
 
 
+def test_independent_refresh_times_preserve_sized_stock_add(conn):  # noqa: F811
+    payload = prepare(conn)
+    expected = calculate(conn)['AAPL']
+    now = pd.Timestamp.now(tz='UTC')
+    payload['account']['sync_status']['balances'] = (now - pd.Timedelta(hours=18)).isoformat()
+    payload['account']['sync_status']['positions'] = (now - pd.Timedelta(hours=9)).isoformat()
+    snap.store_snapshot(conn, snap.normalise(payload))
+    risk = book(conn)
+    assert risk.ready, risk.reason
+    assert risk.positions.set_index('ticker').valor_eur.to_dict() == {'AAPL': 40, 'CIBR': 50, 'ITA': 50}
+    rec = calculate(conn)['AAPL']
+    assert rec.veredicto == Veredicto.AMPLIAR
+    assert rec.importe_eur == expected.importe_eur and rec.importe_eur > 0
+
+
 @pytest.mark.parametrize('change,fragment', [
-    ('no_nav', 'net_value'), ('no_date', 'fechas'), ('different_cycle', 'distintas'),
+    ('no_nav', 'net_value'), ('no_date', 'fecha'), ('old_account', '36 horas'),
+    ('future_account', 'futura'), ('invalid_account_date', 'fecha'),
     ('no_underlying', 'identidad'), ('wrong_venue', 'mercado'), ('wrong_currency', 'identidad'),
     ('wrong_symbol', 'identidad'), ('short', 'CFD largo'), ('price_mismatch', '5 %'),
     ('no_price', 'precio válido'), ('inflated_nav', 'conciliada'), ('no_fx', 'EUR'),
@@ -81,8 +97,13 @@ def test_missing_or_inconsistent_fields_keep_conditional_advice(conn, change, fr
         payload['account'].pop('net_value')
     elif change == 'no_date':
         payload['account']['sync_status'].pop('positions')
-    elif change == 'different_cycle':
-        payload['account']['sync_status']['positions'] = (pd.Timestamp.now(tz='UTC') - pd.Timedelta(hours=1)).isoformat()
+    elif change in ('old_account', 'future_account', 'invalid_account_date'):
+        now = pd.Timestamp.now(tz='UTC')
+        payload['account']['sync_status']['positions'] = {
+            'old_account': (now - pd.Timedelta(hours=37)).isoformat(),
+            'future_account': (now + pd.Timedelta(hours=1)).isoformat(),
+            'invalid_account_date': 'invalid',
+        }[change]
     elif change == 'no_underlying':
         row['instrument'].pop('underlying_instrument')
     elif change == 'wrong_venue':
