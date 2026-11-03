@@ -150,7 +150,7 @@ def enable(conn, enabled, *, automatic=True):
 
 
 def sync(account_id):
-    from .db import connect
+    from .db import AlmacenOcupado, connect
     from .snaptrade_credentials import load
     from .timeutils import utcnow
     with connect() as conn:
@@ -163,6 +163,8 @@ def sync(account_id):
     except (SnapTradeError, RuntimeError, OSError, duckdb.Error) as exc:
         # Only explicitly safe API/vault messages cross the UI boundary.
         message = str(exc) if isinstance(exc, SnapTradeError) else 'No se pudo acceder a las claves o guardar la copia local.'
+        if isinstance(exc, AlmacenOcupado):
+            message = 'La base de datos sigue ocupada. Espera a que termine la otra tarea y actualiza el análisis.'
         with connect() as conn:
             conn.execute('UPDATE snaptrade_state SET error=? WHERE singleton=1', [message])
             if active(conn):

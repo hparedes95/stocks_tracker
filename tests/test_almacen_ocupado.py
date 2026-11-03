@@ -107,6 +107,32 @@ def test_los_demas_fallos_de_disco_no_se_disfrazan(almacen, monkeypatch):
     assert not isinstance(fallo.value, db.AlmacenOcupado)
 
 
+def test_persistent_mode_conflict_stops_without_widening_read_access(almacen, monkeypatch):
+    from stocks_tracker.core.market_bundle import frozen_market
+
+    monkeypatch.setattr(db, '_MODE_WAIT_SECONDS', 0)
+    with db.connect():
+        with pytest.raises(db.AlmacenOcupado, match='Otra tarea'):
+            with db.connect(read_only=True):
+                pytest.fail('A reader must never switch to write mode to avoid a conflict')
+        with pytest.raises(db.AlmacenOcupado):
+            frozen_market()
+
+
+def test_other_connection_errors_are_not_retried(almacen, monkeypatch):
+    attempts = []
+
+    def invalid(*args, **kwargs):
+        attempts.append(1)
+        raise duckdb.ConnectionException('invalid connection option')
+
+    monkeypatch.setattr(duckdb, 'connect', invalid)
+    with pytest.raises(duckdb.ConnectionException, match='invalid connection option'):
+        with db.connect():
+            pass
+    assert len(attempts) == 1
+
+
 def test_arrancar_no_ensena_la_traza_y_devuelve_75(capsys):
     """Lo que ve el usuario en la consola.
 

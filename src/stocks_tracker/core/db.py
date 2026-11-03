@@ -11,6 +11,7 @@ import hashlib
 import os
 import shutil
 import tempfile
+import time
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -24,6 +25,7 @@ from .timeutils import utcnow
 
 _SCHEMA_VERSIONS = "_schema_versions"
 _BACKUPS_A_CONSERVAR = 5
+_MODE_WAIT_SECONDS = 30.0
 
 
 def schema_path() -> Path:
@@ -58,8 +60,25 @@ def _abrir(path: Path, read_only: bool = False) -> duckdb.DuckDBPyConnection:
     "cierra el dashboard" mandaria a la gente a cerrar ventanas cuando el
     problema es otro.
     """
+    deadline = time.monotonic() + _MODE_WAIT_SECONDS
+    delay = 0.05
     try:
-        return duckdb.connect(str(path), read_only=read_only)
+        while True:
+            try:
+                return duckdb.connect(str(path), read_only=read_only)
+            except duckdb.ConnectionException as exc:
+                # Streamlit sessions share an interpreter. DuckDB rejects
+                # overlapping read-only and read-write handles on this file.
+                if 'different configuration than existing connections' not in str(exc).lower():
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise AlmacenOcupado(
+                        'Otra tarea de Stocks Tracker sigue usando la base de datos. '
+                        'Espera a que termine y vuelve a actualizar el análisis.'
+                    ) from exc
+                time.sleep(min(delay, remaining))
+                delay = min(0.5, delay * 2)
     except duckdb.IOException as exc:
         if not _es_bloqueo(path, exc):
             raise

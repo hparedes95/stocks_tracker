@@ -63,10 +63,13 @@ def state(conn) -> dict:
 
 
 def frozen_market() -> bool:
-    from .db import connect
+    from .db import AlmacenOcupado, connect
     try:
         with connect(read_only=True) as conn:
             return bool(state(conn).get("frozen"))
+    except AlmacenOcupado:
+        # A busy warehouse may contain a frozen market. Do not start ingestion.
+        raise
     except (OSError, RuntimeError, duckdb.IOException):
         return False
 

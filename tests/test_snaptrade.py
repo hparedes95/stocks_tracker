@@ -301,6 +301,45 @@ def test_auto_sync_is_throttled_across_sessions(local_db, payload, monkeypatch):
     assert snap.auto_sync() is False
 
 
+def test_refresh_waits_for_dashboard_reader_then_saves_once(local_db, payload, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    with local_db.connect() as conn:
+        snap.store_snapshot(conn, snap.normalise(payload))
+        snap.enable(conn, True)
+    clash = Event()
+    original_connect = duckdb.connect
+
+    def observe(*args, **kwargs):
+        try:
+            return original_connect(*args, **kwargs)
+        except duckdb.ConnectionException as exc:
+            if 'different configuration' in str(exc):
+                clash.set()
+            raise
+
+    monkeypatch.setattr(duckdb, 'connect', observe)
+    monkeypatch.setattr(vault, 'load', lambda: ('client-id', 'secret-key'))
+    calls = []
+    payload['balances'][0]['cash'] = 123
+
+    def fetch(client, account):
+        calls.append(account)
+        return payload
+
+    monkeypatch.setattr(Client, 'snapshot', fetch)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with local_db.connect(read_only=True):
+            update = pool.submit(snap.refresh_active)
+            assert clash.wait(timeout=5)
+        assert update.result(timeout=5)
+    assert calls == [ACCOUNT]
+    with local_db.connect(read_only=True) as conn:
+        assert snap.cash_eur(conn) == 123
+        assert not snap.state(conn)['error']
+
+
 def test_configuration_form_validates_and_saves_locally(local_db, monkeypatch):
     from streamlit.testing.v1 import AppTest
 
